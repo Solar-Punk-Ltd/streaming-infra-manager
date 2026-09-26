@@ -424,8 +424,8 @@ export function usesExternalBee(state: WizardState): boolean {
  * ABR uploader, which always runs SRS. A viewer and a node pool run none.
  *
  * `HLS_FRAGMENT` is an SRS key. OME cuts to a duration of its own, which the
- * drawer offers and the wizard does not, so picking OME takes the question away
- * rather than sending a key that engine never reads.
+ * deployment's Stack settings card offers and the wizard does not, so picking
+ * OME takes the question away rather than sending a key that engine never reads.
  */
 export function offersSegmentLength(state: WizardState): boolean {
   if (state.goal === 'stream') return state.engine === SRS_SERVICE;

@@ -117,7 +117,7 @@ describe('stored config observations over authenticated mock HTTP', { concurrenc
     assert.equal(saved.instance_id, current.instance_id);
   });
 
-  it('refuses a removed drawer instance before altering the replacement', async () => {
+  it('refuses a save naming a removed instance before altering the replacement', async () => {
     const profile = await profileFor('ome');
     const original = await profile.settled();
     await request(`/profiles/${profile.name}`, 'DELETE');

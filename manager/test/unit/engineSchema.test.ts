@@ -5,9 +5,9 @@
  *
  * The schema's only job is shape: known keys, string values, and nothing else
  * taken, a key no engine reads refused by name. The bounds, the choices and
- * the keyframe rule belong to `engineSettingsProblem`, which the drawer and
- * the deploy both call, so a second copy of them here would be a third rule
- * to keep in step.
+ * the keyframe rule belong to `engineSettingsProblem`, which the settings
+ * page, its save and the deploy all call, so a second copy of them here would
+ * be one more rule to keep in step.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';

@@ -8,8 +8,8 @@
  * finds streams by application and stream name, so the file may change how
  * the engine encodes and serves but not where it calls back, what it binds,
  * which applications exist or how their streams are named. The two settings
- * the drawer fills may become literals, checked as the drawer would check
- * them, and T11 then reports them as controlled by the file.
+ * the engine settings fill may become literals, checked as the settings page
+ * would check them, and T11 then reports them as controlled by the file.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -209,7 +209,7 @@ describe('the tunable part', () => {
     );
   });
 
-  it('refuses the shapes the drawer refuses, so the two cannot drift', () => {
+  it('refuses the shapes the settings page refuses, so the two cannot drift', () => {
     for (const literal of ['1e1', '0x10', '+5', '5.0']) {
       assert.match(
         omeContractProblem(OME_TEMPLATE, OME_TEMPLATE.split('SEGMENT_COUNT_PLACEHOLDER').join(literal)) ?? '',

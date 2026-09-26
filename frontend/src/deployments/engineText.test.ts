@@ -4,8 +4,9 @@
  * Unit test, no DOM. `pnpm test` in frontend/.
  *
  * The line names what the manager says the engine runs with, so it agrees
- * with the engine card and the settings drawer on the same page. A key the
- * deployment's own config file dropped is said to be missing rather than
+ * with the Engine card's list on the same page, and marks a value saved in
+ * the Stack settings card that the running engine does not have yet. A key
+ * the deployment's own config file dropped is said to be missing rather than
  * filled with a number nothing reads.
  */
 import assert from 'node:assert/strict';

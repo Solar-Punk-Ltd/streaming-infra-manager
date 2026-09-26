@@ -127,7 +127,8 @@ describe('update: clearing the ABR pool string', () => {
 
   it('takes the rung settings out with it', async () => {
     // Left behind, ABR_FPS fails the settings check on every later deploy and
-    // the deployment lands in ERROR over a field no drawer renders.
+    // the deployment lands in ERROR over a field the settings page offers only
+    // a reset for.
     //
     // The bee_url goes with the clearing because this deployment runs no Bee
     // node of its own: beeTargetProblem refuses an uploader left with nowhere

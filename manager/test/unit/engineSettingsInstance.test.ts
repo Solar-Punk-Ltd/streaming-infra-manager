@@ -60,7 +60,7 @@ function changed(result: { status: number; body: unknown }) {
 }
 
 describe('engine settings saves are bound to the observed instance', { timeout: 15000 }, () => {
-  it('refuses an old drawer before defaults, writes or deployment claims', async () => {
+  it('refuses a save naming an old instance before defaults, writes or deployment claims', async () => {
     const h = await setup();
     const replacement = h.replace();
     let versionReads = 0;

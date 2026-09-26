@@ -27,7 +27,8 @@ export const SAVED_NOT_APPLIED = 'saved, not applied';
  * that decide how far behind live a viewer ends up.
  *
  * Configured values and uncertainty come from the same observations as the
- * engine card and settings drawer. These are not live engine measurements.
+ * Engine card's list. These are not live engine measurements, and a value
+ * the running containers are behind on is marked, as that list marks it.
  */
 export function engineSummary(
   engine: EngineName,

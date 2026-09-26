@@ -6,7 +6,7 @@
  * in memory, a scratch stack root standing in for the deploy server's.
  *
  * main-v3 cuts 0.5 second segments and keeps 15 seconds of playlist where
- * main-v2 has 1.5 and 22.5. A drawer that names 1.5 to a main-v3 deployment
+ * main-v2 has 1.5 and 22.5. A page that names 1.5 to a main-v3 deployment
  * describes a container nobody is running, and the keyframe rule computed with
  * it refuses pairs the engine would start with.
  */

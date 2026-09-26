@@ -7,8 +7,8 @@
  * A deployment that stores nothing runs on whatever its stack version's
  * entrypoints fall back to, which is half a second on main-v3. The wizard
  * therefore carries the manager's own default explicitly rather than leaving
- * the field empty, so what the operator saw at create is what the drawer shows
- * afterwards and what the container cuts.
+ * the field empty, so what the operator saw at create is what the deployment's
+ * Stack settings card shows afterwards and what the container cuts.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -49,7 +49,7 @@ describe('the segment length a new deployment starts at', () => {
     assert.equal(streamState().segmentSeconds, '2');
   });
 
-  it('travels on the create body, so the drawer shows what was chosen', () => {
+  it('travels on the create body, so the Stack settings card shows what was chosen', () => {
     assert.deepEqual(segmentLengthSettings('2'), { HLS_FRAGMENT: '2' });
     assert.deepEqual(segmentLengthSettings(' 1.5 '), { HLS_FRAGMENT: '1.5' });
   });
@@ -103,7 +103,7 @@ describe('where the segment length is offered', () => {
 });
 
 describe('what the wizard says about a segment length it would refuse', () => {
-  it('refuses it in the drawer\'s own words, so the two never disagree', () => {
+  it('refuses it in the words the Stack settings card uses, so the two never disagree', () => {
     assert.match(
       segmentLengthError('two') ?? '',
       /Segment length must be a positive number, use a period for decimals/,

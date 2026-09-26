@@ -71,7 +71,7 @@ describe('engine settings on a new deployment', () => {
     assert.deepEqual(harness.profiles.rows.get('stage')?.engine_settings, {});
   });
 
-  it('holds the value to the rule the settings drawer applies, and stores nothing', async () => {
+  it('holds the value to the rule the settings page applies, and stores nothing', async () => {
     // Four second pieces against the 2.5 second force-close ceiling compose
     // supplies when a profile sets none. The engine exits 1 on that pair, so
     // the create has to as well rather than deploying into a crash loop.
