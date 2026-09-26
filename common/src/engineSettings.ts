@@ -2,8 +2,8 @@
  * The engine settings an operator may change per deployment, and the rules the
  * stack's entrypoint scripts apply to them.
  *
- * The manager, the settings drawer and the offline mock all read this list, so
- * a value the drawer accepts is a value the container starts with. The
+ * The manager, the settings page and the offline mock all read this list, so
+ * a value the page accepts is a value the container starts with. The
  * alternative was three copies of the same bounds, and the failure that follows
  * from them drifting is a container that crash-loops under
  * `restart: unless-stopped` with the reason only in its logs.
@@ -316,10 +316,10 @@ export function engineSettingFieldOf(key: string): EngineSettingField | null {
  * The stored keys this deployment still reads, and nothing else.
  *
  * A setting outlives the state it was set under. Turning the ABR ladder off
- * leaves the rung settings in the column, where they apply to nothing and no
- * drawer renders them. They are dropped here rather than refused, because a
- * refusal would fail every later deploy of that deployment over a value the
- * operator has no way to see, let alone remove.
+ * leaves the rung settings in the column, where they apply to nothing, and
+ * the settings page offers them only a reset. They are dropped here rather
+ * than refused, because a refusal would fail every later deploy of that
+ * deployment over a value that does nothing until somebody went looking for it.
  */
 export function applicableEngineSettings(
   engine: EngineName,
@@ -559,7 +559,7 @@ export interface EngineSettingsEnvOptions {
  *
  * The one exception is a default the manager owns, written wherever the host
  * sets no value of its own. Left out, the container would start on the
- * version's own fallback, a different number from the one the drawer names.
+ * version's own fallback, a different number from the one the settings page names.
  */
 export function engineSettingsEnv(
   engine: EngineName,

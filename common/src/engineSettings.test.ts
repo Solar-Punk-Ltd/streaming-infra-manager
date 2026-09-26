@@ -27,7 +27,7 @@ const ownDefaults = (engine: typeof SRS_SERVICE | typeof OME_SERVICE) =>
 describe('the field lists', () => {
   it('accepts its own defaults, on both engines', () => {
     // The list is the only place these numbers exist. A default outside its own
-    // bounds would open the drawer already showing an error.
+    // bounds would open the settings page already showing an error.
     assert.equal(
       engineSettingsProblem(SRS_SERVICE, ownDefaults(SRS_SERVICE), ABR),
       null,
@@ -278,7 +278,7 @@ describe('engineSettingsEnv', () => {
   it('drops a rung setting stored before the ladder was turned off', () => {
     // The key stays in the column when the pool string is cleared elsewhere.
     // Writing it would be a line the engine ignores. Refusing it would fail the
-    // deploy over a value no drawer renders.
+    // deploy over a value that does nothing.
     assert.deepEqual(
       engineSettingsEnv(
         SRS_SERVICE,
@@ -502,7 +502,7 @@ describe('the SRT latency', () => {
   it('is an SRS setting in whole milliseconds, 2000 by default', () => {
     const field = latency();
 
-    assert.ok(field, 'the drawer offers nothing for the SRT latency');
+    assert.ok(field, 'the settings page offers nothing for the SRT latency');
     assert.equal(field.kind, 'integer');
     assert.equal(field.unit, 'milliseconds');
     assert.equal(field.defaultValue, '2000');
@@ -624,7 +624,7 @@ describe('what an operator can see about the force-close ceiling', () => {
   it('is a field, in seconds, rather than a hidden multiple of another field', () => {
     const ceiling = field('HLS_SEGMENT_MAX');
 
-    assert.ok(ceiling, 'the drawer offers nothing about the force-close ceiling');
+    assert.ok(ceiling, 'the settings page offers nothing about the force-close ceiling');
     assert.equal(ceiling.unit, 'seconds');
     assert.doesNotMatch(ceiling.label, /ratio/i);
   });

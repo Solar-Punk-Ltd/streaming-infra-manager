@@ -5,8 +5,8 @@
  * The file is the engine's whole config with the stack's placeholder tokens
  * kept in it. The stack fills those at container start, so the passphrase,
  * the ports and the webhook token never sit in the stored text, and the
- * settings drawer keeps working through them: it edits the values, the file
- * edits the structure.
+ * engine settings keep working through them: the settings page edits the
+ * values, the file edits the structure.
  */
 import { OME_SERVICE, SRS_SERVICE } from './constants.js';
 import type { EngineConfigState } from './engineConfigRollout.js';
@@ -109,9 +109,9 @@ export function unknownPlaceholders(
 /**
  * The settings whose placeholder a custom file no longer carries, by key.
  *
- * The drawer still lets those be edited, and the value still lands in the
- * container's environment, but nothing in the file reads it. Said in the
- * drawer rather than silently ignored.
+ * The settings page still lets those be edited, and the value still lands in
+ * the container's environment, but nothing in the file reads it. Said on the
+ * setting's row rather than silently ignored.
  */
 export function settingsNotInConfig(
   engine: EngineName,

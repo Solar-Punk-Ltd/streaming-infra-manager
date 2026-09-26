@@ -491,9 +491,9 @@ export function managedEnvLines(
   //
   // Only over the keys this deployment still reads. A rung setting stored while
   // the ladder was on and left behind when it was turned off is skipped, not
-  // refused: refusing would fail every deploy from here on over a value no
-  // drawer shows and nobody can remove. A key that does not apply in a new
-  // request is still refused, by the request schema and by the settings route.
+  // refused: refusing would fail every deploy from here on over a value that
+  // does nothing. A key that does not apply in a new request is still refused,
+  // by the request schema and by the settings save.
   const abr = Boolean(publishers);
   const engineSettings = applicableEngineSettings(
     values.engine,

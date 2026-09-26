@@ -5,12 +5,12 @@ import { ALL_SERVICES } from '../types/index.js';
 import { ENGINE_SETTING_VALUE_FIELDS } from './engineSettingValues.js';
 import { profileNameSchema } from './profile.js';
 
-// noUnknown strips a key neither engine reads, so a stale drawer cannot store
+// noUnknown strips a key neither engine reads, so a stale script cannot store
 // one. Anything it lets through is checked again by engineSettingsProblem,
 // which names the engine that does not read it. The bounds, the choices and
 // the keyframe rule are deliberately not here: engineSettingsProblem owns them,
-// the drawer and the deploy both call it, and a yup copy would be a third rule
-// to keep in step.
+// the settings page, its save and the deploy all call it, and a yup copy would
+// be one more rule to keep in step.
 export const engineSettingsSchema = object({
   ...ENGINE_SETTING_VALUE_FIELDS,
   expectedInstanceId: string().optional().strict().uuid('expectedInstanceId must be a deployment instance UUID'),

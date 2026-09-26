@@ -5,7 +5,7 @@
  * `.env.<profile>` is a fresh copy of the stack's base `.env` on every deploy
  * and `engineSettingsEnv` leaves an unset key out of it on purpose, so a key
  * the host was configured with by hand is what the container starts with. A
- * drawer that names the stack's value there, and a keyframe rule computed with
+ * page that names the stack's value there, and a keyframe rule computed with
  * it, both describe a deployment nobody is running.
  *
  * The stack's own value is the version's, too: main-v3 cuts 0.5 second

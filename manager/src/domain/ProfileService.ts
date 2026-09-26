@@ -635,9 +635,9 @@ export class ProfileService {
     }
 
     // Turning the ladder off in this same write leaves the rung settings behind,
-    // where no drawer renders them and no container reads them. They go out with
-    // the pool string, in one statement, so no state exists in which the column
-    // holds settings the deployment cannot act on.
+    // where nothing reads them and the settings page offers them only a reset.
+    // They go out with the pool string, in one statement, so no state exists in
+    // which the column holds settings the deployment cannot act on.
     const laddersEnded =
       hasBeePublishers(existing) && !proposed.bee_publishers?.trim();
 
@@ -772,13 +772,13 @@ export class ProfileService {
   }
 
   /**
-   * The gate the settings drawer passes, applied before the row exists.
+   * The gate a save of the engine settings passes, applied before the row exists.
    *
    * A value sent with the create body is written into `.env.<profile>` on the
    * very first deploy, so a pair the engine refuses puts a brand new deployment
    * straight into a crash loop with the reason only in its container logs. The
-   * settings route cannot catch it a moment later either, because it refuses a
-   * deployment that is still DEPLOYING. The version's own fallbacks are read
+   * engine settings route cannot catch it a moment later either, because it
+   * refuses a deployment that is still DEPLOYING. The version's own fallbacks are read
    * for the same reason the update path reads them: either half of a pair may
    * be unset, and judging one against the stack's own numbers passes a pair the
    * host then refuses.

@@ -49,7 +49,7 @@ describe('what the create body accepts as engine settings', () => {
 });
 
 describe('engine settings on a new deployment', () => {
-  it('stores what the body carries, so the drawer shows it and the deploy writes it', async () => {
+  it('stores what the body carries, so the settings card shows it and the deploy writes it', async () => {
     const harness = profileServiceHarness();
 
     await harness.service.create({
