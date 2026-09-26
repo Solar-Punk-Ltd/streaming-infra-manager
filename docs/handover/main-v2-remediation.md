@@ -118,7 +118,7 @@ The funded `review-20260907` deployment was not touched. The historical 0.5 BZZ 
 - Original task worktrees and all 22 frozen source refs remain. The merge manifest records exact heads. Historical/rebased feature branches outside the remediation set were not indiscriminately merged or deleted.
 - Synthetic PostgreSQL fixture `285c10f9f8ae41c877fb54fe88f53e2ec3b8bb9ae3808872c02cee74bbadbe9a`, loopback 62527, belongs to `implement_t08_completion`. It holds synthetic task databases and previously retained interrupted schemas.
 - Synthetic fixture `6b755f793656af867ad33f9564fabc1a5d06f2d324a88cad91fe58f748fd656b`, loopback 61175, belongs to `implement_t12_readiness`. Preserve the previously documented incomplete-run schema. Only the owners clean these fixtures.
-- Integration SQL review tree: `/private/tmp/integration-approval-sql-codex`. Documentation review tree: `/private/tmp/t21-handover-codex`. Read-only UI review: `/private/tmp/t04b-merge-review-4372848`. These are separate from the original task trees.
+- Three review trees outside the repository, one for the integration SQL, one for the documentation and one read-only UI review. These are separate from the original task trees.
 
 On resume, read this file first, inspect main-v2's actual HEAD and working tree, then choose one remaining complete flow. Verify any retained resource by its exact recorded identity before use. Never infer cleanup authority from a name prefix or a stopped test runner.
 
@@ -867,7 +867,7 @@ T22 with T01a and the a/b splits among them, plus its README, and the README's
 order section names all 25.
 
 **One thing the older sections say that is no longer true.** "Preserved local
-state" above lists three review worktrees under `/private/tmp` and says the
+state" above lists three review worktrees outside the repository and says the
 original task worktrees remain. None of those paths exists on this machine any
 more, and neither do the 22 task branches, checked on 2026-09-10. That section
 is left as the record of the day it was written. What actually preserves the
@@ -1246,8 +1246,8 @@ master and not before. Three history collisions among concurrent implementers,
 accepted as they stand.
 Decided the same evening: the 36 MB of review logs and captures left the
 repository's untracked `.scratch`
-for `~/Documents/estate-state/evidence/streaming-infra-manager/`, with a tombstone
-at the old path and a row in the estate's data map, so state a rebuild cannot
+for an evidence folder outside the repository, with a tombstone
+at the old path, so state a rebuild cannot
 recreate lives outside the repository.
 
 ## The first node pool on the live host, 2026-09-17
