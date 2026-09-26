@@ -220,3 +220,19 @@ describe('the rows of Advanced settings the group takes over', () => {
     assert.deepEqual(withAdminLinkPointed(tokenOnly, stateFor('stream')), tokenOnly);
   });
 });
+
+describe('what the create sends when the group was switched or moved to the stored token', () => {
+  it('drops a typed token once the link is switched off, and once the stored token is chosen again', () => {
+    const typedThenOff = { on: false, url: ADMIN_URL, tokenSource: 'typed' as const, token: TOKEN };
+    assert.deepEqual(adminLinkBody(stateFor('stream', { adminLink: typedThenOff }), contextWith(DEFAULT)), {
+      settings: [{ key: 'ADMIN_API_URL', value: '' }],
+      useManagerToken: false,
+    });
+    const typedThenStored = { on: true, url: ADMIN_URL, tokenSource: 'stored' as const, token: TOKEN };
+    assert.deepEqual(adminLinkBody(stateFor('stream', { adminLink: typedThenStored }), contextWith(DEFAULT)), {
+      settings: [{ key: 'ADMIN_API_URL', value: ADMIN_URL }],
+      useManagerToken: true,
+    });
+    assert.deepEqual(adminLinkTestOf(stateFor('stream', { adminLink: typedThenStored }), contextWith(DEFAULT))?.token, { source: 'stored' });
+  });
+});
