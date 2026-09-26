@@ -20,7 +20,7 @@ import {
 /**
  * The wizard's Advanced settings: every key the chosen version declares, for
  * the deployment it is about to create, with the version's value as the
- * default (Levi, 2026-09-25, plan item C.5). The typed values live in
+ * default (Levi, 2026-09-25). The typed values live in
  * `WizardState.stackSettings`, and the list they are checked against is read
  * by the dialog for the choices on screen.
  */

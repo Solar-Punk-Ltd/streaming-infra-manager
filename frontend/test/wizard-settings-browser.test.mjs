@@ -3,9 +3,9 @@
  * at a phone's width.
  *
  * Levi ruled on 2026-09-25 that every setting a deployment reads is editable,
- * with the version's value as the default, and the plan's item C.5 puts the
- * deployment page's settings editor into the new-deployment wizard, so a
- * deployment is created with its settings already set. This walks it: the
+ * with the version's value as the default, and the new-deployment wizard
+ * carries the deployment page's settings editor, so a deployment is created
+ * with its settings already set. This walks it: the
  * Advanced settings fold on the settings step, folded until opened, the list
  * the manager answers for the version and the services chosen, a changed key,
  * a value the manager would refuse stopping Continue, a secret that is never

@@ -198,10 +198,10 @@ for its Start, and field-unit has no records to compare with.
 
 ## In the new-deployment wizard
 
-Plan item C.5: a deployment is created with its settings already set. The wizard's settings step
-ends with an **Advanced settings** fold, folded until opened, because most deployments keep every
-version value. Its line says what it holds, and once values are typed, how many the create sends or
-which value it cannot send.
+A deployment is created with its settings already set. The wizard's settings step ends with an
+**Advanced settings** fold, folded until opened, because most deployments keep every version
+value. Its line says what it holds, and once values are typed, how many the create sends or which
+value it cannot send.
 
 Opened, it shows the same list, rows and fields as the deployment's page, read from `GET
 /versions/:id/settings-catalog` for the version, the services and the host the create body will
