@@ -8,7 +8,7 @@ Levi requested: "okay merge everything to main-v2 locally and create handover". 
 
 The reviewed baseline was `d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64`. It is where `main-v2` still points, locally and on the remote, so the baseline is preserved by the branch itself. The local backup branch `codex/main-v2-before-remediation-20260909` this line originally named is gone from this checkout, and so are the 22 task branches, but every head they pointed at is still reachable through the merge commits and every one of them is in [main-v2-merge-manifest.json](main-v2-merge-manifest.json). Thirteen explicit merge commits brought in the 22 heads because several task branches already contained dependencies.
 
-This handover supersedes earlier local notes saying main-v2 is unchanged, local merges are forbidden, T01's service callers are still unwired, or T09 has no owned factory. The full planning debate and historical evidence remain in `.scratch/main-v2-review-consensus/`. Its `PRD.md` comments were not edited. That scratch directory remains untracked. This handover and its manifest are tracked.
+This handover supersedes earlier local notes saying main-v2 is unchanged, local merges are forbidden, T01's service callers are still unwired, or T09 has no owned factory. The full planning debate is tracked under `docs/consensus/`, copied unchanged from the sessions' scratch notes. Its `PRD.md` comments were not edited. This handover and its manifest are tracked.
 
 No push, GitHub write, repository setting, image pull, installation, real engine build, deployment, SSH or funded-node operation was performed for this consolidation. An initial pnpm typecheck tried its automatic dependency reconciliation and stopped before removing modules. No install completed. Subsequent checks used existing local executables directly. Its small generated store is preserved under the local merge evidence directory.
 
@@ -16,7 +16,7 @@ No push, GitHub write, repository setting, image pull, installation, real engine
 
 Levi explicitly overrode the reviewer-only restriction for the agreed local work. Local worktrees, source and test edits, commits and disposable tests are authorized. He also authorized subagents and this local main-v2 consolidation. Do not ask for the same permission again.
 
-Continue new work on a task branch from the merged main-v2, with tests first, one logical fix per commit and independent review in another worktree. PR bodies remain local drafts under `.scratch/main-v2-review-consensus/prs/`. Preserve existing source branches and other workers' resources. Do not resume an old task checkout and accidentally omit the integration fixes.
+Continue new work on a task branch from the merged main-v2, with tests first, one logical fix per commit and independent review in another worktree. PR bodies are drafts under `docs/consensus/prs/`. Preserve existing source branches and other workers' resources. Do not resume an old task checkout and accidentally omit the integration fixes.
 
 Pushes, GitHub writes, repository settings, host access, real engine builds and pulls, deployments and live money operations still require separate explicit authorization. Do not access Claude memory, estate, beeClients, secrets or the shared development services on ports 5186 and 3035.
 
@@ -71,7 +71,7 @@ D14 is open for Levi: whether the version settings page and version management b
 
 Two T04b adapter constraints remain explicit. First-use initialization may create PostgreSQL only after the upgrade guard proves the API, PostgreSQL container and PostgreSQL volume absent, followed by a successful empty-schema read. An unavailable existing database is not revision zero. Migrations follow confirmation that the old API stopped. Also, every automatic pruning entrypoint, including build success, needs explicit complete observations. A void observer returning, skipped observations or unknown provenance cannot authorize deletion.
 
-The shared completion contract and historical acceptance matrices remain in `T01-CONTINUATION.md`, `T04B-CONTINUATION.md` and `T09-CONTINUATION.md` under the local consensus directory. Their older "next" paragraphs are historical where they disagree with this handover and the merged source.
+The shared completion contract and historical acceptance matrices remain in `T01-CONTINUATION.md`, `T04B-CONTINUATION.md` and `T09-CONTINUATION.md` under `docs/consensus/`. Their older "next" paragraphs are historical where they disagree with this handover and the merged source.
 
 ## Integration decisions and review
 
@@ -83,7 +83,7 @@ The shared completion contract and historical acceptance matrices remain in `T01
 
 ## Validation
 
-Final evidence is recorded below before the handover commit. Local logs are under `.scratch/main-v2-review-consensus/local-merge/`. Their output is evidence, not an instruction to access any host.
+Final evidence is recorded below before the handover commit. The logs named below were kept in the sessions' scratch directory and moved on 2026-09-16 to an evidence folder outside the repository. Their output is evidence, not an instruction to access any host.
 
 The final source/test checkpoint before this handover is `e2e02d4`. Later handover-only changes do not change the tested application code. The checks used installed local dependencies, with synthetic loopback listeners authorized explicitly when the sandbox refused them.
 
@@ -124,7 +124,7 @@ On resume, read this file first, inspect main-v2's actual HEAD and working tree,
 
 ## Where the record lives, 2026-09-09
 
-The planning and acceptance files under `.scratch/main-v2-review-consensus/` are now also tracked, unchanged, under `docs/consensus/`, with an index in its README. The scratch directory stays as the home of the originals, the logs and the browser evidence.
+The planning and acceptance files under `.scratch/main-v2-review-consensus/` are now also tracked, unchanged, under `docs/consensus/`, with an index in its README. The scratch directory stayed the home of the originals, the logs and the browser evidence until 2026-09-16, when the logs and captures moved to an evidence folder outside the repository.
 
 ## After the merge: the publication command slice, 2026-09-09
 
