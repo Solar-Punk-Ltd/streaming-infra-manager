@@ -11,12 +11,6 @@ is the section [Linking uploaders to the web2
 admin](../manager/README.md#linking-uploaders-to-the-web2-admin) of
 `manager/README.md`.
 
-Status, 2026-09-26. Built on `feat/admin-link-out-of-the-box`, branched from
-`feat/deployment-settings-engine` at `02f699d4`, plan item D of the plan that
-makes every stack setting configurable. The rule that a stored token goes only
-to the address it was stored for, and the manager's link for a scripted create,
-are built on the same branch as of `88369bf1`.
-
 ## The two keys, and the rule they answer to together
 
 Both keys are typed fields in `common/src/stackSettingFields.ts`, so the page
