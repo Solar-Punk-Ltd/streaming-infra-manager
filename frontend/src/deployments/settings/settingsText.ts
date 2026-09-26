@@ -7,11 +7,21 @@ import {
   type StackSettingField,
 } from '@streaming-infra-manager/common';
 
+import type { Profile } from '../../types';
+import { isTransitional } from '../shape';
+
 /**
  * Everything the deployment settings editor says in words. The editor reads
  * these rather than writing sentences inline, so each one is pinned by a test
  * and a change of wording is a change here.
  */
+
+/** The line over the list: what a save does, and what it does not. */
+export const WHAT_SAVING_DOES =
+  "Every key this deployment's version declares, with the version's value as the default. Saving stores the values and restarts nothing. The running containers keep theirs until you apply them.";
+
+/** Said beside Apply while the draft holds changes, which Apply does not carry. */
+export const UNSAVED_NOT_APPLIED_NOTE = 'Changes you have not saved are not part of it.';
 
 /** Things named the way a sentence names them: "a", "a and b", "a, b and c". */
 export function wordList(items: readonly string[]): string {
@@ -71,6 +81,9 @@ export const UNDECLARED_NOTE =
 /** Said under a key whose reset is waiting for the save. */
 export const RESET_PENDING_NOTE = 'Goes back to the default when you save.';
 
+/** Said under a key whose stored value the save takes out, where the key has no default of its own here. */
+export const REMOVAL_PENDING_NOTE = 'Taken out of the stored settings when you save.';
+
 /** Said under a saved key the running containers do not have yet. */
 export function behindNote(running: boolean): string {
   return running
@@ -97,6 +110,49 @@ export function driftNotice(catalog: DeploymentSettingsCatalog): DriftNotice | n
     : `Apply recreates ${wordList(services)}.`;
   const behind = count === 1 ? '1 setting is behind' : `${count} settings are behind`;
   return { text: `${behind} the running containers: ${wordList(keys)}. ${what}`, offersApply: true };
+}
+
+/**
+ * Why the list cannot say which saved values the running containers have: a
+ * container started before the manager recorded what each one got has no
+ * record to compare with, so no key of it can show as behind.
+ */
+export function unknownNote(count: number): string {
+  const settings = count === 1 ? '1 setting cannot' : `${count} settings cannot`;
+  return `The running containers were started before the manager recorded what each one got, so ${settings} be compared with what they run. Their next deploy records it and gives them every saved value.`;
+}
+
+/** Why Apply is greyed out, or an empty string when it is not. */
+export function applyOffReason(profile: Pick<Profile, 'status'>): string {
+  return isTransitional(profile) ? 'Wait for the current deploy to finish.' : '';
+}
+
+/** What a save that went through says. */
+export function savedText(running: boolean): string {
+  return running
+    ? 'Saved. The running containers keep their old values until you apply them.'
+    : 'Saved. The next start uses them.';
+}
+
+/** What waits inside a folded section, so a change or a refused value in one is not lost from sight. */
+export interface SectionCounts {
+  unsaved: number;
+  refused: number;
+  behind: number;
+}
+
+/** The line under a section's title. */
+export function sectionSummary(total: number, counts: SectionCounts): string {
+  const parts = [total === 1 ? '1 setting' : `${total} settings`];
+  if (counts.unsaved > 0) parts.push(`${counts.unsaved} unsaved`);
+  if (counts.refused > 0) parts.push(`${counts.refused} cannot be saved`);
+  if (counts.behind > 0) parts.push(`${counts.behind} not applied`);
+  return parts.join(', ');
+}
+
+/** What the list says when a search keeps nothing. */
+export function noMatchText(query: string): string {
+  return `No setting matches "${query.trim()}".`;
 }
 
 /** What Apply did, from its answer. */

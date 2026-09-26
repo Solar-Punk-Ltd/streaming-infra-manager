@@ -36,6 +36,7 @@ import { readySummary } from './readySummary';
 import { ConfigurationCard } from './ConfigurationCard';
 import { ContainersCard } from './ContainersCard';
 import { DeploymentHeader } from './DeploymentHeader';
+import { DeploymentSettingsCard } from './DeploymentSettingsCard';
 import { EngineCard } from './EngineCard';
 import { usePublishUrl } from './usePublishUrl';
 import { useSrtIngestHealth } from './useSrtIngestHealth';
@@ -288,6 +289,8 @@ function DeploymentBody({
               loadError={engineLoad.loadError}
             />
           )}
+
+          <DeploymentSettingsCard profile={profile} />
 
           {watchUrl && (
             <WatchCard

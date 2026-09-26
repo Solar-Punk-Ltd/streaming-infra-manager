@@ -20,19 +20,31 @@ import {
 } from '@streaming-infra-manager/common';
 
 import {
+  OWNED_STORED_NOTE,
+  REMOVAL_PENDING_NOTE,
+  RESET_PENDING_NOTE,
+  UNDECLARED_NOTE,
+  UNSAVED_NOT_APPLIED_NOTE,
+  WHAT_SAVING_DOES,
   appliedText,
+  applyOffReason,
   applyRefusalText,
+  behindNote,
   defaultText,
   descriptionPreview,
   driftNotice,
   fieldHint,
   loadFailureOf,
+  noMatchText,
   ownedValueText,
   ownerSentence,
   recreatesText,
   saveNote,
   saveRefusalOf,
+  savedText,
   secretNote,
+  sectionSummary,
+  unknownNote,
   wordList,
 } from './settingsText';
 
@@ -263,6 +275,43 @@ describe('refusals', () => {
   });
 });
 
+describe('sectionSummary', () => {
+  it('counts the keys of a folded section and what waits inside it', () => {
+    assert.equal(sectionSummary(1, { unsaved: 0, refused: 0, behind: 0 }), '1 setting');
+    assert.equal(sectionSummary(12, { unsaved: 0, refused: 0, behind: 0 }), '12 settings');
+    assert.equal(
+      sectionSummary(12, { unsaved: 2, refused: 1, behind: 1 }),
+      '12 settings, 2 unsaved, 1 cannot be saved, 1 not applied',
+    );
+  });
+});
+
+describe('what a save and the list say about the running containers', () => {
+  it('says a save restarts nothing, and what the saved values wait for', () => {
+    assert.equal(savedText(true), 'Saved. The running containers keep their old values until you apply them.');
+    assert.equal(savedText(false), 'Saved. The next start uses them.');
+  });
+
+  it('says why no banner can show for containers started before their settings were recorded', () => {
+    assert.equal(
+      unknownNote(1),
+      'The running containers were started before the manager recorded what each one got, so 1 setting cannot be compared with what they run. Their next deploy records it and gives them every saved value.',
+    );
+    assert.match(unknownNote(87), /so 87 settings cannot be compared with what they run\./);
+  });
+
+  it('says why Apply is greyed out while the deployment is on its way somewhere', () => {
+    assert.equal(applyOffReason({ status: 'DEPLOYING' }), 'Wait for the current deploy to finish.');
+    assert.equal(applyOffReason({ status: 'STOPPING' }), 'Wait for the current deploy to finish.');
+    assert.equal(applyOffReason({ status: 'RUNNING' }), '');
+    assert.equal(applyOffReason({ status: 'ERROR' }), '');
+  });
+
+  it('says a search found nothing, naming what was searched for', () => {
+    assert.equal(noMatchText('  gates '), 'No setting matches "gates".');
+  });
+});
+
 describe('the words themselves', () => {
   it('carry no em-dash and no semicolon', () => {
     const sentences = [
@@ -276,6 +325,17 @@ describe('the words themselves', () => {
       secretNote(entry({ key: 'K', secret: true, stored: true })),
       secretNote(entry({ key: 'K', secret: true, source: 'generated' })),
       defaultText(entry({ key: 'K', versionSet: false })),
+      savedText(true),
+      savedText(false),
+      unknownNote(2),
+      WHAT_SAVING_DOES,
+      UNSAVED_NOT_APPLIED_NOTE,
+      OWNED_STORED_NOTE,
+      UNDECLARED_NOTE,
+      RESET_PENDING_NOTE,
+      REMOVAL_PENDING_NOTE,
+      behindNote(true),
+      behindNote(false),
     ];
     for (const sentence of sentences) {
       assert.equal(/[—;]/.test(sentence), false, sentence);

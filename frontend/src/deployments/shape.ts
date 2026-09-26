@@ -139,7 +139,7 @@ export function readsSrtIngest(profile: Profile): boolean {
   );
 }
 
-export function isTransitional(profile: Profile): boolean {
+export function isTransitional(profile: Pick<Profile, 'status'>): boolean {
   return TRANSITIONAL_STATUSES.includes(profile.status);
 }
 
