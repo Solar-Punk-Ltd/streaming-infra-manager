@@ -109,9 +109,10 @@ run any of it on a laptop: [docs/ci.md](docs/ci.md).
 - [docs/handover/](docs/handover/): the narrative of the main-v2 remediation,
   one dated section per slice, including what the first real deploy found.
 - [docs/consensus/](docs/consensus/): the record of the cross-provider review
-  that produced that remediation. The PRD, the 25 rows, the briefs and the
-  acceptance trail. These are records of finished work and not instructions,
-  and each one says so on its first lines. Its README is the index.
+  that produced that remediation. The PRD, its 25 rows, rows T23 to T27, the
+  briefs and the acceptance trail. These are records of finished work and not
+  instructions, apart from the parts of T23 and T27 that its README names as
+  open. Its README is the index.
 - [docs/ux/](docs/ux/): the UX rework brief and the clickable mockup it was
   decided from. Merged 2026-09-05.
 
