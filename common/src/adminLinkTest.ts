@@ -15,7 +15,7 @@ export const ADMIN_LINK_TEST_OUTCOMES = [
   'owner-unconfirmed',
   /** The admin took the token but signs with another address, which the uploader refuses to start with. */
   'owner-mismatch',
-  /** The manager's stored token was saved with another origin, so it was not sent. A token typed for this address is. */
+  /** A stored token, the manager's or the deployment's own, was saved for another origin, so nothing was asked. */
   'stored-token-elsewhere',
   /** The admin answered and refused the token. */
   'token-refused',

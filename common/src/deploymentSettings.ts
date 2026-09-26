@@ -83,7 +83,7 @@ export type SettingRunningState =
   /** The deployment is stopped, or is deploying, stopping or being removed, so no container is compared. */
   | 'not-running';
 
-/** A `url` is an http or https address with a host, and nothing a path added after it would break. */
+/** A `url` is an http or https address with a host, and no user name, password or # part. */
 export type StackSettingKind = 'text' | 'integer' | 'number' | 'choice' | 'boolean' | 'url';
 
 /** What the page knows about a value's shape, beyond the rules every env value answers to. */

@@ -3,9 +3,9 @@
 Status: the store, the record of what each container got, the API, the page that edits them, the
 new-deployment wizard that creates a deployment with them already set, and the engine settings in
 the same list in place of the Engine card's drawer, as of 2026-09-26, built on
-`feat/deployment-settings-engine` up to `02f699d4`. The web2 admin keys became typed fields with a
-rule of their own, and got a group of their own in the wizard and Test connection on the card, on
-`feat/admin-link-out-of-the-box` the same day.
+`feat/deployment-settings-engine` up to `02f699d4`. The web2 admin keys are typed fields with a
+rule of their own, with a group of their own in the wizard and Test connection on the card, as of
+2026-09-26 on `feat/admin-link-out-of-the-box`.
 
 ## What this is
 

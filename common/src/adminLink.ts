@@ -104,7 +104,7 @@ export function sameAdminOrigin(url: string, storedWith: string): boolean {
 
 /** Where a deployment's stored token stands before a save. */
 export interface StoredAdminToken {
-  /** The address the uploader is given now, which the stored token was stored with. */
+  /** The origin the stored token was recorded for, or the address the uploader is given now where none is recorded. */
   url: string;
   /** Whether the deployment stores a token of its own, which is the one the rule guards. */
   tokenStored: boolean;

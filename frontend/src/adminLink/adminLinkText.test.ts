@@ -31,7 +31,7 @@ describe('the sentence for each Test connection outcome', () => {
     assert.equal(adminLinkTestText('unreachable'), 'The web2 admin did not answer from where the manager runs.');
     assert.equal(
       adminLinkTestText('stored-token-elsewhere'),
-      "The manager's stored token was saved for another address, so it was not sent here, and only a token typed for this address can be tested.",
+      "The stored token was saved for another address, so it was not sent here, and the token has to be typed again for this address.",
     );
     assert.equal(
       adminLinkTestText('owner-mismatch'),

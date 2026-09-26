@@ -264,9 +264,9 @@ test('the wizard creates a deployment with its own settings at a phone width', {
     const stored = await evaluate(`fetch('/profiles/${NAME}/settings').then(r => r.json()).then(list => list.entries
       .filter(entry => entry.stored).map(entry => [entry.key, entry.storedValue]))`);
     // The segment length the wizard's own engine step took is listed too: a
-    // deployment's list takes its engine settings as its own since the Engine
-    // card's drawer went on 2026-09-26. And the empty address the Web2 admin
-    // group stores while it is off, so the uploader runs standalone.
+    // deployment's list takes its engine settings as its own. And the empty
+    // address the Web2 admin group stores while it is off, so the uploader runs
+    // standalone.
     assert.deepEqual(stored, [
       ['API_AUTH_TOKEN', null],
       ['ADMIN_API_URL', ''],

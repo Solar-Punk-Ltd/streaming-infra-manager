@@ -646,7 +646,7 @@ each:
 | ------- | ------------- |
 | `linked` | The admin took the token, and signs its catalog with the deployment's stream address. |
 | `token-accepted` | The admin took the token. There was no stream address to compare. |
-| `owner-unconfirmed` | The admin took the token but its config named no owner, so the stream address was not compared. The uploader starts and checks each declaration instead. |
+| `owner-unconfirmed` | The admin took the token but its config did not say which address it signs with, so the stream address was not compared. The uploader starts and checks each declaration instead. |
 | `owner-mismatch` | The admin took the token but signs with another address. The uploader will refuse to start. |
 | `token-refused` | The admin answered its own 401: the token is wrong. |
 | `not-admin` | Something answered, but not the way a web2 admin does: another status, another server's 404, a body that is not the admin's JSON, or one past the bound. |
@@ -655,7 +655,7 @@ each:
 | `invalid-address` | The address is not an http or https one the uploader can use. |
 | `not-linked` | The deployment has no address, so its uploader runs standalone. |
 | `no-token` | There is an address and no token to test with. |
-| `stored-token-elsewhere` | The stored token was saved for another origin, so nothing was asked. A token typed for this address can be tested. |
+| `stored-token-elsewhere` | A stored token, the manager's or the deployment's own, was saved for another origin, so nothing was asked. Type the token again for this address where it is set. |
 
 The admin's own 404 for that lookup is `{ "error": "stream_not_found" }` and its
 401 is `{ "error": "unauthenticated" }`, and the test reads those codes rather
