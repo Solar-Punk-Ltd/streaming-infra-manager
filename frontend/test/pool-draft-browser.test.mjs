@@ -75,7 +75,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
           if (writes.length > holdAfterWrite && holdRefresh) {
             // The page marks its own no-store fetches (see the script added before navigation),
             // because whether a browser also sends a Cache-Control header for them is the
-            // browser's choice: a Linux Chromium build sends none, Chrome elsewhere does.
+            // browser's choice: one Chromium build sends none, Chrome elsewhere does.
             const uncached = req.headers['x-test-fresh-read'] === '1' || /no-cache|no-store/.test(req.headers['cache-control'] ?? '');
             readsSeen.push(`${path} fresh-marker=${JSON.stringify(req.headers['x-test-fresh-read'] ?? null)} cache-control=${JSON.stringify(req.headers['cache-control'] ?? null)}`);
             (uncached ? freshMembership : refreshes).push({ path, reply });

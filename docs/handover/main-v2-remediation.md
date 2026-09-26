@@ -1307,9 +1307,9 @@ clean, on the laptop and in a container job, where the session branch
 `fix/first-pool-findings` ran. That container job is red on one thing that
 is not this work: `frontend/test/pool-draft-browser.test.mjs` fails there on
 every commit, a control at c9af798 included, while GitHub's own browser job
-passed that commit and the laptop and the two-core reproduction pass it. It is
-L112 in the estate's verify-e2e plan, with a diagnostic in the test (cabbf13)
-for the next run. The stack branch also passed a full check. GitHub's
+passed that commit and the laptop and the two-core reproduction pass it. A
+diagnostic in the test (cabbf13) serves the next run. The stack branch also
+passed a full check. GitHub's
 checks run on Levi's push of main-v2.
 
 **Built later the same night.** T23, the execution copy: a build's inventory is
@@ -1390,8 +1390,7 @@ next push of main-v2 and deploy. The three decisions listed here on the night
 were answered the same morning: the record refusal stays, recoverable by
 removing the named file (64a7fd0), a chequebook balance nothing can parse warns
 like every other chequebook reading (d4a4e8c), and lists take a stamp reading
-per running node at most every two minutes. The suite map used for that check has no entry for
-the manager's database suite, one line on his word. The uploader created
+per running node at most every two minutes. The uploader created
 before the fix holds the public-host string: copy the pool string from the
 pool page again and paste it into its "Node pool string" field under Edit,
 then Retry.
