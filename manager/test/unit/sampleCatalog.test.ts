@@ -15,6 +15,8 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { STACK_SETTING_FIELDS } from '@streaming-infra-manager/common';
+
 import { sampleCatalogOf } from '../../src/domain/versions/envSettingsText.js';
 
 const STACK = fileURLToPath(new URL('../../swarm-hls-stream/', import.meta.url));
@@ -87,5 +89,35 @@ describe('the keys a sample declares, by section', () => {
     assert.equal(entry('RPC_ENDPOINT')?.section, 'Bee Nodes (Docker deployment)');
     assert.equal(entry('BEE_GATEWAY_RPC_ENDPOINT')?.example, 'https://rpc.gnosischain.com');
     assert.equal(entry('LOCAL_BEE_UPLOADER')?.value, null);
+  });
+});
+
+/**
+ * Keys with a field that the bundled stack does not declare yet, each with the
+ * stack pull request that adds it. The second test below fails once the pin
+ * moves to a stack that declares one, which is the moment to take it off here.
+ */
+const DECLARED_AFTER_THE_PIN_MOVES: Readonly<Record<string, string>> = {
+  CHEQUEBOOK_RECHECK_MS: 'Solar-Punk-Ltd/swarm-hls-stream#257',
+};
+
+describe('the typed fields against the bundled samples', () => {
+  const declared = new Set(
+    ['.env.sample', 'engines/srs/.env.sample', 'engines/ome/.env.sample'].flatMap((sample) =>
+      sampleCatalogOf(readFileSync(`${STACK}${sample}`, 'utf8')).map((entry) => entry.key),
+    ),
+  );
+
+  it('names only keys the bundled root or engine samples declare, so a field cannot outlive its key unseen', () => {
+    for (const key of Object.keys(STACK_SETTING_FIELDS)) {
+      if (key in DECLARED_AFTER_THE_PIN_MOVES) continue;
+      assert.ok(declared.has(key), `${key} has a field and no bundled sample declares it`);
+    }
+  });
+
+  it('still waits for the pin on every key it excuses', () => {
+    for (const [key, pullRequest] of Object.entries(DECLARED_AFTER_THE_PIN_MOVES)) {
+      assert.equal(declared.has(key), false, `${key} is declared now, so ${pullRequest} reached the pin and ${key} comes off the list`);
+    }
   });
 });
