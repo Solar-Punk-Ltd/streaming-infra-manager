@@ -82,11 +82,24 @@ const BODY_TOO_LARGE =
  * unhandled case below and came back as a fault.
  */
 function isPayloadTooLarge(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { type?: unknown }).type === 'entity.too.large'
-  );
+  return bodyParserErrorType(err) === 'entity.too.large';
+}
+
+const BODY_NOT_JSON = 'That request body is not valid JSON.';
+
+/**
+ * A body `express.json` could not parse, marked `entity.parse.failed`. The
+ * parser's message quotes the body around the point it failed, which is where
+ * a hand-made body carries its password or token, so the unhandled case below
+ * would copy a piece of a secret into the log. It is the client's mistake, and
+ * nothing of it is logged.
+ */
+function isUnparseableBody(err: unknown): boolean {
+  return bodyParserErrorType(err) === 'entity.parse.failed';
+}
+
+function bodyParserErrorType(err: unknown): unknown {
+  return typeof err === 'object' && err !== null ? (err as { type?: unknown }).type : undefined;
 }
 
 /**
@@ -134,6 +147,10 @@ export function errorHandler(
   }
   if (isPayloadTooLarge(err)) {
     res.status(413).json({ error: 'payload_too_large', message: BODY_TOO_LARGE });
+    return;
+  }
+  if (isUnparseableBody(err)) {
+    res.status(400).json({ error: 'validation_error', errors: [BODY_NOT_JSON] });
     return;
   }
   if (
