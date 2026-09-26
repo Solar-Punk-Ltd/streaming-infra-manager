@@ -46,6 +46,9 @@ import {
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
 
+/** Whether the drawer the Engine card used to open is on screen, which it never is since the drawer went. */
+const ENGINE_DRAWER_OPEN = `[...document.querySelectorAll('h2')].some(heading => heading.textContent.startsWith('Engine settings for'))`;
+
 const NARROW = 390;
 const WIDE = 1280;
 
@@ -496,6 +499,28 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.ok(widths.engine > 0);
     assert.equal(Math.round(widths.settings), Math.round(widths.engine));
     await call('Emulation.setDeviceMetricsOverride', { width: NARROW, height: 900, deviceScaleFactor: 1, mobile: false });
+  });
+
+  await t.test("the Engine card opens no drawer: its Settings button brings this card into view with the engine settings open and the first focused", async () => {
+    await call('Page.reload');
+    await shows('the page read again, every section folded', 'Stack settings');
+    await evaluate('scrollTo(0, 0)');
+    const engineCard = `[...document.querySelectorAll('h3')].find(el => el.textContent.trim() === 'SRS 6')?.closest('.MuiPaper-root')`;
+
+    await clickWhenEnabled(evaluate, buttonIn(engineCard, 'Settings'), "the Engine card's Settings button");
+
+    await waitFor(() => evaluate('document.activeElement?.id'), (id) => id === 'deployment-setting-HLS_FRAGMENT', 'the segment length focused');
+    assert.equal(await evaluate(ENGINE_DRAWER_OPEN), false, 'no engine settings drawer opened');
+    const engineFold = `[...document.querySelectorAll('#stack-settings h4 button')].find(button => button.textContent.startsWith('Engine settings'))`;
+    assert.equal(await evaluate(`${engineFold}?.getAttribute('aria-expanded')`), 'true');
+    const shown = await evaluate(`[...document.querySelectorAll('#stack-settings li[data-setting]')].map(row => row.dataset.setting)`);
+    assert.deepEqual(shown, ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY'], 'the engine settings and nothing else are open');
+    await waitFor(
+      () => evaluate(`(() => { const box = ${rowOf('HLS_FRAGMENT')}.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; })()`),
+      Boolean,
+      'the segment length in view',
+    );
+    await screenshot('engine-settings-from-engine-card-phone.png', rowOf('HLS_FRAGMENT'), 'center');
   });
 
   await t.test('a stopped deployment is told Start will use the changes, with no Apply', async () => {

@@ -27,7 +27,7 @@ import {
 import type { SettingRowState } from './DeploymentSettingRow';
 import { SettingsDriftBanner } from './SettingsDriftBanner';
 import { type EngineFields } from './settingsSections';
-import { SettingsList } from './SettingsList';
+import { type SettingReveal, SettingsList } from './SettingsList';
 import {
   UNRECORDED_NOTE,
   WHAT_SAVING_DOES,
@@ -94,7 +94,14 @@ function rowStatesOf(catalog: DeploymentSettingsCatalog, draft: DeploymentSettin
  * card's drawer showed them, and a pair of them the engine would refuse is
  * named once above Save, which it keeps off.
  */
-export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
+export function DeploymentSettingsEditor({
+  profile,
+  reveal = null,
+}: {
+  profile: Profile;
+  /** The latest request from elsewhere on the page to show one of the settings. */
+  reveal?: SettingReveal | null;
+}) {
   const toast = useToast();
   const load = useDeploymentSettings(profile);
   const [draft, setDraft] = useState<DeploymentSettingsDraft>(EMPTY_DRAFT);
@@ -204,6 +211,7 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
         onReset={(key) => edit((current) => withReset(current, catalog, key))}
         onUndo={(key) => edit((current) => withoutEdit(current, key))}
         engine={{ fields: engineFieldsOf(catalog), ownConfig: profile.has_engine_config }}
+        reveal={reveal}
       />
 
       {engineProblem && (

@@ -6,8 +6,9 @@
  * dropped. The card is the page saying so. This drives it through the states
  * an operator meets: a link that is breaking up with the fix beside it, one
  * that recovered what it lost, a minute with no reports, the latency step
- * opening the settings drawer once the version offers that field, and a
- * deployment with no SRS running, which shows no card and asks nothing.
+ * leading to the SRT latency in the deployment's Stack settings card once the
+ * version offers that field, and a deployment with no SRS running, which shows
+ * no card and asks nothing.
  *
  * A real headless Chrome over a real Vite, with an offline fixture in place of
  * the manager. Runs through `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser`.
@@ -31,12 +32,16 @@ import {
   measuredSrtIngest,
 } from '@streaming-infra-manager/common';
 
+import { runningCatalog } from './fixtures/deploymentSettings.mjs';
 import { buttonWithText, clickWhenEnabled, launchChrome, PAGE_TEXT, waitFor } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { endViteServer } from './support/teardown.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
+
+/** Whether the drawer the Engine card used to open is on screen, which it never is since the drawer went. */
+const ENGINE_DRAWER_OPEN = `[...document.querySelectorAll('h2')].some(heading => heading.textContent.startsWith('Engine settings for'))`;
 const common = fileURLToPath(new URL('../../common/src/index.ts', import.meta.url));
 
 const RUNNING_SRS = [{ service: 'srs', ports: {} }, { service: 'stream-uploader', ports: {} }, { service: 'bee-uploader', ports: {} }];
@@ -62,8 +67,11 @@ const RECOVERED = measuredSrtIngest({
 });
 const NO_REPORTS = { state: 'no_reports', windowSeconds: 60 };
 
-/** The engine setting the card's latency step opens the drawer at. */
+/** The engine setting the card's latency step leads to in the Stack settings card. */
 const SRT_LATENCY_KEY = 'SRT_LATENCY';
+
+/** The button of the latency step, which brings the setting into view. */
+const RAISE_LATENCY_BUTTON = 'Change SRT latency';
 
 /**
  * SRS's engine overview as the manager answers it. Every SRS deployment has
@@ -118,6 +126,7 @@ test('the SRT ingest card says how the link is holding up, and how to fix it', {
         }
         if (path === '/profiles/ingest-stage/srt-ingest') { ingestReads += 1; return json(reading); }
         if (path === '/profiles/ingest-stage/engine') return json(overviewOf(profile, offersLatency));
+        if (path === '/profiles/ingest-stage/settings') return json({ ...runningCatalog(), instanceId: profile.instance_id });
         // Every other read of the deployment is a node that does not answer,
         // which is what the page shows beside a link that is breaking up.
         if (path.startsWith('/profiles/')) return json({ error: 'Node unavailable', code: 'bee_node_unreachable' }, 503);
@@ -145,7 +154,7 @@ test('the SRT ingest card says how the link is holding up, and how to fix it', {
     assert.match(text, /5\.9% · 763 packets/);
     assert.match(text, /&latency=4000000/);
     assert.match(text, /Until this manager offers that setting/);
-    assert.equal(await evaluate(`!!${buttonWithText('Engine settings')}`), false, 'no setting to open on this version');
+    assert.equal(await evaluate(`!!${buttonWithText(RAISE_LATENCY_BUTTON)}`), false, 'no setting to lead to on this version');
     const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: true });
     await writeFile(join(evidence, 'bad-link.png'), Buffer.from(data, 'base64'));
   });
@@ -175,13 +184,27 @@ test('the SRT ingest card says how the link is holding up, and how to fix it', {
     assert.doesNotMatch(await body(), /Packets received/);
   });
 
-  await t.test('the latency step opens the engine settings once the version offers the field', async () => {
+  await t.test('the latency step brings the Stack settings card into view at the SRT latency, focused, once the version offers the field', async () => {
     reading = BROKEN_UP;
     offersLatency = true;
     await reload();
-    await shows('the latency step with its button', 'in its engine settings');
-    await clickWhenEnabled(evaluate, buttonWithText('Engine settings'), 'the Engine settings button in the remedy');
-    await shows('the engine settings drawer', 'Engine settings for ingest-stage');
+    await shows('the latency step with its button', 'in its stack settings');
+    await evaluate('scrollTo(0, 0)');
+
+    await clickWhenEnabled(evaluate, buttonWithText(RAISE_LATENCY_BUTTON), 'the latency button in the remedy');
+
+    await waitFor(() => evaluate('document.activeElement?.id'), (id) => id === `deployment-setting-${SRT_LATENCY_KEY}`, 'the SRT latency focused');
+    assert.equal(await evaluate(ENGINE_DRAWER_OPEN), false, 'no engine settings drawer opened');
+    await waitFor(
+      () => evaluate(`(() => {
+        const box = document.querySelector('li[data-setting="${SRT_LATENCY_KEY}"]')?.getBoundingClientRect();
+        return Boolean(box) && box.top >= 0 && box.bottom <= innerHeight;
+      })()`),
+      Boolean,
+      'the SRT latency in view',
+    );
+    const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false });
+    await writeFile(join(evidence, 'latency-setting.png'), Buffer.from(data, 'base64'));
   });
 
   await t.test('a deployment with no SRS running shows no card and asks nothing', async () => {

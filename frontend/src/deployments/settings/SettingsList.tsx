@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, InputAdornment, TextField, Typography } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 
 import type { DeploymentSettingEntry } from '@streaming-infra-manager/common';
 
 import { DeploymentSettingRow, type SettingRowState } from './DeploymentSettingRow';
-import { type EngineFields, filteredSections, isSectionOpen, sectionsOf } from './settingsSections';
+import { type EngineFields, filteredSections, isSectionOpen, sectionIdHolding, sectionsOf } from './settingsSections';
 import { SettingsSectionFold } from './SettingsSectionFold';
+import { settingFieldId } from './SettingValueField';
 import { noMatchText, type SectionCounts, type SettingsEditTarget } from './settingsText';
 
 const UNTOUCHED_ROW: SettingRowState = { edit: undefined, pending: false, behind: false, problem: null };
@@ -20,6 +21,16 @@ export interface EngineSettingsView {
 
 const NO_ENGINE_SETTINGS: EngineSettingsView = { fields: new Map(), ownConfig: false };
 
+/**
+ * A request from elsewhere on the page to bring one key of the list into view
+ * with its field focused, numbered so that asking for the same key again is a
+ * request of its own.
+ */
+export interface SettingReveal {
+  key: string;
+  seq: number;
+}
+
 export interface SettingsListProps {
   entries: readonly DeploymentSettingEntry[];
   /** Where each key stands against the edit in progress, by key. A key left out is untouched. */
@@ -32,6 +43,8 @@ export interface SettingsListProps {
   controlValues?: Readonly<Record<string, string>>;
   /** The deployment's own engine settings, gathered in a section of their own and shown by their fields. None for the wizard's list. */
   engine?: EngineSettingsView;
+  /** The latest request to show a key, which opens its section and focuses its field. */
+  reveal?: SettingReveal | null;
   onValue: (key: string, value: string) => void;
   onReset: (key: string) => void;
   onUndo: (key: string) => void;
@@ -71,13 +84,36 @@ export function SettingsList({
   target = 'deployment',
   controlValues = {},
   engine = NO_ENGINE_SETTINGS,
+  reveal = null,
   onValue,
   onReset,
   onUndo,
 }: SettingsListProps) {
   const [query, setQuery] = useState('');
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
-  const sections = filteredSections(sectionsOf(entries, engine.fields), query, engine.fields);
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  const allSections = sectionsOf(entries, engine.fields);
+  const sections = filteredSections(allSections, query, engine.fields);
+
+  // A search could hide the key and a fold hides every key of its section, so
+  // a request to show one clears the first and opens the second, and the field
+  // is focused once the render that puts it on screen has landed.
+  useEffect(() => {
+    if (!reveal) return;
+    const section = sectionIdHolding(allSections, reveal.key);
+    setQuery('');
+    if (section) setOpened((current) => new Set([...current, section]));
+    setFocusKey(reveal.key);
+    // Asked once per request: the sections of the render the request arrived in are the ones it means.
+  }, [reveal]);
+
+  useEffect(() => {
+    if (focusKey === null) return;
+    const field = document.getElementById(settingFieldId(focusKey));
+    (field?.closest('li') ?? field)?.scrollIntoView({ block: 'center' });
+    field?.focus({ preventScroll: true });
+    setFocusKey(null);
+  }, [focusKey]);
 
   return (
     <>

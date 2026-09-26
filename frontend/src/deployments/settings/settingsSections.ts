@@ -67,6 +67,11 @@ export function sectionsOf(
     : [...declared, { id: UNDECLARED_SECTION_ID, title: UNDECLARED_SECTION_TITLE, entries: undeclared }];
 }
 
+/** The id of the section a key is folded in, or null for a key the list does not hold. */
+export function sectionIdHolding(sections: readonly SettingsSection[], key: string): string | null {
+  return sections.find((section) => section.entries.some((entry) => entry.key === key))?.id ?? null;
+}
+
 function searchTermOf(query: string): string {
   return query.trim().toLowerCase();
 }

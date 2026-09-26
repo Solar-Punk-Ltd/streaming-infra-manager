@@ -19,6 +19,7 @@ import {
   UNDECLARED_SECTION_TITLE,
   filteredSections,
   isSectionOpen,
+  sectionIdHolding,
   sectionsOf,
 } from './settingsSections';
 
@@ -175,5 +176,16 @@ describe('the engine settings of a deployment', () => {
 
   it('stay where the sample puts them when the list is given no engine fields, as the wizard list is', () => {
     assert.equal(titles(sectionsOf(WITH_ENGINE)).includes(ENGINE_SECTION_TITLE), false);
+  });
+});
+
+describe('sectionIdHolding', () => {
+  it('finds the section a key is folded in, which a request to show that key opens', () => {
+    const engineFields = new Map(engineSettingsFieldsFor('srs', { abr: false }).map((field) => [field.key, field]));
+    const sections = sectionsOf([...ENTRIES, entry('SRT_LATENCY', 'SRS Media Server')], engineFields);
+
+    assert.equal(sectionIdHolding(sections, 'SRT_LATENCY'), sections[0]?.id);
+    assert.equal(sectionIdHolding(sections, 'LOG_LEVEL'), sections.find(({ title }) => title === 'Logging')?.id);
+    assert.equal(sectionIdHolding(sections, 'NOT_LISTED'), null);
   });
 });

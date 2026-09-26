@@ -8,8 +8,8 @@
  * applications exist, what they provide and publish, or how their streams are
  * named. Those elements are found in the template by path, and the file must
  * carry the same paths with the same values, in any sibling order, with
- * anything else added freely. The two settings the drawer fills may become
- * literals instead of their placeholders, checked as the drawer checks them.
+ * anything else added freely. The two engine settings the placeholders take
+ * may become literals instead, checked by the rule a settings save holds them to.
  */
 import {
   type EngineSettingField,
@@ -22,7 +22,7 @@ import {
 import { type OmeElement, parseOmeXml } from './omeXml.js';
 import { prefixesOf, valuesByPath } from './omeXmlPaths.js';
 
-/** An element the file must keep: its path, the template's value, and the drawer field that may set it. */
+/** An element the file must keep: its path, the template's value, and the engine setting that may set it. */
 interface RequiredElement {
   path: string;
   value: string;
@@ -127,10 +127,10 @@ function describeValue(value: string): string {
   return value === '' ? 'an element with nothing in it' : value;
 }
 
-/** Whether a literal in place of a placeholder is a value the drawer would accept, by the drawer's own rule. */
+/** Whether a literal in place of a placeholder is a value the engine setting would take, by its own rule. */
 function literalProblem(field: EngineSettingField, literal: string): string | null {
   if (literal.trim() === '') {
-    return `${field.label} is empty in the file. Give it a value, or put ${field.placeholder} back so the drawer sets it.`;
+    return `${field.label} is empty in the file. Give it a value, or put ${field.placeholder} back so the engine settings set it.`;
   }
   const problem = engineSettingFieldProblem(field, literal);
   return problem ? `${problem} That is what the file sets it to.` : null;

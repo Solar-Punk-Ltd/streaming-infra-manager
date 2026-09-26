@@ -159,11 +159,11 @@ describe('a measured SRT link on the card', () => {
 });
 
 describe('the SRT latency step of the remedy', () => {
-  it('opens the engine settings when this version offers the setting', () => {
+  it("leads to the setting in the deployment's stack settings when this version offers it", () => {
     const [first] = read(BROKEN_UP, true).remedy!.steps;
 
     assert.equal(first!.action, RAISE_LATENCY_ACTION);
-    assert.equal(first!.text, 'Raise the SRT latency of this deployment, to 4000 ms for example, in its engine settings.');
+    assert.equal(first!.text, 'Raise the SRT latency of this deployment, to 4000 ms for example, in its stack settings.');
   });
 
   it('points at the OBS side when this version does not offer it', () => {

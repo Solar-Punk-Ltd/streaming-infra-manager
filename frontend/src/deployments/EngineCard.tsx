@@ -36,7 +36,7 @@ import { isTransitional } from './shape';
 const ABR_SECTION_TITLE = 'Transcoding';
 
 const OWN_CONFIG_NOTE =
-  'Runs on a config file of its own. The Settings drawer still fills the placeholders that file kept.';
+  "Runs on a config file of its own. The engine settings in this deployment's Stack settings still fill the placeholders that file kept.";
 
 const ROLLOUT_ACTION_LABEL: Record<RolloutAction, string> = {
   verify: 'Verify now',
@@ -69,27 +69,32 @@ function whyRolloutActionsAreOff(profile: Profile, busy: boolean): string {
 }
 
 /**
- * The media server this deployment runs: what it is configured with, and the
- * two things an operator does to it by hand.
+ * The media server this deployment runs: what it is configured with and where
+ * each value came from, and the two things an operator does to it by hand.
  *
  * The settings themselves come from the manager rather than from the profile,
  * because the field list is the stack's and only the manager knows which stack
  * is pinned. That is also where the live block's answer will come from once the
- * engine API port is published, which it is not on this one.
+ * engine API port is published, which it is not on this one. They are edited in
+ * the deployment's Stack settings card, one list of settings for the whole
+ * deployment (Levi, 2026-09-26), and Settings here leads there.
  */
 export function EngineCard({
   profile,
   engine,
   overview,
   loadError,
+  onShowSettings,
 }: {
   profile: Profile;
   engine: EngineName;
   /** The manager's answer about the engine, loaded once for the page. Null until it arrives. */
   overview: EngineOverview | null;
   loadError: string | null;
+  /** Brings the engine settings in the Stack settings card into view, the first one focused. */
+  onShowSettings: () => void;
 }) {
-  const { openEngineSettings, openEngineConfig } = useEditors();
+  const { openEngineConfig } = useEditors();
   const actions = useActions();
   const [logsOpen, setLogsOpen] = useState(false);
 
@@ -127,7 +132,7 @@ export function EngineCard({
           <Button
             size="small"
             startIcon={<TuneIcon />}
-            onClick={() => openEngineSettings(profile.name)}
+            onClick={onShowSettings}
           >
             Settings
           </Button>

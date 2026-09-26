@@ -2,19 +2,15 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { EngineSettingObservation } from '@streaming-infra-manager/common';
 
-import {
-  engineDefaultText, engineObservationNote, engineObservationText, engineOverrideHint, engineOverridePlaceholder,
-} from './engineObservationText';
+import { engineObservationText } from './engineObservationText';
 
 const literal: EngineSettingObservation = { status: 'known', source: 'config-file', value: '4', environment: 'none' };
 
 describe('engine observation wording', () => {
-  it('names a literal as set in the config file and explains that an override cannot change it', () => {
+  it('names a literal as set in the config file', () => {
     const text = engineObservationText(literal, 's');
     assert.equal(text.value, '4 s');
     assert.equal(text.source, 'Set in config file');
-    assert.match(engineOverrideHint(literal), /will not change this setting/);
-    assert.match(engineOverrideHint(literal), /Edit the config file/);
   });
 
   it('keeps deployment, host, manager and stack sources distinct', () => {
@@ -23,7 +19,6 @@ describe('engine observation wording', () => {
     ] as const) {
       const observation: EngineSettingObservation = { status: 'known', source, value: '2', environment: 'all' };
       assert.equal(engineObservationText(observation).source, label);
-      assert.equal(engineOverrideHint(observation), 'This config reads the override in every relevant section.');
     }
   });
 
@@ -37,16 +32,6 @@ describe('engine observation wording', () => {
     assert.match(text.detail, /SRS ignores latency for ingest without recvlatency/);
     assert.match(engineObservationText(absent).detail, /sets no recvlatency/);
     assert.doesNotMatch(engineObservationText(absent).detail, /ignores latency/);
-    assert.match(engineOverrideHint(ignored), /will not change this setting/);
-  });
-
-  it('puts the reason in the drawer note for a value the engine applies, and nothing extra for the rest', () => {
-    const ignored: EngineSettingObservation = { status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency' };
-    const stored: EngineSettingObservation = { status: 'known', source: 'deployment', value: '2', environment: 'all' };
-
-    assert.match(engineObservationNote(ignored, 'milliseconds'), /^Configured value: 120 milliseconds\. Engine default\. SRS ignores latency for ingest without recvlatency/);
-    assert.equal(engineObservationNote(stored, 'seconds'), 'Configured value: 2 seconds. Deployment override.');
-    assert.match(engineObservationNote({ status: 'unknown', source: 'omitted', reason: 'missing-directive', value: null, environment: 'none' }), /^Not specified\. At least one relevant section/);
   });
 
   it("says on a stack version that fills only latency that changing the setting will not change ingest there", () => {
@@ -59,8 +44,6 @@ describe('engine observation wording', () => {
     assert.equal(text.source, 'Engine default');
     assert.match(text.detail, /SRS ignores latency for ingest without recvlatency/);
     assert.match(text.detail, /This stack version's template sets latency and no recvlatency/);
-    assert.equal(engineOverrideHint(version), 'Changing this setting will not change the wait on ingest on this stack version.');
-    assert.equal(engineOverridePlaceholder(version), 'Stack version controls value');
   });
 
   it('says on a stack version that never reads the setting that its template decides the wait', () => {
@@ -74,25 +57,6 @@ describe('engine observation wording', () => {
     assert.match(text.detail, /This stack version does not read this setting\./);
     assert.match(text.detail, /SRS's own default/);
     assert.doesNotMatch(text.detail, /[;\u2014]/);
-    assert.equal(engineOverrideHint(version), 'Changing this setting will not change the wait on ingest on this stack version.');
-    assert.equal(engineOverridePlaceholder(version), 'Stack version controls value');
-  });
-
-  it('keeps the config file wording where a file of the deployment own decides the value', () => {
-    const ignored: EngineSettingObservation = {
-      status: 'known', source: 'built-in', value: '120', environment: 'none', reason: 'latency-without-recvlatency',
-    };
-
-    assert.match(engineOverrideHint(ignored), /Edit the config file to change it/);
-    assert.equal(engineOverridePlaceholder(ignored), 'Config controls value');
-    assert.equal(engineOverridePlaceholder(literal), 'Config controls value');
-    assert.equal(engineOverridePlaceholder(undefined), 'Config use unverified');
-  });
-
-  it("names whose default an empty field falls back to, the manager's included", () => {
-    assert.equal(engineDefaultText('6', 'host', ' seconds'), 'Default 6 seconds, set on this host');
-    assert.equal(engineDefaultText('2000', 'manager', ' milliseconds'), 'Manager default 2000 milliseconds');
-    assert.equal(engineDefaultText('15', 'stack', ' seconds'), 'Stack default 15 seconds');
   });
 
   it('does not present missing and conflicting readings as the same absence', () => {
@@ -113,7 +77,6 @@ describe('engine observation wording', () => {
       assert.doesNotMatch(text.detail, /not read|not used|omits/);
     }
     assert.match(engineObservationText(undefined).detail, /No current/);
-    assert.match(engineOverrideHint(undefined), /unverified/);
   });
 
   it('does not claim audio bitrate is unused when only some encoders copy audio', () => {
@@ -125,9 +88,4 @@ describe('engine observation wording', () => {
     assert.match(mixed.detail, /Some encoders copy audio/);
   });
 
-  it('states partial and unknown override applicability without claiming it is unused', () => {
-    const observation = { status: 'unknown', source: 'unverified', reason: 'mixed-sources', value: null } as const;
-    assert.match(engineOverrideHint({ ...observation, environment: 'partial' }), /Only some/);
-    assert.match(engineOverrideHint({ ...observation, environment: 'unknown' }), /unverified/);
-  });
 });

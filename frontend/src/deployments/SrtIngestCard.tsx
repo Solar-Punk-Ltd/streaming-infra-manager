@@ -1,14 +1,13 @@
 import { Alert, Box, Button, Stack, Typography } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 
-import { useEditors } from '../app/EditorsContext';
 import { MONO_STACK } from '../app/theme';
 import { KeyValueList, type KeyValueEntry } from '../components/KeyValueList';
 import { ReadinessPill } from '../components/ReadinessPill';
 import { SectionCard } from '../components/SectionCard';
-import type { Profile } from '../types';
 import {
   RAISE_LATENCY_ACTION,
+  RAISE_LATENCY_BUTTON,
   type SrtIngestLoad,
   type SrtIngestRow,
   srtIngestView,
@@ -22,18 +21,19 @@ import {
  * Nothing on the broadcaster's side, the manager or the uploader shows packet
  * loss on the way in, and a stream that is breaking up for that reason looks
  * healthy everywhere else on this page. The card only reports: it changes no
- * setting and gates nothing.
+ * setting and gates nothing, and its latency step leads to the setting in the
+ * deployment's Stack settings card.
  */
 export function SrtIngestCard({
-  profile,
   load,
   latencySettingOffered,
+  onRaiseLatency,
 }: {
-  profile: Profile;
   load: SrtIngestLoad;
   latencySettingOffered: boolean;
+  /** Brings the SRT latency in the Stack settings card into view, focused. */
+  onRaiseLatency: () => void;
 }) {
-  const { openEngineSettings } = useEditors();
   const view = srtIngestView(load, { latencySettingOffered });
 
   return (
@@ -67,10 +67,10 @@ export function SrtIngestCard({
                       size="small"
                       color="inherit"
                       startIcon={<TuneIcon />}
-                      onClick={() => openEngineSettings(profile.name)}
+                      onClick={onRaiseLatency}
                       sx={{ mt: 0.5 }}
                     >
-                      Engine settings
+                      {RAISE_LATENCY_BUTTON}
                     </Button>
                   )}
                 </Box>
