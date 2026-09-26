@@ -877,13 +877,14 @@ commit and named in the merge manifest. The section's own closing rule still
 holds, which is to verify any retained resource by its exact recorded identity
 before using it, and that check now answers no for those trees.
 
-**One thing a document cannot fix.** `.github/workflows/checks.yml` carries a
-comment saying "The twenty-two suites under frontend/test". There are 23, and
-`docs/ci.md` says 23, which is the correct number. The same count is ambiguous
-in the T20 section above, which says twenty. Twenty sit directly in
-`frontend/test`, three more under `frontend/test/support`, and the runner takes
+**One thing a document cannot fix.** `.github/workflows/checks.yml` carried a
+comment saying "The twenty-two suites under frontend/test". There were 23, and
+`docs/ci.md` said 23, which was the correct number. The same count is ambiguous
+in the T20 section above, which says twenty. Twenty sat directly in
+`frontend/test`, three more under `frontend/test/support`, and the runner took
 all 23. Changing a workflow file was out of scope for this slice, so the
-comment is left as it is and recorded here for whoever next touches that file.
+comment was left as it was and recorded here. It has since been rewritten with
+a dated count.
 
 **Verified.** `git diff --check` clean against the branch base, no em-dash and
 no prose semicolon in any changed file, and every relative path in every
