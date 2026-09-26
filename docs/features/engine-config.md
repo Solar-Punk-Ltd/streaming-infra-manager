@@ -219,7 +219,7 @@ are in the file's own header. It needs the whole stack deployed on a runner, so
 its first run is Levi's dispatch of the manual workflow. See
 [../ci.md](../ci.md).
 
-Fable's 2026-09-08 local T03 evidence records OvenMediaEngine `v0.21.0` with
+The local T03 evidence of 2026-09-08 records OvenMediaEngine `v0.21.0` with
 manifest-list digest
 `sha256:172da9129d32093f3c92c426d385a318db38c7e70de0a3a685693e69614672a6`.
 On arm64, the healthy template started, a second root and an undefined entity
