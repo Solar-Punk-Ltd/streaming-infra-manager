@@ -5,8 +5,10 @@ import {
   adminOriginOf,
   type DeploymentSettingEntry,
   type EngineName,
+  editsAdminLink,
   engineForComponents,
   isSecretSettingKey,
+  type ManagerAdminLink,
   type NewDeploymentSetting,
   type NewDeploymentSettingsCatalog,
 } from '@streaming-infra-manager/common';
@@ -87,6 +89,34 @@ function managerTokenProblem(settings: readonly NewDeploymentSetting[], entries:
   if (!entry?.declared) return `${ADMIN_API_TOKEN_KEY} is not a setting this deployment's version declares, so the manager's stored token has nowhere to go.`;
   if (entry.owner !== null) return `${ADMIN_API_TOKEN_KEY} is not one this deployment sets, so the manager's stored token has nowhere to go.`;
   return null;
+}
+
+function settable(entries: readonly DeploymentSettingEntry[], key: string): boolean {
+  return entries.some((entry) => entry.key === key && entry.declared && entry.owner === null);
+}
+
+/**
+ * The manager's own web2 admin link as the settings of a create that names
+ * neither key and asks for no token, for a deployment that runs a stream
+ * uploader (Levi, 2026-09-25: every new uploader deployment starts with it).
+ * Only a link with both an address and a stored token, and only for a version
+ * that lets a create set both keys, so the default never leaves an address
+ * the uploader would refuse to start with or a create refused over it.
+ */
+export function managerLinkSettingsFor(
+  link: ManagerAdminLink | null,
+  version: StackVersionRecord,
+  shape: NewDeploymentShape,
+): NewDeploymentSetting[] {
+  if (!link?.url || !link.tokenStored || deployRootProblem(version)) return [];
+  const { entries } = newDeploymentSettingsCatalogFor(version, shape);
+  if (!settable(entries, ADMIN_API_URL_KEY) || !settable(entries, ADMIN_API_TOKEN_KEY)) return [];
+  return [{ key: ADMIN_API_URL_KEY, value: link.url }];
+}
+
+/** Whether a create leaves the web2 admin link to the manager's default: it names neither key and asks for no token. */
+export function leavesAdminLinkToManager(settings: readonly NewDeploymentSetting[], copyManagerAdminToken: boolean): boolean {
+  return !copyManagerAdminToken && !editsAdminLink(settings);
 }
 
 /**

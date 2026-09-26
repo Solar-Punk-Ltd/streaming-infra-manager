@@ -425,6 +425,7 @@ export function profileServiceHarness(
     profiles.reservations,
     undefined,
     managerRpcEndpoint,
+    profiles.managerAdminLink,
   );
 
   return { service, profiles, containers, groups, orchestrator, events, versions };

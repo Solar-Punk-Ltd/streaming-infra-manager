@@ -100,7 +100,14 @@ import {
 } from './localHost.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { engineDefaultsAt } from './settings/engineHostDefaults.js';
-import { initialStackSettingsFor, initialStackSettingsOf } from './settings/newDeploymentSettings.js';
+import {
+  initialStackSettingsFor,
+  initialStackSettingsOf,
+  leavesAdminLinkToManager,
+  managerLinkSettingsFor,
+  type NewDeploymentShape,
+} from './settings/newDeploymentSettings.js';
+import type { ManagerAdminLinkStore } from './adminLink/ManagerAdminLinkRepository.js';
 import { beePublisherUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
@@ -206,10 +213,16 @@ function adminTokenOriginOf(stored: StoredStackSettings | null): Pick<InitialSta
   return origin === null ? {} : { adminTokenOrigin: origin };
 }
 
+/** Whether a deployment of this shape runs a stream uploader, which is what reports to the web2 admin. */
+function runsStreamUploader({ kind, components }: NewDeploymentShape): boolean {
+  return defaultServicesFor({ kind, components: components ? [...components] : null }).includes(STREAM_UPLOADER_SERVICE);
+}
+
 /** What the create log says of the stack settings a deployment was given: their keys, never a value. */
-function stackSettingsNote(settings: readonly NewDeploymentSetting[] | null | undefined, managerAdminToken = false): string {
-  const typed = settings?.length ? ` with stack settings ${settings.map(({ key }) => key).join(', ')}` : '';
-  return managerAdminToken ? `${typed} and the manager's web2 admin token` : typed;
+function stackSettingsNote(settings: InitialStackSettings): string {
+  const keys = [...Object.keys(settings.plain), ...Object.keys(settings.secret)];
+  const named = keys.length > 0 ? ` with stack settings ${keys.join(', ')}` : '';
+  return settings.copyManagerAdminToken ? `${named} and the manager's web2 admin token` : named;
 }
 
 /**
@@ -260,7 +273,30 @@ export class ProfileService {
      * line in an env file at deploy and reaches nothing else.
      */
     private readonly managerRpcEndpoint: string | null = null,
+    /** The web2 admin link every new uploader deployment starts with, where a create leaves the link to it. */
+    private readonly managerAdminLink?: Pick<ManagerAdminLinkStore, 'read'>,
   ) {}
+
+  /**
+   * What a create is given of its stack settings: what it names, and the
+   * manager's own web2 admin link for a deployment that runs a stream
+   * uploader when the create names neither key and asks for no token, with the
+   * stored token copied in for that address.
+   */
+  private async createdStackSettings(
+    name: string,
+    version: StackVersionRecord,
+    shape: NewDeploymentShape,
+    input: { stack_settings?: readonly NewDeploymentSetting[] | null; use_manager_admin_token?: boolean | null },
+  ): Promise<InitialStackSettings> {
+    const named = input.stack_settings ?? [];
+    const asked = input.use_manager_admin_token === true;
+    const linked =
+      this.managerAdminLink && leavesAdminLinkToManager(named, asked) && runsStreamUploader(shape)
+        ? managerLinkSettingsFor(await this.managerAdminLink.read(), version, shape)
+        : [];
+    return initialStackSettingsFor(name, version, shape, [...named, ...linked], asked || linked.length > 0);
+  }
 
   /**
    * Both request paths ask the same two questions of the row they are about to
@@ -426,12 +462,11 @@ export class ProfileService {
     if (Object.keys(engineSettings).length > 0) {
       this.assertCreatableEngineSettings(input, version, engineSettings);
     }
-    const stackSettings = initialStackSettingsFor(
+    const stackSettings = await this.createdStackSettings(
       input.name,
       version,
       { kind: input.kind, components: createdComponents, host: input.host },
-      input.stack_settings ?? [],
-      input.use_manager_admin_token === true,
+      input,
     );
 
     let row;
@@ -476,7 +511,7 @@ export class ProfileService {
     }
 
     logger.info(
-      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken !== undefined)}`,
+      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(stackSettings)}`,
     );
     const withContainers = await this.containers.withContainers(row);
     this.publishChanged(withContainers);
@@ -1058,12 +1093,11 @@ export class ProfileService {
         engineSettings,
       );
     }
-    const stackSettings = initialStackSettingsFor(
+    const stackSettings = await this.createdStackSettings(
       input.group_name,
       version,
       { kind: input.kind, components: memberComponents, host: input.host },
-      input.stack_settings ?? [],
-      input.use_manager_admin_token === true,
+      input,
     );
 
     // The same two questions the single create asks, over the services the
@@ -1143,7 +1177,7 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(input.stack_settings, stackSettings.copyManagerAdminToken !== undefined)}; deploying`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(stackSettings)}; deploying`,
     );
 
     return { group, profiles: await this.deployNewMembers(profiles) };

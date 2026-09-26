@@ -210,3 +210,75 @@ describe("a create that asks for the manager's stored web2 admin token", () => {
     }
   });
 });
+
+describe('a scripted create for an uploader that names neither web2 admin key', () => {
+  it("starts linked with the manager's own link, its token copied in for that address, and no answer carries it", async () => {
+    const app = await appFor();
+    try {
+      const created = await app.create({});
+
+      assert.equal(created.status, 202, JSON.stringify(created.body));
+      assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy('stage'), { ADMIN_API_URL: ADMIN_URL, ADMIN_API_TOKEN: STORED_TOKEN });
+      assert.equal(app.harness.profiles.adminTokenOrigins.get('stage'), ADMIN_URL);
+      assert.equal(JSON.stringify(created.body).includes(STORED_TOKEN), false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("starts every member of a new group linked with the manager's own link", async () => {
+    const app = await appFor();
+    try {
+      const created = await app.createGroup({});
+
+      assert.equal(created.status, 202, JSON.stringify(created.body));
+      for (const name of ['fleet-profile-1', 'fleet-profile-2']) {
+        assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy(name), { ADMIN_API_URL: ADMIN_URL, ADMIN_API_TOKEN: STORED_TOKEN }, name);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('adds the link beside the other settings a create names', async () => {
+    const app = await appFor();
+    try {
+      await app.create({ stack_settings: [{ key: 'LOG_LEVEL', value: 'debug' }] });
+      assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy('stage'), {
+        LOG_LEVEL: 'debug',
+        ADMIN_API_URL: ADMIN_URL,
+        ADMIN_API_TOKEN: STORED_TOKEN,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('starts standalone when the manager stores no token, since an address alone would stop the uploader', async () => {
+    const app = await appFor({ storedToken: null });
+    try {
+      const created = await app.create({});
+
+      assert.equal(created.status, 202, JSON.stringify(created.body));
+      assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy('stage'), {});
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('starts standalone for a deployment that runs no uploader, and for a version that takes no token', async () => {
+    const app = await appFor();
+    try {
+      const viewer = await app.create({ name: 'watch', kind: 'viewer' });
+      assert.equal(viewer.status, 202, JSON.stringify(viewer.body));
+      assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy('watch'), {});
+
+      writeVersion('# === Stream Uploader ===\nLOG_LEVEL=info\nSTAMP=\nADMIN_API_URL=\n');
+      const noToken = await app.create({});
+      assert.equal(noToken.status, 202, JSON.stringify(noToken.body));
+      assert.deepEqual(await app.harness.profiles.stackSettingsForDeploy('stage'), {});
+    } finally {
+      await app.close();
+    }
+  });
+});

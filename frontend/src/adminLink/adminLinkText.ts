@@ -60,7 +60,8 @@ export const ADMIN_LINK_OFF_NOTE =
 export const ADMIN_LINK_ABSENT = 'This version takes no web2 admin link, so the uploader runs standalone.';
 
 /** Said in place of the group when the version's settings could not be read. */
-export const ADMIN_LINK_UNREAD = "This version's settings could not be read, so the uploader keeps what its version sets.";
+export const ADMIN_LINK_UNREAD =
+  "This version's settings could not be read, so the deployment starts with the manager's link where its version takes one, and otherwise keeps what its version sets.";
 
 /** What the choice of the manager's stored token says, which depends on whether it has one. */
 export function storedTokenDetail(stored: boolean): string {

@@ -560,4 +560,30 @@ describe("the mock's create with the manager's stored web2 admin token", { concu
     assert.equal(entryOf(catalog, 'ADMIN_API_URL').storedValue, ADMIN_URL);
     assert.equal(JSON.stringify(catalog).includes(token), false);
   });
+
+  it("refuses the stored token for an address on another origin than the manager's, and creates nothing", async () => {
+    const name = `mock-linked-${nextProfile++}`;
+
+    const refused = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'ADMIN_API_URL', value: 'https://elsewhere.offline.example' }], use_manager_admin_token: true,
+    });
+
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.error, 'admin_token_elsewhere');
+    assert.equal((await call(`/profiles/${name}`)).status, 404);
+  });
+
+  it("links a create for an uploader that names neither key with the manager's own link", async () => {
+    const name = `mock-linked-${nextProfile++}`;
+
+    const created = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2, stamp_id: 'ab'.repeat(32),
+    });
+    const catalog = await settingsOf(name);
+
+    assert.equal(created.status, 202, JSON.stringify(created.body));
+    assert.equal(entryOf(catalog, 'ADMIN_API_URL').storedValue, ADMIN_URL);
+    assert.equal(entryOf(catalog, 'ADMIN_API_TOKEN').stored, true);
+  });
 });

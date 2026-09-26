@@ -361,6 +361,7 @@ async function main(): Promise<void> {
   } catch (err) {
     logger.warn(`[Boot] the interrupted deployments were not judged: ${getErrorMessage(err)}. They stay as they are.`);
   }
+  const managerAdminLink = new ManagerAdminLinkRepository(database.pool);
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
@@ -374,6 +375,7 @@ async function main(): Promise<void> {
     portReservations,
     undefined,
     config.beeRpcEndpoint,
+    managerAdminLink,
   );
   const deployService = new DeployService(profileService, orchestrator);
 
@@ -398,7 +400,6 @@ async function main(): Promise<void> {
     async () => new Set((await profileRepository.list()).map((p) => p.name)),
   );
 
-  const managerAdminLink = new ManagerAdminLinkRepository(database.pool);
 
   apiServer = startApiServer(
     {

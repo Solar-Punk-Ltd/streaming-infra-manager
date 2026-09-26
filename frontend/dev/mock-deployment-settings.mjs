@@ -36,6 +36,7 @@ import {
   adminLinkEditProblem,
   adminOriginOf,
   defaultServicesFor,
+  editsAdminLink,
   editsEngineSettings,
   engineOfServices,
   engineSettingFieldOf,
@@ -548,6 +549,23 @@ export async function createdSettingsRefusal(stackSettings, version, shape, name
 /** The address a create gives the new deployment's uploader: the one it sends, else its version's. */
 function createdAdminUrl(settings, shape) {
   return settings.find(({ key }) => key === ADMIN_API_URL_KEY)?.value ?? versionValuesFor(shape)[ADMIN_API_URL_KEY] ?? '';
+}
+
+/**
+ * A create's stack settings with the manager's own web2 admin link added, as
+ * the manager adds it: for a deployment that runs a stream uploader, when the
+ * create names neither key and asks for no token, the manager stores an
+ * address and a token, and the version lets a create set both keys.
+ */
+export function withManagerLink(stackSettings, useManagerToken, version, shape) {
+  const named = stackSettings ?? [];
+  const untouched = { stackSettings, useManagerToken };
+  if (useManagerToken || editsAdminLink(named) || !managerAdminLink.url || !managerAdminLink.tokenStored || !version?.buildId) return untouched;
+  if (!defaultServicesFor({ kind: shape.kind, components: shape.components }).includes('stream-uploader')) return untouched;
+  const { entries } = newDeploymentCatalogOf(version, shape);
+  const settable = (key) => entries.some((entry) => entry.key === key && entry.declared && entry.owner === null);
+  if (!settable(ADMIN_API_URL_KEY) || !settable(ADMIN_API_TOKEN_KEY)) return untouched;
+  return { stackSettings: [...named, { key: ADMIN_API_URL_KEY, value: managerAdminLink.url }], useManagerToken: true };
 }
 
 /** Why the manager's stored token cannot go into a deployment created with these settings, in the manager's words. */
