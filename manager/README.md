@@ -137,13 +137,14 @@ All command endpoints stream output as Server-Sent Events
 | GET    | `/profiles/:name` | none                                              | Single profile.                                               |
 | DELETE | `/profiles/:name` | none                                              | Releases the slot.                                            |
 | PUT    | `/profiles/:name` | the editable fields                               | Full edit. 202 and the profile.                               |
-| PATCH  | `/profiles/:name/notes` | `{ notes, revision }`                       | Notes alone, without a redeploy.                              |
+| PATCH  | `/profiles/:name/notes` | `{ notes, notes_revision }`                 | Notes alone, without a redeploy.                              |
 | GET    | `/profiles/:name/srt-passphrase` | none | `{ srt_passphrase }`, `no-store`. The deployment's own SRT passphrase, which the row no longer carries. Every read is logged with the signed-in user's name. |
 | GET    | `/profiles/:name/uploader-health` | none | `{ state, reasons, waitingSince?, node?, startGateWarnings? }`. What this deployment's own `stream-uploader` says about itself, read off its API port. `state` is one of `ok`, `waiting_for_node`, `warned`, `unhealthy`, `unreachable` or `not_deployed`. |
 | GET    | `/profiles/:name/srt-ingest` | none | `{ state, windowSeconds, reports?, connections?, counts?, percent?, verdict? }`. SRS's own count of the SRT link's packets over the last minute, read out of the engine's log. `state` is one of `measured`, `no_reports`, `not_running`, `unreadable` or `not_srs`, and `verdict` is `healthy`, `degraded` or `bad`. |
 
 `POST /profiles` takes `name` and `kind`, one of `streamer`, `viewer`, `custom`
-or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
+or `abr-uploader`, with `custom` when `kind` is left out. Everything else is
+optional: `components`, `host`, `notes`,
 `stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
 `stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
 `rpc_endpoint_source`, `node_mode`, `engine_settings`, `stack_settings` and
@@ -204,8 +205,7 @@ rather than storing keys nothing would read.
 
 `stack_settings` is create-only too, and `POST /groups` takes it on the same
 terms: a list of `{ key, value }`, each value text, that the new deployment
-starts with instead of its version's values (2026-09-26,
-`feat/deployment-settings-wizard`). It is held to the rules a save of the
+starts with instead of its version's values (2026-09-26, #58). It is held to the rules a save of the
 deployment's own settings is held to, against the list `GET
 /versions/:id/settings-catalog` answers for a deployment of the kind, services
 and host the body describes: a key the version does not declare, a key one of
@@ -783,9 +783,11 @@ way a settings save claims it, the file stored, the engine recreated, and the
 container inspected every two seconds for twenty. An engine that is not a
 running container with no restarts by then gets the previous file back, is
 recreated again, and `engine_config_error` on the profile says why, with the
-engine's last log lines. The watch lives in the manager process: a manager
-restart during those twenty seconds leaves the new file applied and nothing
-reverted.
+engine's last log lines. A manager restarted during a rollout settles it at
+boot. A running engine with no restarts is watched again in full, one that
+shows it failed gets the previous file back, and one the manager cannot tell
+about is marked interrupted, with `POST /profiles/:name/engine-config/verify`
+and `POST /profiles/:name/engine-config/restore-previous` as the two ways out.
 
 Where every directive is documented: SRS's annotated
 [full.conf](https://github.com/ossrs/srs/blob/develop/trunk/conf/full.conf)
@@ -921,7 +923,7 @@ one is generated per deployment as before, and a value already in
 `profiles.stack_secrets` still wins over both, because rotating the token a
 running container was started with is a decision rather than a side effect.
 
-**A deployment's own settings** (2026-09-26, `feat/deployment-settings-store`).
+**A deployment's own settings** (2026-09-26, #55).
 Levi ruled on 2026-09-25 that every key a deployment's version declares is
 editable per deployment, with the version's value as the default. The values
 are stored on the deployment, plain ones in `profiles.stack_settings` and
