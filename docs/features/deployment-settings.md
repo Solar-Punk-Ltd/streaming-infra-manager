@@ -70,15 +70,17 @@ lands whole or not at all. Turning the ABR ladder off in the deployment's Edit d
 settings out of the engine settings by key, so a value saved from this card while that edit was on
 its way stays.
 
-A save recreates nothing, and Apply recreates the engine for an engine setting, and the uploader with
-it for the segment length and the OvenMediaEngine poll interval, which the uploader reads too. That
-comes from the same record of what each container got as for any key.
+A save recreates nothing. Apply then recreates the containers that read what changed: the engine for
+an engine setting, the engine and the uploader for the segment length, which both read, and the
+uploader alone for the OvenMediaEngine poll interval, which only the uploader reads. That comes from
+the same record of what each container got as for any key.
 
 The engine settings route, `PUT /profiles/:name/engine-settings`, stays as the way scripts save and
-recreate in one call. It moves the same revision, and it reads the stored settings with that revision
-before it writes, so it is refused with `engine_settings_changed` when a save from the page landed in
-between, and a page that read before it is refused with `deployment_settings_changed`. Neither save
-writes over the other unseen.
+recreate in one call. It always recreates the engine, and the uploader as well when a setting the
+uploader reads changed, so for the poll interval it recreates both. It moves the same revision, and
+it reads the stored settings with that revision before it writes, so it is refused with
+`engine_settings_changed` when a save from the page landed in between, and a page that read before it
+is refused with `deployment_settings_changed`. Neither save writes over the other unseen.
 
 ## What is never shown
 

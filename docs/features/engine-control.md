@@ -82,8 +82,9 @@ Update 2026-09-26, on `feat/deployment-settings-engine`: the Engine card's setti
 Levi ruled that day that a deployment has one list of settings, so its engine settings are edited
 in the deployment's **Stack settings** card, in an **Engine settings** section of their own at the
 top of its list, with the fields, defaults, help and rules the drawer had. A save there stores and
-recreates nothing, and Apply recreates the engine, and the uploader with it for the segment length
-and the OvenMediaEngine poll interval, which the uploader reads too.
+recreates nothing, and Apply recreates the containers that read what changed: the engine for an
+engine setting, the engine and the uploader for the segment length, and the uploader alone for the
+OvenMediaEngine poll interval, which only the uploader reads.
 [deployment-settings.md](deployment-settings.md) describes the card. The Engine card keeps its list
 of what the engine runs with and where each value came from, and its config file dialog, and its
 **Settings** button brings that section into view with its first setting focused. The engine
