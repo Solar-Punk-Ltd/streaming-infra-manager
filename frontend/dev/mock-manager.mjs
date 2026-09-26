@@ -53,6 +53,7 @@ import {
   resolveAttempt,
   seedAttempts,
 } from './mock-attempts.mjs';
+import { adminLinkRoutes } from './mock-admin-link.mjs';
 import {
   copyStoredSettings,
   createdSettingsRefusal,
@@ -923,6 +924,7 @@ const ROUTES = [
     },
   ],
   ...attemptRoutes(readBody, publish),
+  ...adminLinkRoutes({ readBody }),
   ...createTargetRoutes(readBody),
   ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish, settingsSaved: engineSettingsSaved }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
