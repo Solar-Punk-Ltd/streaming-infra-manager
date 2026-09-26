@@ -1,6 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import {
   type DeploymentSettingsApplied,
   type DeploymentSettingsCatalog,
@@ -8,11 +5,11 @@ import {
   type DeploymentSettingsSaved,
   engineForComponents,
   isSecretSettingKey,
+  type NewDeploymentSettingsCatalog,
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../../types/index.js';
 import { TRANSITIONAL_STATUSES } from '../../types/index.js';
-import { baseEnvPath, engineEnvPath } from '../../utils/envUtils.js';
 import type { ContainerRepository } from '../ContainerRepository.js';
 import type { DeploymentOrchestrator } from '../DeploymentOrchestrator.js';
 import {
@@ -22,18 +19,19 @@ import {
   ProfileConfigError,
   ProfileInstanceChangedError,
   ProfileNotFoundError,
+  StackVersionNotFoundError,
 } from '../errors/index.js';
 import { Logger } from '../Logger.js';
 import { isLocalTarget, targetAlias } from '../ports/DeployTargets.js';
 import type { ProfileRepository, StackSettingsChange } from '../ProfileRepository.js';
+import type { StackVersionRepository } from '../versions/StackVersionRepository.js';
 
 import { deploymentSettingsCatalogOf } from './deploymentSettingsCatalog.js';
+import { newDeploymentSettingsCatalogFor, type NewDeploymentShape } from './newDeploymentSettings.js';
 import { settingEditProblems } from './settingEditProblems.js';
+import { versionSettingsFilesAt } from './versionSettingsFiles.js';
 
 const logger = Logger.getInstance();
-
-const ROOT_SAMPLE = '.env.sample';
-const ENGINES_DIR = 'engines';
 
 /** A deployment on its way out, whose settings no page should still be changing. */
 const REMOVING_STATUS = 'REMOVING';
@@ -52,10 +50,18 @@ export class DeploymentSettingsService {
     private readonly profiles: ProfileRepository,
     private readonly containers: ContainerRepository,
     private readonly orchestrator: DeploymentOrchestrator,
+    private readonly versions: Pick<StackVersionRepository, 'findById'>,
   ) {}
 
   async catalog(name: string): Promise<DeploymentSettingsCatalog> {
     return this.catalogOf(await this.profileNamed(name));
+  }
+
+  /** The list a deployment of this version would start with, for the wizard that creates it. Stores and reads nothing of any deployment. */
+  async newDeploymentCatalog(versionId: number, shape: NewDeploymentShape): Promise<NewDeploymentSettingsCatalog> {
+    const version = await this.versions.findById(versionId);
+    if (!version) throw new StackVersionNotFoundError(versionId);
+    return newDeploymentSettingsCatalogFor(version, shape);
   }
 
   /** Stores one save, or refuses all of it, and answers the revision the settings are at now. */
@@ -123,10 +129,7 @@ export class DeploymentSettingsService {
       engine,
       contract: next.version.contract,
       buildId: next.version.buildId ?? null,
-      rootSampleText: readIfPresent(join(next.root, ROOT_SAMPLE)),
-      engineSampleText: readIfPresent(join(next.root, ENGINES_DIR, engine, ROOT_SAMPLE)),
-      baseEnvText: readIfPresent(baseEnvPath(next.root)),
-      engineEnvText: readIfPresent(engineEnvPath(next.root, engine)),
+      ...versionSettingsFilesAt(next.root, engine),
       stored: { plain: stored.plain, secretKeys: stored.secretKeys },
       revision: stored.revision,
       nextEnv: next.env,
@@ -146,8 +149,4 @@ function changeOf(save: DeploymentSettingsSave): StackSettingsChange {
     else change.plain[key] = value;
   }
   return change;
-}
-
-function readIfPresent(path: string): string {
-  return existsSync(path) ? readFileSync(path, 'utf8') : '';
 }

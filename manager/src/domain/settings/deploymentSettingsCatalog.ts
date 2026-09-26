@@ -6,6 +6,7 @@ import {
   type DeploymentSettingsDrift,
   type EngineName,
   isSecretSettingKey,
+  type NewDeploymentSettingsCatalog,
   type SettingRunningState,
   type StackContract,
   stackSettingFieldOf,
@@ -19,7 +20,7 @@ import { sampleCatalogOf, type SampleCatalogEntry } from '../versions/envSetting
 import { portTableOf } from '../versions/portTable.js';
 
 import { isChainEndpointKey, recordedStateOf } from './runningRecord.js';
-import { settingOwnerOf } from './settingOwners.js';
+import { type SettingOwnerContext, settingOwnerOf } from './settingOwners.js';
 
 /** Everything a deployment's settings list is worked out from, read by the caller. */
 export interface CatalogInput {
@@ -46,24 +47,73 @@ export interface CatalogInput {
   isLocalTarget: boolean;
 }
 
+/**
+ * What a deployment that does not exist yet is listed from: the version's side
+ * of `CatalogInput`, and whether it would run on the manager's own host.
+ */
+export type NewDeploymentCatalogInput = Pick<
+  CatalogInput,
+  'contract' | 'buildId' | 'rootSampleText' | 'engineSampleText' | 'baseEnvText' | 'engineEnvText' | 'isLocalTarget'
+> & {
+  versionId: number;
+  /** Keys the manager generates a secret for at the first deploy, because the version supplies none. */
+  generatedKeys: readonly string[];
+};
+
+/** What one list is worked out from, whether the deployment exists or not. */
+type ListInput = Omit<CatalogInput, 'profile' | 'engine' | 'buildId' | 'revision'>;
+
+/** One key as the list answers it, with the services whose running container got another value. */
+interface ListedSetting {
+  entry: DeploymentSettingEntry;
+  differing: string[];
+}
+
 /** The statuses whose containers run, so Apply means something. */
 const RUNNING_STATUSES: readonly string[] = ['RUNNING', 'ERROR'];
+
+const NOTHING_STORED: CatalogInput['stored'] = { plain: {}, secretKeys: [] };
 
 /** A deployment's settings as its page lists them. */
 export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSettingsCatalog {
   const running = RUNNING_STATUSES.includes(input.profile.status);
-  const readers = readersByKey(input.contract);
-  const version = { ...parseEnvText(input.engineEnvText), ...parseEnvText(input.baseEnvText) };
-  const ownerContext = {
-    ports: [...portTableOf(input.contract), ...(input.contract?.portAliases ?? [])],
-    isLocalTarget: input.isLocalTarget,
+  const listed = listedSettingsOf(input, running);
+  return {
+    instanceId: input.profile.instance_id,
+    revision: input.revision,
+    buildId: input.buildId,
+    entries: listed.map(({ entry }) => entry),
+    drift: driftOf(listed),
+    running,
   };
+}
 
-  const entries = listedKeysOf(input).map(({ sample: declared, isDeclared }) => {
+/**
+ * The settings a deployment would start with on a version, before it exists,
+ * as the wizard that creates it lists them. Its first deploy writes the
+ * version's value for a key the operator decides. A key one of its controls
+ * decides has no value yet, because the manager works that out at the deploy.
+ */
+export function newDeploymentSettingsCatalogOf(input: NewDeploymentCatalogInput): NewDeploymentSettingsCatalog {
+  const ownerContext = ownerContextOf(input.contract, input.isLocalTarget);
+  const firstDeployEnv = Object.fromEntries(
+    Object.entries(versionValuesOf(input)).filter(([key]) => settingOwnerOf(key, ownerContext) === null),
+  );
+  const listed = listedSettingsOf({ ...input, stored: NOTHING_STORED, nextEnv: firstDeployEnv, records: [] }, false);
+  return { versionId: input.versionId, buildId: input.buildId, entries: listed.map(({ entry }) => entry) };
+}
+
+function listedSettingsOf(input: ListInput, running: boolean): ListedSetting[] {
+  const readers = readersByKey(input.contract);
+  const version = versionValuesOf(input);
+  const ownerContext = ownerContextOf(input.contract, input.isLocalTarget);
+
+  return listedKeysOf(input).map(({ sample: declared, isDeclared }) => {
     const key = declared.key;
     const secret = isSecretSettingKey(key);
     const services = readers.get(key) ?? null;
     const differing = differingServices(key, services, input);
+    const owner = settingOwnerOf(key, ownerContext);
     return {
       entry: {
         key,
@@ -77,8 +127,8 @@ export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSett
         stored: key in input.stored.plain || input.stored.secretKeys.includes(key),
         storedValue: secret ? null : (input.stored.plain[key] ?? null),
         value: secret || !(key in input.nextEnv) ? null : shown(key, input.nextEnv[key]!),
-        source: sourceOf(key, input, settingOwnerOf(key, ownerContext) !== null),
-        owner: settingOwnerOf(key, ownerContext),
+        source: sourceOf(key, input, owner !== null),
+        owner,
         field: stackSettingFieldOf(key),
         services,
         running: runningStateOf(running, differing),
@@ -86,22 +136,22 @@ export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSett
       differing: differing === 'unknown' ? [] : differing,
     };
   });
+}
 
-  return {
-    instanceId: input.profile.instance_id,
-    revision: input.revision,
-    buildId: input.buildId,
-    entries: entries.map(({ entry }) => entry),
-    drift: driftOf(entries),
-    running,
-  };
+/** What the version sets: the engine's file, and the root file over it, the way the deploy script reads them. */
+function versionValuesOf(files: Pick<CatalogInput, 'baseEnvText' | 'engineEnvText'>): Record<string, string> {
+  return { ...parseEnvText(files.engineEnvText), ...parseEnvText(files.baseEnvText) };
+}
+
+function ownerContextOf(contract: StackContract | null | undefined, isLocalTarget: boolean): SettingOwnerContext {
+  return { ports: [...portTableOf(contract), ...(contract?.portAliases ?? [])], isLocalTarget };
 }
 
 /**
  * The root sample's keys, then the engine's the root does not declare, then
  * the keys the deployment stores that neither declares any more.
  */
-function listedKeysOf(input: CatalogInput): { sample: SampleCatalogEntry; isDeclared: boolean }[] {
+function listedKeysOf(input: ListInput): { sample: SampleCatalogEntry; isDeclared: boolean }[] {
   const listed = new Map<string, { sample: SampleCatalogEntry; isDeclared: boolean }>();
   for (const sample of [...sampleCatalogOf(input.rootSampleText), ...sampleCatalogOf(input.engineSampleText)]) {
     if (!listed.has(sample.key)) listed.set(sample.key, { sample, isDeclared: true });
@@ -123,7 +173,7 @@ function readersByKey(contract: StackContract | null | undefined): Map<string, s
   return readers;
 }
 
-function sourceOf(key: string, input: CatalogInput, owned: boolean): DeploymentSettingSource {
+function sourceOf(key: string, input: ListInput, owned: boolean): DeploymentSettingSource {
   if (owned) return 'manager';
   if (key in input.stored.plain || input.stored.secretKeys.includes(key)) return 'deployment';
   if (input.generatedKeys.includes(key)) return 'generated';
@@ -146,7 +196,7 @@ function shown(key: string, value: string): string {
 function differingServices(
   key: string,
   services: readonly string[] | null,
-  input: CatalogInput,
+  input: ListInput,
 ): string[] | 'unknown' {
   const records = services === null ? input.records : input.records.filter((record) => services.includes(record.service));
   const states = records.map((record) => ({ service: record.service, state: recordedStateOf(record, key, input.nextEnv[key]) }));
@@ -161,7 +211,7 @@ function runningStateOf(running: boolean, differing: string[] | 'unknown'): Sett
   return differing.length > 0 ? 'differs' : 'same';
 }
 
-function driftOf(entries: readonly { entry: DeploymentSettingEntry; differing: string[] }[]): DeploymentSettingsDrift {
+function driftOf(entries: readonly ListedSetting[]): DeploymentSettingsDrift {
   const behind = entries.filter(({ differing }) => differing.length > 0);
   return {
     keys: behind.map(({ entry }) => entry.key),

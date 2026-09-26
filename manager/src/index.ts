@@ -408,7 +408,7 @@ async function main(): Promise<void> {
       srtIngestHealthService,
       containerControl,
       engineConfigService,
-      deploymentSettingsService: new DeploymentSettingsService(profileRepository, containerRepository, orchestrator),
+      deploymentSettingsService: new DeploymentSettingsService(profileRepository, containerRepository, orchestrator, stackVersionRepository),
       stackVersionService,
       orchestrator,
       deployTargets,

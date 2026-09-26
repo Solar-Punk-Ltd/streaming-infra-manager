@@ -367,6 +367,36 @@ export const createProfileSchema = object({
 
 export type CreateProfileInput = InferType<typeof createProfileSchema>;
 
+/** The services a comma list names, the empty entries left out. */
+export function servicesOfList(value: string | null | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((service) => service.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The deployment a settings list is asked for before it exists, from the query
+ * of `GET /versions/:id/settings-catalog`: its kind, its services as a comma
+ * list, and its host, each held to the rule a create body holds it to.
+ */
+export const newDeploymentShapeQuerySchema = object({
+  kind: string()
+    .oneOf([...PROFILE_KINDS])
+    .default('custom'),
+  components: string()
+    .notRequired()
+    .test(
+      'known-services',
+      `components must be a comma list of ${ALL_SERVICES.join(', ')}`,
+      (value) => servicesOfList(value).every((service) => (ALL_SERVICES as readonly string[]).includes(service)),
+    )
+    .test('one-engine', ONE_ENGINE_MESSAGE, (value) => !hasConflictingEngines(servicesOfList(value))),
+  host: string()
+    .notRequired()
+    .matches(HOST_RE, 'host must be "localhost", an ssh alias, or user@host'),
+}).noUnknown(true);
+
 export const updateProfileSchema = object({
   notes: string().nullable().notRequired().max(500),
   /** The revision the drawer loaded the notes at. Sent with an edited note. */

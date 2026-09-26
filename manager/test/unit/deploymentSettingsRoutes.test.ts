@@ -1,6 +1,7 @@
 /**
- * The three routes of a deployment's own settings, through the real service,
- * an orchestrator over in-memory rows, and a runner that spawns nothing.
+ * The three routes of a deployment's own settings, and the list a deployment
+ * not made yet is created from, through the real service, an orchestrator over
+ * in-memory rows, and a runner that spawns nothing.
  *
  * Unit test, no database and no Docker. `pnpm test` in manager/.
  *
@@ -10,11 +11,11 @@
  * sentence an operator can act on, and nothing answered carries a secret.
  */
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import type { DeploymentSettingsCatalog } from '@streaming-infra-manager/common';
+import type { DeploymentSettingsCatalog, NewDeploymentSettingsCatalog } from '@streaming-infra-manager/common';
 import { Router } from 'express';
 
 import type { SessionInfo } from '../../src/domain/auth/AuthService.js';
@@ -70,6 +71,7 @@ async function appFor(options: { signedIn?: boolean; status?: 'RUNNING' | 'STOPP
     harness.profiles.asRepository(),
     harness.containers.asRepository(),
     harness.orchestrator,
+    harness.versions,
   );
   const outer = Router();
   if (options.signedIn !== false) {
@@ -225,6 +227,140 @@ describe('POST /profiles/:name/settings/apply', () => {
 
       assert.equal(refused.status, 409);
       assert.equal((refused.body as { error: string }).error, 'profile_stopped');
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+const ENGINE_SAMPLES: Readonly<Record<string, string>> = {
+  srs: 'HLS_FRAGMENT=\nSRS_LOG_TANK=console\n',
+  ome: 'OME_ADMISSION_FAIL_OPEN=false\n',
+};
+
+/** Engine samples in the version's tree, which the test that writes them takes out again. */
+function writeEngineSamples(): void {
+  for (const [engine, sample] of Object.entries(ENGINE_SAMPLES)) {
+    mkdirSync(join(root, 'engines', engine), { recursive: true });
+    writeFileSync(join(root, 'engines', engine, '.env.sample'), sample, 'utf8');
+  }
+}
+
+async function newDeploymentList(app: Awaited<ReturnType<typeof startRouterTestApp>>, query: string): Promise<NewDeploymentSettingsCatalog> {
+  const answered = await call(app, 'GET', `/versions/1/settings-catalog${query}`);
+  assert.equal(answered.status, 200, JSON.stringify(answered.body));
+  return answered.body as NewDeploymentSettingsCatalog;
+}
+
+describe('GET /versions/:id/settings-catalog', () => {
+  it('lists what a deployment not made yet starts with, stores nothing and is not cached', async () => {
+    const { app, harness } = await appFor();
+    try {
+      const response = await fetch(`${app.url}/versions/1/settings-catalog?kind=streamer`);
+      const catalog = (await response.json()) as NewDeploymentSettingsCatalog;
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(catalog.versionId, 1);
+      assert.deepEqual(catalog.entries.map((entry) => entry.key), ['LOG_LEVEL', 'ADMIN_API_TOKEN', 'UPLOADER_START_GATES', 'STAMP']);
+      assert.deepEqual(catalog.entries.map((entry) => [entry.stored, entry.running]), [
+        [false, 'not-running'], [false, 'not-running'], [false, 'not-running'], [false, 'not-running'],
+      ]);
+      const stamp = catalog.entries.find((entry) => entry.key === 'STAMP');
+      assert.deepEqual({ owner: stamp?.owner, value: stamp?.value }, { owner: 'stamp', value: null });
+      assert.equal(harness.profiles.rows.size, 1, 'nothing was created');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('takes the engine sample of the engine the components select', async () => {
+    const { app } = await appFor();
+    writeEngineSamples();
+    try {
+      const srs = await newDeploymentList(app, '?kind=streamer');
+      const ome = await newDeploymentList(app, '?kind=custom&components=ome,stream-uploader');
+
+      assert.deepEqual(srs.entries.slice(4).map((entry) => entry.key), ['HLS_FRAGMENT', 'SRS_LOG_TANK']);
+      assert.deepEqual(ome.entries.slice(4).map((entry) => entry.key), ['OME_ADMISSION_FAIL_OPEN']);
+    } finally {
+      rmSync(join(root, 'engines'), { recursive: true, force: true });
+      await app.close();
+    }
+  });
+
+  it('decides the data directories by the host the deployment would run on', async () => {
+    const { app } = await appFor();
+    writeFileSync(join(root, '.env.sample'), 'BEE_UPLOADER_DATA_DIR=\n', 'utf8');
+    try {
+      const here = await newDeploymentList(app, '?kind=streamer');
+      const elsewhere = await newDeploymentList(app, '?kind=streamer&host=deploy@edge-1');
+
+      assert.equal(here.entries[0]?.owner, 'data-dir');
+      assert.equal(elsewhere.entries[0]?.owner, null);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('never answers a secret the version sets', async () => {
+    const { app } = await appFor();
+    writeFileSync(join(root, '.env'), `ENGINE=srs\nLOG_LEVEL=debug\nADMIN_API_TOKEN=${SECRET}\n`, 'utf8');
+    try {
+      const answered = await call(app, 'GET', '/versions/1/settings-catalog?kind=streamer');
+      const token = (answered.body as NewDeploymentSettingsCatalog).entries.find((entry) => entry.key === 'ADMIN_API_TOKEN');
+
+      assert.equal(answered.status, 200);
+      assert.deepEqual({ versionSet: token?.versionSet, versionValue: token?.versionValue, value: token?.value }, {
+        versionSet: true,
+        versionValue: null,
+        value: null,
+      });
+      assert.doesNotMatch(JSON.stringify(answered.body), new RegExp(SECRET));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('refuses a version with no build to read the settings from', async () => {
+    const { app, harness } = await appFor();
+    const candidate = await harness.versions.insert({ name: 'candidate', gitRef: 'main', rootPath: join(root, 'candidate') });
+    // Published under the builds layout, and its build has not landed.
+    Object.assign(candidate, { layout: 'builds', status: 'ready', buildId: null });
+    try {
+      const refused = await call(app, 'GET', `/versions/${candidate.id}/settings-catalog?kind=streamer`);
+
+      assert.equal(refused.status, 409);
+      assert.equal((refused.body as { error: string }).error, 'settings_not_ready');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers 404 for a version that does not exist', async () => {
+    const { app } = await appFor();
+    try {
+      const missing = await call(app, 'GET', '/versions/99/settings-catalog?kind=streamer');
+
+      assert.equal(missing.status, 404);
+      assert.equal((missing.body as { error: string }).error, 'stack_version_not_found');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('refuses a deployment no create body could describe', async () => {
+    const { app } = await appFor();
+    try {
+      const twoEngines = await call(app, 'GET', '/versions/1/settings-catalog?kind=custom&components=srs,ome');
+      const unknownKind = await call(app, 'GET', '/versions/1/settings-catalog?kind=broadcaster');
+      const unknownService = await call(app, 'GET', '/versions/1/settings-catalog?kind=custom&components=srs,teapot');
+      const badHost = await call(app, 'GET', '/versions/1/settings-catalog?kind=custom&host=bad%20host');
+
+      for (const refused of [twoEngines, unknownKind, unknownService, badHost]) {
+        assert.equal(refused.status, 400, JSON.stringify(refused.body));
+        assert.equal((refused.body as { error: string }).error, 'validation_error');
+      }
     } finally {
       await app.close();
     }
