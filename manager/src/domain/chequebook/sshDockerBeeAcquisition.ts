@@ -8,7 +8,7 @@ import { requireBeeBindingTarget } from './DockerBeeBinding.js';
 import { normalizeDockerBeeAcquisitionOptions, type acquireDockerBeeStream, type AcquiredDockerBeeStream,
   type DockerBeeAcquisitionOptions, type QualifiedBeeBridgeExecution } from './acquireDockerBeeStream.js';
 import type { ConnectUnixDocker } from './acquireLocalDockerBeeStream.js';
-import { sshDockerForwardCommand, type SshDockerForwardCommand, type TrustedSshDockerLocator } from './sshDockerForwardCommand.js';
+import { sshDockerForwardCommand, type SshDockerForwardCommand, type SshDockerLocator } from './sshDockerForwardCommand.js';
 import type { ForwardClock, ForwardChild, ForwardChildState, ForwardPathIdentity, ForwardResource as Resource,
   ForwardCleanupReason as CleanupReason, SshForwardCleanup, ForwardSpawnOwnership } from '../../utils/sshForwardResources.js';
 export type { ForwardClock, ForwardChild, ForwardChildState, ForwardPathIdentity, SshForwardCleanup } from '../../utils/sshForwardResources.js';
@@ -103,7 +103,7 @@ class ForwardLease extends Duplex {
 }
 
 /** Begins one inactive, fully owned forward. All resource construction is supplied by trusted dependencies. */
-export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, resolveLocator: (alias: string) => Promise<TrustedSshDockerLocator>,
+export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, resolveLocator: (alias: string) => Promise<SshDockerLocator>,
   options: DockerBeeAcquisitionOptions, dependencies: SshDockerDependencies, qualifyImage: QualifiedBeeBridgeExecution = () => false,
   signal?: AbortSignal, acquisitionDeadlineCap?: number): SshDockerAcquisition {
   const clock = dependencies.clock;

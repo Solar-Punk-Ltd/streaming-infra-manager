@@ -43,7 +43,7 @@ function chainReader(overrides: Partial<ChequebookChainReader> = {}): Chequebook
 }
 
 interface Breakage {
-  readonly runtime?: { readonly rpcEndpoints?: string; readonly dockerTransports?: string };
+  readonly runtime?: { readonly rpcEndpoints?: string; readonly dockerTransports?: string; readonly dockerHost?: string };
   readonly dependencies?: (fixture: ReturnType<typeof syntheticDockerBee>) => Partial<ChequebookServiceDependencies>;
   readonly bee?: SyntheticBeeHandler;
   readonly docker?: SyntheticDockerAnswer;
@@ -115,6 +115,16 @@ describe('a refused transfer names its cause in the answer', { timeout: 20_000 }
 
   it('Docker setting invalid: CHEQUEBOOK_DOCKER_TRANSPORTS does not parse', async t => {
     assertRefused(await refusedDeposit(t, { runtime: { dockerTransports: '{broken' } }), 'docker_setting_invalid');
+  });
+
+  it('Docker route missing: a host written as user@host names no Host block, and nothing is configured for it', async t => {
+    assertRefused(await refusedDeposit(t, { runtime: { dockerTransports: undefined },
+      dependencies: () => ({ captureTarget: async () => ({ ...structuredClone(syntheticTarget), alias: 'deploy@bee-eu-1' }) }) }), 'docker_route_missing');
+  });
+
+  it('Docker route missing: DOCKER_HOST reaches the local Docker some other way than a socket', async t => {
+    assertRefused(await refusedDeposit(t, { runtime: { dockerTransports: undefined, dockerHost: 'tcp://127.0.0.1:2375' },
+      dependencies: () => ({ captureTarget: async () => ({ ...structuredClone(syntheticTarget), alias: 'localhost' }) }) }), 'docker_route_missing');
   });
 
   it('Bee container not found: Docker lists no running container for the deployment', async t => {

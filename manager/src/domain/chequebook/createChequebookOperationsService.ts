@@ -14,7 +14,7 @@ import { PostgresChequebookOperationRepository } from './PostgresChequebookOpera
 import { PostgresChequebookTargetOwnership } from './PostgresChequebookTargetOwnership.js';
 import type { ChequebookOperationRepository } from './ChequebookOperationRepository.js';
 import type { BeeBridgeQualificationRecord } from './beeBridgeQualification.js';
-import { ChequebookDockerTransports } from './ChequebookDockerTransports.js';
+import { ChequebookDockerTransports, localDockerSocketPath } from './ChequebookDockerTransports.js';
 import { OwnedChequebookTransports, type ChequebookTransportDependencies } from './OwnedChequebookTransports.js';
 import { Logger } from '../Logger.js';
 
@@ -31,13 +31,23 @@ export interface ChequebookServiceDependencies extends ChequebookTransportDepend
 /** A saved transfer's node, which the chain registry reads again when it does not know that node's endpoint. */
 type SavedChainNode = Pick<ChequebookOperation, 'chainId' | 'nodeAddress'> & { readonly profileName?: string; readonly profileInstanceId?: string | null };
 
-export function createChequebookOperationsService(pool: Pool,
-  runtime: { rpcEndpoints: string | undefined; dockerTransports: string | undefined }, dependencies: ChequebookServiceDependencies = {}): ChequebookOperationsService {
+/** The manager's own process settings a transfer reads. None of them comes from a request or a profile. */
+export interface ChequebookRuntime {
+  readonly rpcEndpoints: string | undefined;
+  readonly dockerTransports: string | undefined;
+  /** The manager's DOCKER_HOST, which decides the local socket a transfer on localhost uses. */
+  readonly dockerHost?: string | undefined;
+}
+
+export function createChequebookOperationsService(pool: Pool, runtime: ChequebookRuntime,
+  dependencies: ChequebookServiceDependencies = {}): ChequebookOperationsService {
   let chainRegistry: ChequebookChainRegistry | undefined;
   const registry = () => chainRegistry ??= new ChequebookChainRegistry(runtime.rpcEndpoints, dependencies.createChainReader);
   const ownership = new PostgresChequebookTargetOwnership(pool);
   const captureTarget = dependencies.captureTarget ?? ownership.capture.bind(ownership);
-  const transports = new OwnedChequebookTransports(new ChequebookDockerTransports(runtime.dockerTransports, dependencies.qualificationCatalog), dependencies);
+  const routes = new ChequebookDockerTransports(runtime.dockerTransports, dependencies.qualificationCatalog,
+    { localSocketPath: localDockerSocketPath(runtime.dockerHost) });
+  const transports = new OwnedChequebookTransports(routes, dependencies);
   const acquire = transports.acquire.bind(transports);
   const budgets = ownedAcquisitionBudgets(structuredClone(dependencies.preparation ?? {}));
   /** Opens the node's owned connection only to read the endpoint its container runs with. The bridge it opens is closed unused. */

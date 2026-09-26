@@ -17,8 +17,22 @@ export interface TrustedSshDockerLocator {
   readonly hostKeyAlias: string;
 }
 
+/**
+ * The default remote route: the Host block the manager's own ssh configuration
+ * has for the alias, the one TargetDocker reaches with `ssh <alias>`. That
+ * block supplies the address, user, port, identity and known hosts.
+ */
+export interface ConfiguredSshDockerLocator {
+  readonly kind: 'ssh-config';
+  readonly alias: string;
+  readonly remoteSocketPath: string;
+}
+export type SshDockerLocator = TrustedSshDockerLocator | ConfiguredSshDockerLocator;
+/** Where a remote host's Docker listens when nothing says otherwise. */
+export const DEFAULT_REMOTE_DOCKER_SOCKET = '/var/run/docker.sock';
+
 export interface SshDockerForwardCommand {
-  readonly target: Readonly<TrustedSshDockerLocator>;
+  readonly target: Readonly<SshDockerLocator>;
   readonly file: '/usr/bin/ssh';
   readonly args: readonly string[];
   readonly options: {
@@ -30,6 +44,7 @@ export interface SshDockerForwardCommand {
 }
 
 const LOCATOR_FIELDS = ['kind', 'alias', 'host', 'port', 'user', 'remoteSocketPath', 'identityPublicKeyPath', 'agentSocketPath', 'knownHostsPath', 'hostKeyAlias'];
+const CONFIGURED_LOCATOR_FIELDS = ['kind', 'alias', 'remoteSocketPath'];
 const FORWARD_FIELDS = ['localSocketPath', 'acquisitionTimeoutMs'];
 
 function exactFields(input: unknown, expected: readonly string[]): Record<string, unknown> {
@@ -65,43 +80,89 @@ function integer(input: unknown, maximum: number): number {
   return input;
 }
 
+const SPAWN_OPTIONS = () => Object.freeze({ shell: false, detached: false,
+  stdio: Object.freeze(['ignore', 'ignore', 'pipe'] as const), env: Object.freeze({ PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' }) });
+
+/** What every forward refuses: multiplexing, proxies, other forwarding, prompts and any host key leniency. */
+interface ForwardRestrictions {
+  readonly session: readonly string[];
+  readonly authentication: readonly string[];
+  readonly forward: readonly string[];
+}
+
+function forwardRestrictions(timeoutSeconds: number): ForwardRestrictions {
+  return {
+    session: ['-N', '-T', '-n',
+      '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ControlPersist=no',
+      '-o', 'SessionType=none', '-o', 'ForkAfterAuthentication=no',
+      '-o', 'PermitLocalCommand=no', '-o', 'ProxyCommand=none', '-o', 'ProxyJump=none',
+      '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'Tunnel=no', '-o', 'CanonicalizeHostname=no',
+      '-o', 'BatchMode=yes', '-o', 'PreferredAuthentications=publickey', '-o', 'PubkeyAuthentication=yes'],
+    authentication: ['-o', 'PasswordAuthentication=no', '-o', 'KbdInteractiveAuthentication=no', '-o', 'GSSAPIAuthentication=no', '-o', 'HostbasedAuthentication=no',
+      '-o', 'StrictHostKeyChecking=yes', '-o', 'UpdateHostKeys=no', '-o', 'VerifyHostKeyDNS=no', '-o', 'CheckHostIP=no'],
+    forward: ['-o', 'ExitOnForwardFailure=yes', '-o', 'StreamLocalBindMask=0177', '-o', 'StreamLocalBindUnlink=no',
+      '-o', 'ConnectionAttempts=1', '-o', `ConnectTimeout=${timeoutSeconds}`, '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=1'],
+  };
+}
+
+/** The explicit forward: every address, key and known-hosts path comes from the operator's override, and -F /dev/null reads no config file. */
+function explicitForward(expectedAlias: string, input: unknown, localSocketPath: string, restrictions: ForwardRestrictions): SshDockerForwardCommand {
+  const captured = exactFields(input, LOCATOR_FIELDS);
+  if (typeof expectedAlias !== 'string' || !expectedAlias || targetAlias(expectedAlias) !== captured.alias || captured.kind !== 'ssh-unix') throw new DockerBeeAcquisitionError();
+  const target: Readonly<TrustedSshDockerLocator> = Object.freeze({ kind: 'ssh-unix', alias: expectedAlias,
+    host: destinationHost(captured.host), port: integer(captured.port, 65535),
+    user: identifier(captured.user, /^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$/),
+    hostKeyAlias: identifier(captured.hostKeyAlias, /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/),
+    remoteSocketPath: literalPath(captured.remoteSocketPath, true), identityPublicKeyPath: literalPath(captured.identityPublicKeyPath),
+    agentSocketPath: literalPath(captured.agentSocketPath), knownHostsPath: literalPath(captured.knownHostsPath),
+  });
+  if (!target.identityPublicKeyPath.endsWith('.pub') || posix.basename(target.identityPublicKeyPath).length <= 4) throw new DockerBeeAcquisitionError();
+  // -o uses OpenSSH's option parser. Quotes preserve ordinary spaces after literal-path validation excludes expansion and quoting syntax.
+  const args = Object.freeze([
+    '-F', '/dev/null', ...restrictions.session,
+    '-o', 'IdentitiesOnly=yes', '-i', target.identityPublicKeyPath,
+    '-o', `IdentityAgent="${target.agentSocketPath}"`, '-o', 'PKCS11Provider=none',
+    ...restrictions.authentication,
+    '-o', `UserKnownHostsFile="${target.knownHostsPath}"`, '-o', 'GlobalKnownHostsFile=/dev/null', '-o', `HostKeyAlias=${target.hostKeyAlias}`,
+    ...restrictions.forward,
+    '-L', `${localSocketPath}:${target.remoteSocketPath}`, '-p', String(target.port), '-l', target.user, '--', target.host,
+  ]);
+  return Object.freeze({ target, file: '/usr/bin/ssh', args, options: SPAWN_OPTIONS() });
+}
+
+/**
+ * The default forward through the manager's own ssh configuration, resolved
+ * exactly as TargetDocker's `ssh <alias>` is: no -F, so the system config that
+ * the manager's image links to its Host blocks is read, and that block
+ * supplies the address, user, port, identity and known hosts. The alias goes
+ * after `--`, and one with `@` is refused because ssh would read it as a
+ * destination rather than the name of a Host block.
+ */
+function configuredForward(expectedAlias: string, input: unknown, localSocketPath: string, restrictions: ForwardRestrictions): SshDockerForwardCommand {
+  const captured = exactFields(input, CONFIGURED_LOCATOR_FIELDS);
+  if (typeof expectedAlias !== 'string' || !expectedAlias || expectedAlias.includes('@') || targetAlias(expectedAlias) !== captured.alias) {
+    throw new DockerBeeAcquisitionError('docker_route_missing');
+  }
+  const target: Readonly<ConfiguredSshDockerLocator> = Object.freeze({ kind: 'ssh-config', alias: expectedAlias,
+    remoteSocketPath: literalPath(captured.remoteSocketPath, true) });
+  const args = Object.freeze([
+    ...restrictions.session, '-o', 'IdentitiesOnly=yes', '-o', 'PKCS11Provider=none', ...restrictions.authentication, ...restrictions.forward,
+    '-L', `${localSocketPath}:${target.remoteSocketPath}`, '--', target.alias,
+  ]);
+  return Object.freeze({ target, file: '/usr/bin/ssh', args, options: SPAWN_OPTIONS() });
+}
+
 /**
  * Pure argv construction, no path-content reads or process creation. Do not log the returned routing paths.
  * The caller must own the local socket directory and enforce the original monotonic acquisition deadline.
  */
 export function sshDockerForwardCommand(expectedAlias: string, input: unknown, options: unknown): SshDockerForwardCommand {
   try {
-    const captured = exactFields(structuredClone(input), LOCATOR_FIELDS);
+    const captured: unknown = structuredClone(input);
     const limits = exactFields(structuredClone(options), FORWARD_FIELDS);
-    if (typeof expectedAlias !== 'string' || !expectedAlias || targetAlias(expectedAlias) !== captured.alias || captured.kind !== 'ssh-unix') throw new DockerBeeAcquisitionError();
-    const target: Readonly<TrustedSshDockerLocator> = Object.freeze({ kind: 'ssh-unix', alias: expectedAlias,
-      host: destinationHost(captured.host), port: integer(captured.port, 65535),
-      user: identifier(captured.user, /^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$/),
-      hostKeyAlias: identifier(captured.hostKeyAlias, /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/),
-      remoteSocketPath: literalPath(captured.remoteSocketPath, true), identityPublicKeyPath: literalPath(captured.identityPublicKeyPath),
-      agentSocketPath: literalPath(captured.agentSocketPath), knownHostsPath: literalPath(captured.knownHostsPath),
-    });
-    if (!target.identityPublicKeyPath.endsWith('.pub') || posix.basename(target.identityPublicKeyPath).length <= 4) throw new DockerBeeAcquisitionError();
     const localSocketPath = literalPath(limits.localSocketPath, true);
-    const timeoutSeconds = Math.ceil(integer(limits.acquisitionTimeoutMs, 30_000) / 1000);
-    // -o uses OpenSSH's option parser. Quotes preserve ordinary spaces after literal-path validation excludes expansion and quoting syntax.
-    const args = Object.freeze([
-      '-F', '/dev/null', '-N', '-T', '-n',
-      '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ControlPersist=no',
-      '-o', 'SessionType=none', '-o', 'ForkAfterAuthentication=no',
-      '-o', 'PermitLocalCommand=no', '-o', 'ProxyCommand=none', '-o', 'ProxyJump=none',
-      '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'Tunnel=no', '-o', 'CanonicalizeHostname=no',
-      '-o', 'BatchMode=yes', '-o', 'PreferredAuthentications=publickey', '-o', 'PubkeyAuthentication=yes',
-      '-o', 'IdentitiesOnly=yes', '-i', target.identityPublicKeyPath,
-      '-o', `IdentityAgent="${target.agentSocketPath}"`, '-o', 'PKCS11Provider=none',
-      '-o', 'PasswordAuthentication=no', '-o', 'KbdInteractiveAuthentication=no', '-o', 'GSSAPIAuthentication=no', '-o', 'HostbasedAuthentication=no',
-      '-o', 'StrictHostKeyChecking=yes', '-o', 'UpdateHostKeys=no', '-o', 'VerifyHostKeyDNS=no', '-o', 'CheckHostIP=no',
-      '-o', `UserKnownHostsFile="${target.knownHostsPath}"`, '-o', 'GlobalKnownHostsFile=/dev/null', '-o', `HostKeyAlias=${target.hostKeyAlias}`,
-      '-o', 'ExitOnForwardFailure=yes', '-o', 'StreamLocalBindMask=0177', '-o', 'StreamLocalBindUnlink=no',
-      '-o', 'ConnectionAttempts=1', '-o', `ConnectTimeout=${timeoutSeconds}`, '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=1',
-      '-L', `${localSocketPath}:${target.remoteSocketPath}`, '-p', String(target.port), '-l', target.user, '--', target.host,
-    ]);
-    return Object.freeze({ target, file: '/usr/bin/ssh', args, options: Object.freeze({ shell: false, detached: false,
-      stdio: Object.freeze(['ignore', 'ignore', 'pipe'] as const), env: Object.freeze({ PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' }) }) });
-  } catch { throw new DockerBeeAcquisitionError(); }
+    const restrictions = forwardRestrictions(Math.ceil(integer(limits.acquisitionTimeoutMs, 30_000) / 1000));
+    const configured = !!captured && typeof captured === 'object' && (captured as Record<string, unknown>).kind === 'ssh-config';
+    return configured ? configuredForward(expectedAlias, captured, localSocketPath, restrictions) : explicitForward(expectedAlias, captured, localSocketPath, restrictions);
+  } catch (error) { throw DockerBeeAcquisitionError.keeping(error); }
 }

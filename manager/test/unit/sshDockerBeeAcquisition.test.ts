@@ -92,7 +92,7 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
     const h = fakeForwardHarness(); const target = structuredClone(syntheticTarget); const limits = { ...forwardLimits }; const locator = remoteLocator();
     const ready = deferred<typeof locator>(); const acquire = h.dependencies.acquire;
     h.dependencies.acquire = async (...args) => { assert.equal(args[1].daemonId, syntheticTarget.daemonId); assert.ok(Object.isFrozen(args[1].profile)); return acquire(...args); };
-    const spawn = h.dependencies.spawn; h.dependencies.spawn = command => { assert.equal(command.target.host, 'example.invalid'); Object.assign(locator, { host: 'mutated.invalid' }); return spawn(command); };
+    const spawn = h.dependencies.spawn; h.dependencies.spawn = command => { assert.equal(command.target.kind === 'ssh-unix' && command.target.host, 'example.invalid'); Object.assign(locator, { host: 'mutated.invalid' }); return spawn(command); };
     const handle = beginSshDockerBeeAcquisition(target, () => ready.promise, limits, h.dependencies, () => true);
     Object.assign(target.profile, { name: 'mutated' }); Object.assign(target, { daemonId: 'mutated' }); limits.acquisitionTimeoutMs = 1;
     ready.resolve(locator); await handle.result; handle.dispose(); assert.deepEqual(await handle.cleanup, { state: 'closed' });
