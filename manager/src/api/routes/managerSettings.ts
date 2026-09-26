@@ -7,8 +7,8 @@ import { signedInUser } from '../middleware/requireSession.js';
 import { validateBodyRefusingUnknown } from '../middleware/validate.js';
 
 /**
- * The manager's own settings, which its Manager settings page edits: today
- * the web2 admin link every new uploader deployment starts with.
+ * The manager's own settings, which its Manager settings page edits: the web2
+ * admin link every new uploader deployment starts with.
  *
  * Mounted after the session gate like every other router here. The token is
  * never answered, only whether one is stored, and the answer is never cached,
