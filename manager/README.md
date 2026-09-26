@@ -638,7 +638,9 @@ internal lookup of a stream nobody declared, `GET
 with the token, and where there is a stream address to compare, the admin's
 public `GET <address>/api/config` without it. The card's test uses what the
 deployment's next deploy would give its uploader, the saved values, and the
-deployment's stream address. A stored token is presented only to the origin it
+address of the stream key that deploy gives it, the deployment's own or the one
+its version's base `.env` sets, derived in memory and never sent, answered or
+logged. A stored token is presented only to the origin it
 was stored for. It answers one of these, and the page says one sentence for
 each:
 

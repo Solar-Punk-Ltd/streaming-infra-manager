@@ -121,11 +121,15 @@ five seconds a request, the uploader's own lookup timeout, and reads at most
 anything the admin said, the address or a token. The log names who tested and
 the outcome.
 
-The stream address a deployment's test compares is the `public_key` the manager
-holds for its own stream key. A deployment with no stream key of its own signs
-with its version's `STREAM_KEY`, whose address the manager does not hold, so its
-test compares no owner. The wizard's test compares the address of the stream
-key chosen in the step, which the browser derives.
+The stream address a deployment's test compares is the address of the
+`STREAM_KEY` its next deploy gives the uploader, the deployment's own key or,
+where it stores none, the one its version's base `.env` sets. The manager
+derives it in memory with `addressOfStreamKey` in `common/src/streamKey.ts`,
+and the key itself goes nowhere: not to the admin, an answer, an error or a
+log line. Only a deployment for which neither sets a key compares no owner. The
+wizard's test compares the address of the stream key chosen in the step, which
+the browser derives with the same function. This holds from 2026-09-26, commit
+1256076.
 
 ## What it reaches
 
@@ -178,9 +182,6 @@ and so on, and every sentence can be seen with `pnpm -C frontend dev:mock`.
 - A token stored before migration 042 is recorded by its next deploy for the
   address that deploy gives the uploader, so an address its version moved
   before that deploy is taken as the one it was stored for.
-- The card's test compares no owner for a deployment whose stream key comes
-  from its version's base `.env`, because the manager holds no address for that
-  key and has no keccak-256 to derive one.
 - A query string in the address passes the field and reaches the uploader, which
   puts its paths after the query and so asks the wrong thing. Test connection
   builds its requests the same way and answers `not-admin` for it.
