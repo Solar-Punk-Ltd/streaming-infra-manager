@@ -694,12 +694,12 @@ things an operator does to it by hand.
 
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
-| GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason, notInConfig }` |
+| GET | `/profiles/:name/engine` | none | `{ identity, engine, abr, settings, defaults, defaultSources, observations, effective, fields, live, liveUnavailableReason, notInConfig }` |
 | PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, SRT_LATENCY?, ABR_*? }` for SRS, `{ HLS_SEGMENT_DURATION?, HLS_SEGMENT_COUNT?, OME_HLS_POLL_INTERVAL_MS? }` for OME, the whole set, and `expectedInstanceId?`. `{}` puts every setting back to its default | 202 and the profile. For scripts: saves and recreates in one call, the engine container and the uploader with it when a key the uploader also reads changed. 400 `validation_error` naming a key neither engine reads, never its value, with nothing stored, because the body replaces the whole set and a misspelled key would have reset the setting it meant. 409 `engine_settings_changed` when a save of the deployment's settings landed after it read them |
 | POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
 | GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store`. The config the running container generated |
-| GET | `/profiles/:name/engine-config` | none | `{ engine, supported, unsupportedReason, config, template, placeholders, error, references }`, `no-store` |
+| GET | `/profiles/:name/engine-config` | none | `{ engine, supported, unsupportedReason, config, template, placeholders, state, error, references }`, `no-store` |
 | PUT | `/profiles/:name/engine-config` | `{ config }` | 202 and the profile, or 400 with the engine's own reason. Recreates the engine and watches it |
 | DELETE | `/profiles/:name/engine-config` | none | 202 and the profile. Back to the version's template |
 
