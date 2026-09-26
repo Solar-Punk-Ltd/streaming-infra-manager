@@ -26,6 +26,9 @@ let base;
 let cookie;
 let nextProfile = 1;
 
+const ADMIN_LINK_REFUSAL =
+  'ADMIN_API_URL is set and ADMIN_API_TOKEN is not, and the stream uploader refuses to start that way. Set ADMIN_API_TOKEN, or leave ADMIN_API_URL empty.';
+
 async function candidatePort() {
   const socket = createServer();
   socket.listen(0, '127.0.0.1');
@@ -233,6 +236,19 @@ describe('the mock deployment settings routes', { concurrency: false, timeout: 6
     assert.equal(outOfBounds.status, 400);
     assert.deepEqual(outOfBounds.body.errors, ['MAX_QUEUE_SIZE must be at least 1. Got 0.']);
     assert.equal((await settingsOf(name)).revision, 0, 'a refused save stores nothing');
+  });
+
+  it('refuses a web2 admin address with no token anywhere, naming both keys, as the manager does', async () => {
+    const name = await runningDeployment();
+
+    const refused = await saveOn(name, [{ key: 'ADMIN_API_URL', value: 'https://admin.offline.example' }]);
+    const withToken = await saveOn(name, [
+      { key: 'ADMIN_API_URL', value: 'https://admin.offline.example' },
+      { key: 'ADMIN_API_TOKEN', value: 'offline-mock-token-not-a-real-one-0123456789abcdef' },
+    ]);
+
+    assert.deepEqual(refused, { status: 400, body: { error: 'validation_error', errors: [ADMIN_LINK_REFUSAL], name } });
+    assert.equal(withToken.status, 200, JSON.stringify(withToken.body));
   });
 
   it('refuses a body that is not a save before it reads any key', async () => {
@@ -473,6 +489,18 @@ describe('the mock settings list and create for a deployment not made yet', { co
       status: 400,
       body: { error: 'validation_error', errors: ["STAMP is set by the deployment's postage stamp, not here."], name },
     });
+    assert.equal((await call(`/profiles/${name}`)).status, 404);
+  });
+
+  it('refuses a create with a web2 admin address and no token anywhere, naming both keys, and creates nothing', async () => {
+    const name = `mock-created-${nextProfile++}`;
+
+    const refused = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'ADMIN_API_URL', value: 'https://admin.offline.example' }],
+    });
+
+    assert.deepEqual(refused, { status: 400, body: { error: 'validation_error', errors: [ADMIN_LINK_REFUSAL], name } });
     assert.equal((await call(`/profiles/${name}`)).status, 404);
   });
 

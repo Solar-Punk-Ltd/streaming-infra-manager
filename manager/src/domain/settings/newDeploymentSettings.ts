@@ -1,4 +1,6 @@
 import {
+  adminLinkEditProblem,
+  type EngineName,
   engineForComponents,
   isSecretSettingKey,
   type NewDeploymentSetting,
@@ -13,9 +15,10 @@ import { deployRootProblem, stackRootOf } from '../versions/stackPaths.js';
 import type { StackVersionRecord } from '../versions/StackVersionRepository.js';
 import { versionSuppliedSecrets } from '../versions/versionSuppliedSecrets.js';
 
+import { adminLinkBeforeOf } from './adminLinkBefore.js';
 import { newDeploymentSettingsCatalogOf } from './deploymentSettingsCatalog.js';
 import { settingEditProblems } from './settingEditProblems.js';
-import { versionSettingsFilesAt } from './versionSettingsFiles.js';
+import { type VersionSettingsFiles, versionSettingsFilesAt, versionValuesOf } from './versionSettingsFiles.js';
 
 /** The deployment a list is worked out for before it exists, as its create body would describe it. */
 export interface NewDeploymentShape {
@@ -25,38 +28,56 @@ export interface NewDeploymentShape {
   host?: string | null;
 }
 
-/**
- * The settings a deployment of this version would start with, before it
- * exists: the list the wizard edits and a create body's `stack_settings` is
- * checked against. Refused, as a deployment's own list is, for a version with
- * no build to read the keys from.
- */
-export function newDeploymentSettingsCatalogFor(
-  version: StackVersionRecord,
-  shape: NewDeploymentShape,
-): NewDeploymentSettingsCatalog {
+/** What a deployment not created yet is worked out from: its version's build, for the engine it would run. */
+interface NewDeploymentSources {
+  root: string;
+  engine: EngineName;
+  files: VersionSettingsFiles;
+  /** The secrets the version requires, which the manager generates at the first deploy where the version leaves one empty. */
+  required: readonly string[];
+}
+
+/** Refused, as a deployment's own list is, for a version with no build to read the keys from. */
+function sourcesOf(version: StackVersionRecord, shape: NewDeploymentShape): NewDeploymentSources {
   const problem = deployRootProblem(version);
   if (problem) throw new StackSettingsNotReadyError(version.name, problem);
   const root = stackRootOf(version);
   const engine = engineForComponents(shape.components);
-  const required = version.contract?.requiredSecrets ?? [];
-  const supplied = versionSuppliedSecrets(root, engine, required);
+  return { root, engine, files: versionSettingsFilesAt(root, engine), required: version.contract?.requiredSecrets ?? [] };
+}
+
+function catalogOf(version: StackVersionRecord, shape: NewDeploymentShape, sources: NewDeploymentSources): NewDeploymentSettingsCatalog {
+  const supplied = versionSuppliedSecrets(sources.root, sources.engine, sources.required);
   return newDeploymentSettingsCatalogOf({
     versionId: version.id,
     contract: version.contract,
     buildId: version.buildId ?? null,
-    ...versionSettingsFilesAt(root, engine),
-    generatedKeys: required.filter((key) => !supplied.has(key)),
+    ...sources.files,
+    generatedKeys: sources.required.filter((key) => !supplied.has(key)),
     isLocalTarget: isLocalTarget(targetAlias(shape.host ?? null)),
   });
 }
 
 /**
+ * The settings a deployment of this version would start with, before it
+ * exists: the list the wizard edits and a create body's `stack_settings` is
+ * checked against.
+ */
+export function newDeploymentSettingsCatalogFor(
+  version: StackVersionRecord,
+  shape: NewDeploymentShape,
+): NewDeploymentSettingsCatalog {
+  return catalogOf(version, shape, sourcesOf(version, shape));
+}
+
+/**
  * The stack settings a new deployment is created with, held to the rules a
  * save of its settings page is held to, against the list its version gives a
- * deployment of this shape, and split the way the two columns hold them.
- * Refused whole, each key named and no value repeated. A create that names
- * none reads nothing, so it is never refused over a version's files.
+ * deployment of this shape, and split the way the two columns hold them. That
+ * includes the web2 admin rule, judged on what the version gives the two keys
+ * and what the create sets for them. Refused whole, each key named and no
+ * value repeated. A create that names none reads nothing, so it is never
+ * refused over a version's files.
  */
 export function initialStackSettingsFor(
   name: string,
@@ -65,9 +86,15 @@ export function initialStackSettingsFor(
   settings: readonly NewDeploymentSetting[],
 ): InitialStackSettings {
   if (settings.length === 0) return NO_STACK_SETTINGS;
-  const { entries } = newDeploymentSettingsCatalogFor(version, shape);
-  const problems = settingEditProblems(settings, entries);
+  const sources = sourcesOf(version, shape);
+  const problems = settingEditProblems(settings, catalogOf(version, shape, sources).entries);
   if (problems.length > 0) throw new ProfileConfigError(name, problems.join(' '));
+  const versionValues = versionValuesOf(sources.files);
+  const adminProblem = adminLinkEditProblem(
+    settings,
+    adminLinkBeforeOf({ current: versionValues, version: versionValues, requiredSecrets: sources.required }),
+  );
+  if (adminProblem) throw new ProfileConfigError(name, adminProblem);
   return initialStackSettingsOf(Object.fromEntries(settings.map(({ key, value }) => [key, value])));
 }
 

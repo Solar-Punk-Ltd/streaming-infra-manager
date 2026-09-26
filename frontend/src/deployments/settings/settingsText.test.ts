@@ -274,6 +274,12 @@ describe('fieldHint', () => {
     assert.equal(fieldHint({ kind: 'boolean' }), null);
     assert.equal(fieldHint(null), null);
   });
+
+  it('says what an address takes, and how long a text with a floor must be', () => {
+    assert.equal(fieldHint({ kind: 'url' }), 'An http or https address, or empty.');
+    assert.equal(fieldHint({ kind: 'text', minLength: 32 }), 'At least 32 characters, or empty.');
+    assert.equal(fieldHint({ kind: 'text' }), null);
+  });
 });
 
 describe('refusals', () => {

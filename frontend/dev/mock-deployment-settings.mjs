@@ -4,8 +4,9 @@
  * answers.
  *
  * The rules are the manager's own where they can be: the body is checked by
- * its save schema, a save is refused by its `settingEditProblems`, and which
- * control decides a key is its `settingOwnerOf`. The keys are a shortened copy
+ * its save schema, a save is refused by its `settingEditProblems` and by the
+ * web2 admin rule a save and a create are both held to, and which control
+ * decides a key is its `settingOwnerOf`. The keys are a shortened copy
  * of the stack's samples, with the stack's sections, kinds of key and
  * readers. What each deployment's containers were started with is recorded
  * whenever a deploy lands, which is what the list compares to say which
@@ -29,6 +30,7 @@
  * and at which revision, which is all the list and the comparison need.
  */
 import {
+  adminLinkEditProblem,
   defaultServicesFor,
   editsEngineSettings,
   engineOfServices,
@@ -41,6 +43,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { SERVICE_ENV_KEYS } from '../../manager/src/domain/containerKeysSpec.ts';
+import { adminLinkBeforeOf } from '../../manager/src/domain/settings/adminLinkBefore.ts';
 import { settingEditProblems } from '../../manager/src/domain/settings/settingEditProblems.ts';
 import { settingOwnerOf } from '../../manager/src/domain/settings/settingOwners.ts';
 import {
@@ -500,7 +503,33 @@ export async function createdSettingsRefusal(stackSettings, version, shape, name
   if (!settings || settings.length === 0) return null;
   if (!version?.buildId) return { status: 409, body: notReadyAnswer(version) };
   const problems = settingEditProblems(settings, newDeploymentCatalogOf(version, shape).entries);
-  return problems.length > 0 ? { status: 400, body: { error: 'validation_error', errors: [problems.join(' ')], name } } : null;
+  if (problems.length > 0) return { status: 400, body: { error: 'validation_error', errors: [problems.join(' ')], name } };
+  const adminProblem = adminLinkEditProblem(settings, newAdminLinkBefore(version, shape));
+  return adminProblem ? { status: 400, body: { error: 'validation_error', errors: [adminProblem], name } } : null;
+}
+
+/** What the version's samples set, which a deployment not created yet starts with. */
+function versionValuesFor(shape) {
+  return Object.fromEntries(samplesFor(shape).filter((sample) => sample.version !== undefined).map((sample) => [sample.key, sample.version]));
+}
+
+/** The two web2 admin keys of a deployment not created yet, as the manager's create judges them. */
+function newAdminLinkBefore(version, shape) {
+  const values = versionValuesFor(shape);
+  return adminLinkBeforeOf({ current: values, version: values, requiredSecrets: version.contract?.requiredSecrets ?? [] });
+}
+
+/**
+ * A deployment's two web2 admin keys as its save judges them. A stored secret
+ * counts as a token: the mock keeps no value, and the page cannot store an
+ * empty one.
+ */
+function adminLinkBefore(profile, store) {
+  return adminLinkBeforeOf({
+    current: nextValuesOf(profile, store),
+    version: versionValuesFor(profile),
+    requiredSecrets: versionOf(profile)?.contract?.requiredSecrets ?? [],
+  });
 }
 
 /**
@@ -553,6 +582,10 @@ function save(res, profile, body) {
   const engineProblem = engineSaveProblem(profile, body.entries);
   if (engineProblem) {
     return send(res, 400, { error: 'validation_error', errors: [engineProblem], name: profile.name });
+  }
+  const adminProblem = adminLinkEditProblem(body.entries, adminLinkBefore(profile, store));
+  if (adminProblem) {
+    return send(res, 400, { error: 'validation_error', errors: [adminProblem], name: profile.name });
   }
   store.revision += 1;
   for (const { key, value } of body.entries) {

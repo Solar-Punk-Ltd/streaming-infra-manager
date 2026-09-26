@@ -32,7 +32,8 @@ const { DeploymentSettingsService } = await import('../../src/domain/settings/De
 const { call, startRouterTestApp } = await import('../support/routerTestApp.js');
 
 const STAMP = 'a'.repeat(64);
-const SECRET = 'synthetic-admin-token';
+/** At the stream uploader's floor for the admin token, which a save holds it to. */
+const SECRET = 'synthetic-admin-token-0123456789abcdef';
 /** A save names the instance as a UUID, which the fixture's own default is not. */
 const INSTANCE_ID = '6f1c2b1e-3a4d-4c5e-9f60-7a8b9c0d1e2f';
 

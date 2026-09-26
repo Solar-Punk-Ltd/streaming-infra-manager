@@ -1,4 +1,6 @@
 import {
+  type AdminLinkBefore,
+  adminLinkEditProblem,
   assembleEngineSettingObservations,
   defaultServicesFor,
   type DeploymentSettingsApplied,
@@ -38,11 +40,12 @@ import { isLocalTarget, targetAlias } from '../ports/DeployTargets.js';
 import type { ProfileRepository, StackSettingsChange, StoredStackSettings } from '../ProfileRepository.js';
 import type { StackVersionRepository } from '../versions/StackVersionRepository.js';
 
+import { adminLinkBeforeOf } from './adminLinkBefore.js';
 import { type DeploymentEngineSettings, deploymentSettingsCatalogOf } from './deploymentSettingsCatalog.js';
 import { engineDefaultsAt } from './engineHostDefaults.js';
 import { newDeploymentSettingsCatalogFor, type NewDeploymentShape } from './newDeploymentSettings.js';
 import { settingEditProblems } from './settingEditProblems.js';
-import { versionSettingsFilesAt } from './versionSettingsFiles.js';
+import { versionSettingsFilesAt, versionValuesOf } from './versionSettingsFiles.js';
 
 const logger = Logger.getInstance();
 
@@ -54,6 +57,8 @@ interface ReadSettings {
   catalog: DeploymentSettingsCatalog;
   stored: StoredStackSettings;
   engineSettings: DeploymentEngineSettings | null;
+  /** Its two web2 admin keys as the next deploy and the version give them, which the page is never answered. */
+  adminLink: AdminLinkBefore;
 }
 
 /**
@@ -89,14 +94,16 @@ export class DeploymentSettingsService {
    * settings are at now. An engine setting goes to the engine settings, held
    * to the engine's own rules with what the rest of them will be once the
    * save lands, and the stack keys and the engine settings of one save move
-   * the revision once, together.
+   * the revision once, together. A save that names either web2 admin key is
+   * refused when it leaves an address and no token, which the uploader would
+   * refuse to start with.
    */
   async save(name: string, save: DeploymentSettingsSave, username: string): Promise<DeploymentSettingsSaved> {
     const profile = await this.profileNamed(name);
     if (profile.instance_id !== save.expectedInstanceId) throw new ProfileInstanceChangedError(name);
     if (profile.status === REMOVING_STATUS) throw new ProfileBusyError(name, profile.status);
 
-    const { catalog, stored, engineSettings } = await this.read(profile);
+    const { catalog, stored, engineSettings, adminLink } = await this.read(profile);
     const problems = settingEditProblems(save.entries, catalog.entries);
     if (problems.length > 0) throw new ProfileConfigError(name, problems.join(' '));
     // The engine settings are judged as this read found them, which is only
@@ -104,6 +111,8 @@ export class DeploymentSettingsService {
     if (stored.revision !== save.expectedRevision) throw new DeploymentSettingsChangedError(name);
     const engineProblem = engineSaveProblem(save, stored, engineSettings);
     if (engineProblem) throw new ProfileConfigError(name, engineProblem);
+    const adminProblem = adminLinkEditProblem(save.entries, adminLink);
+    if (adminProblem) throw new ProfileConfigError(name, adminProblem);
 
     const revision = await this.profiles.updateStackSettings(name, changeOf(save), {
       instanceId: save.expectedInstanceId,
@@ -159,12 +168,13 @@ export class DeploymentSettingsService {
     if (!stored) throw new ProfileNotFoundError(profile.name);
     const engine = engineForComponents(profile.components);
     const engineSettings = await this.engineSettingsOf(profile, stored, next.root, next.version.contract);
+    const files = versionSettingsFilesAt(next.root, engine);
     const catalog = deploymentSettingsCatalogOf({
       profile,
       engine,
       contract: next.version.contract,
       buildId: next.version.buildId ?? null,
-      ...versionSettingsFilesAt(next.root, engine),
+      ...files,
       stored: { plain: stored.plain, secretKeys: stored.secretKeys },
       engineSettings,
       engineSettingsProblem: next.engineSettingsProblem,
@@ -174,7 +184,12 @@ export class DeploymentSettingsService {
       generatedKeys: next.generatedKeys,
       isLocalTarget: isLocalTarget(targetAlias(profile.host)),
     });
-    return { catalog, stored, engineSettings };
+    const adminLink = adminLinkBeforeOf({
+      current: next.env,
+      version: versionValuesOf(files),
+      requiredSecrets: next.version.contract?.requiredSecrets ?? [],
+    });
+    return { catalog, stored, engineSettings, adminLink };
   }
 
   /**

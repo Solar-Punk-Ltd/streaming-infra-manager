@@ -86,6 +86,7 @@ function TextInput({ entry, value, disabled, problem, onChange, masked }: FieldP
         ...(masked ? { autoComplete: MASKED_AUTOCOMPLETE } : {}),
         'aria-label': entry.key,
         ...(numeric ? { inputMode: entry.field?.kind === 'integer' ? 'numeric' : 'decimal' } : {}),
+        ...(entry.field?.kind === 'url' ? { inputMode: 'url' } : {}),
       }}
     />
   );

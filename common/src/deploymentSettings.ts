@@ -81,7 +81,8 @@ export type SettingRunningState =
   /** The deployment is stopped, so nothing runs with any value. */
   | 'not-running';
 
-export type StackSettingKind = 'text' | 'integer' | 'number' | 'choice' | 'boolean';
+/** A `url` is an http or https address with a host, and nothing a path added after it would break. */
+export type StackSettingKind = 'text' | 'integer' | 'number' | 'choice' | 'boolean' | 'url';
 
 /** What the page knows about a value's shape, beyond the rules every env value answers to. */
 export interface StackSettingField {
@@ -90,6 +91,8 @@ export interface StackSettingField {
   choices?: readonly string[];
   min?: number;
   max?: number;
+  /** For a text, the fewest characters a value that is not empty may have. */
+  minLength?: number;
 }
 
 /** One key of a deployment's settings. */

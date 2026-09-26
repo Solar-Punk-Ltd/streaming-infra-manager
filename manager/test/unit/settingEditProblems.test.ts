@@ -51,7 +51,7 @@ describe('what a save of a deployment settings refuses', () => {
       settingEditProblems(
         [
           { key: 'LOG_LEVEL', value: 'info' },
-          { key: 'ADMIN_API_TOKEN', value: 'synthetic-token' },
+          { key: 'ADMIN_API_TOKEN', value: 'synthetic-token-at-the-uploader-floor-0123' },
           { key: 'OLD_KEY', value: null },
         ],
         ENTRIES,

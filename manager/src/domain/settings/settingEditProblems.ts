@@ -17,8 +17,8 @@ import {
  * control of the deployment's own decides.
  *
  * A sentence names the key and never repeats a secret: the env value rule
- * says nothing of the value, and a field's rule repeats one only for a key
- * that has a field, which no secret has. An engine setting the list lets the
+ * says nothing of the value, and a field's rule repeats one only for a list,
+ * a switch or a number, which no secret is. An engine setting the list lets the
  * operator set is held to the engine's own rule for that field, and its
  * sentence carries the key in front of the field's own words.
  */
