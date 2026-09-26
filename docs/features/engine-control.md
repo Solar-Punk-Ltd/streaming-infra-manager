@@ -141,10 +141,10 @@ What did not exist before PR 1:
 ## What the operator sees
 
 A new **Engine** card on the deployment page of every stream and ABR uploader, between Publish
-and Storage:
+and Stack settings:
 
-- Header: `SRS 6 · media server` or `OvenMediaEngine`, a status pill, and three buttons:
-  **Settings**, **Restart**, **Logs**.
+- Header: `SRS 6 · media server` or `OvenMediaEngine`, a status pill, and four buttons:
+  **Settings**, **Config file**, **Restart**, **Logs**.
 - **Live** (when the API is reachable, PR 2): `Publishing now: live/stream, 1080p60, 5.9 Mbps
   video, 128 kbps audio, since 14:02` or `No publisher connected`. For the ABR ladder: `5 streams,
   1 source and 4 rungs`, red when the count keeps climbing, because that is the transcode loop
