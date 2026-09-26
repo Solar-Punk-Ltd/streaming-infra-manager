@@ -421,7 +421,7 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     });
     await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the draft cleared by the reload after the save');
     await waitFor(cardText, (text) => text.includes('4 settings are behind the running containers'), 'the banner naming the saved keys');
-    assert.match(await cardText(), /Apply redeploys every service of this deployment\./);
+    assert.match(await cardText(), /Apply redeploys every service of this deployment\. A publisher, if one is live, is disconnected for a few seconds\./);
     assert.match(await rowText('UPLOADER_START_GATES'), /not applied/);
     assert.match(await rowText('UPLOADER_START_GATES'), /Saved, and the running containers still have the old value/);
   });
@@ -504,8 +504,10 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.deepEqual(writes[before].body.entries, [{ key: 'HLS_FRAGMENT', value: '1' }]);
     await waitFor(
       cardText,
-      (text) => text.includes('1 setting is behind the running containers: HLS_FRAGMENT. Apply recreates srs and stream-uploader.'),
-      'the banner naming the segment length and what Apply recreates',
+      (text) => text.includes(
+        '1 setting is behind the running containers: HLS_FRAGMENT. Apply recreates srs and stream-uploader. A publisher, if one is live, is disconnected for a few seconds.',
+      ),
+      'the banner naming the segment length, what Apply recreates and the publisher that drops',
     );
     assert.match(await rowText('HLS_FRAGMENT'), /set here/);
     await screenshot('engine-behind-phone.png');

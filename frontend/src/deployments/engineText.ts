@@ -12,6 +12,9 @@ export const ENGINE_LABEL: Record<EngineName, string> = {
   [OME_SERVICE]: 'OvenMediaEngine',
 };
 
+/** Said wherever the page is about to recreate the engine, which drops the connection a publisher streams in over. */
+export const LIVE_PUBLISHER_DISCONNECTED = 'A publisher, if one is live, is disconnected for a few seconds.';
+
 /**
  * The engine in one line, for the side column: what it is and the two numbers
  * that decide how far behind live a viewer ends up.

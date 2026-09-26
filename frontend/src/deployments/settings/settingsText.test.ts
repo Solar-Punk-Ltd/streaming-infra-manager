@@ -184,15 +184,32 @@ describe('driftNotice', () => {
     });
   });
 
-  it('says Apply redeploys everything when a key reaches the deploy scripts alone', () => {
+  it('says Apply redeploys everything when a key reaches the deploy scripts alone, the engine and its publisher with it', () => {
     const notice = driftNotice(
       catalogWith({ keys: ['LOG_LEVEL', 'BEE_UPLOADER_FULL_NODE'], services: ['stream-uploader'], fullRedeploy: true }, true),
     );
 
     assert.equal(
       notice?.text,
-      '2 settings are behind the running containers: LOG_LEVEL and BEE_UPLOADER_FULL_NODE. Apply redeploys every service of this deployment.',
+      '2 settings are behind the running containers: LOG_LEVEL and BEE_UPLOADER_FULL_NODE. Apply redeploys every service of this deployment. A publisher, if one is live, is disconnected for a few seconds.',
     );
+  });
+
+  // The SRT ingest card sends an operator here during a live broadcast that is losing packets.
+  it('warns that recreating the engine disconnects a live publisher, and says nothing of one otherwise', () => {
+    const srs = driftNotice(catalogWith({ keys: ['SRT_LATENCY'], services: ['srs'], fullRedeploy: false }, true));
+    const ome = driftNotice(catalogWith({ keys: ['HLS_SEGMENT_DURATION'], services: ['ome', 'stream-uploader'], fullRedeploy: false }, true));
+    const uploader = driftNotice(catalogWith({ keys: ['LOG_LEVEL'], services: ['stream-uploader'], fullRedeploy: false }, true));
+
+    assert.equal(
+      srs?.text,
+      '1 setting is behind the running containers: SRT_LATENCY. Apply recreates srs. A publisher, if one is live, is disconnected for a few seconds.',
+    );
+    assert.equal(
+      ome?.text,
+      '1 setting is behind the running containers: HLS_SEGMENT_DURATION. Apply recreates ome and stream-uploader. A publisher, if one is live, is disconnected for a few seconds.',
+    );
+    assert.doesNotMatch(uploader?.text ?? '', /publisher/);
   });
 
   it('offers no Apply to a stopped deployment, whose Start uses the saved settings', () => {

@@ -3,12 +3,15 @@ import {
   type DeploymentSettingsApplied,
   type DeploymentSettingsCatalog,
   type EngineDefaultSource,
+  engineOfServices,
   type EngineSettingField,
   isNotReadOwner,
   SETTING_OWNER_LABELS,
   type SettingOwner,
   type StackSettingField,
 } from '@streaming-infra-manager/common';
+
+import { LIVE_PUBLISHER_DISCONNECTED } from '../engineText';
 
 /**
  * Everything the deployment settings editor says in words. The editor reads
@@ -158,7 +161,11 @@ export interface DriftNotice {
   offersApply: boolean;
 }
 
-/** The banner over the list, or null when the containers have every saved setting. */
+/**
+ * The banner over the list, or null when the containers have every saved
+ * setting. An Apply that recreates the engine says it drops a live publisher,
+ * because the SRT ingest card sends an operator here mid-broadcast.
+ */
 export function driftNotice(catalog: DeploymentSettingsCatalog): DriftNotice | null {
   const { keys, services, fullRedeploy } = catalog.drift;
   const count = keys.length;
@@ -170,7 +177,9 @@ export function driftNotice(catalog: DeploymentSettingsCatalog): DriftNotice | n
     ? 'Apply redeploys every service of this deployment.'
     : `Apply recreates ${wordList(services)}.`;
   const behind = count === 1 ? '1 setting is behind' : `${count} settings are behind`;
-  return { text: `${behind} the running containers: ${wordList(keys)}. ${what}`, offersApply: true };
+  const text = `${behind} the running containers: ${wordList(keys)}. ${what}`;
+  const recreatesEngine = fullRedeploy || engineOfServices(services) !== null;
+  return { text: recreatesEngine ? `${text} ${LIVE_PUBLISHER_DISCONNECTED}` : text, offersApply: true };
 }
 
 /**

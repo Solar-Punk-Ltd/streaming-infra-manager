@@ -176,7 +176,9 @@ refused because another one landed first says the settings changed elsewhere and
 and the change has to be made again.
 
 Above the list, the banner names the settings the running containers are behind on and offers Apply,
-and after Apply says what was recreated. On a stopped deployment it says what Start will use, with no
+and after Apply says what was recreated. When Apply recreates the engine, or redeploys everything, the
+banner says a live publisher is disconnected for a few seconds, as Restart does, because the SRT
+ingest card sends an operator here during a broadcast. On a stopped deployment it says what Start will use, with no
 Apply. Where no container has a record to compare with, which is every deployment deployed before
 this feature, the card says so, because no key of it can show as behind until its next deploy.
 

@@ -22,7 +22,7 @@ import {
   restorePreviousEngineConfig as postRestorePrevious,
   verifyEngineConfig as postVerify,
 } from '../deployments/engineApi';
-import { ENGINE_LABEL } from '../deployments/engineText';
+import { ENGINE_LABEL, LIVE_PUBLISHER_DISCONNECTED } from '../deployments/engineText';
 import {
   isRunning,
   isTransitional,
@@ -181,7 +181,7 @@ export function useDeploymentActions(): DeploymentActions {
       const label = ENGINE_LABEL[engine];
       setConfirm({
         title: `Verify the config file of ${name}?`,
-        body: `${label} is recreated on the stored config file and watched for twenty seconds. If it will not stay up, the previous file comes back on its own. A publisher, if one is live, is disconnected for a few seconds.`,
+        body: `${label} is recreated on the stored config file and watched for twenty seconds. If it will not stay up, the previous file comes back on its own. ${LIVE_PUBLISHER_DISCONNECTED}`,
         confirmLabel: 'Verify now',
         // The answer is the row already applying, merged so the card says so
         // before the event stream repeats it.
@@ -199,7 +199,7 @@ export function useDeploymentActions(): DeploymentActions {
       const label = ENGINE_LABEL[engine];
       setConfirm({
         title: `Back to the previous config file for ${name}?`,
-        body: `The file the interrupted rollout replaced is stored again and ${label} is recreated on it. The file that was being applied is no longer stored, so copy it first if you want to keep it. A publisher, if one is live, is disconnected for a few seconds.`,
+        body: `The file the interrupted rollout replaced is stored again and ${label} is recreated on it. The file that was being applied is no longer stored, so copy it first if you want to keep it. ${LIVE_PUBLISHER_DISCONNECTED}`,
         confirmLabel: 'Back to the previous file',
         danger: true,
         onConfirm: () =>
