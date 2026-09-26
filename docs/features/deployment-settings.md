@@ -108,8 +108,7 @@ Apply. Where no container has a record to compare with, which is every deploymen
 this feature, the card says so, because no key of it can show as behind until its next deploy.
 
 The editor is its own component, `frontend/src/deployments/settings/DeploymentSettingsEditor.tsx`,
-and the card only frames it, because Levi has not yet chosen between a card, a page of its own and a
-tab. It fits 390 pixels with no sideways scroll. `frontend/test/deployment-settings-browser.test.mjs`
+and the card only frames it. It fits 390 pixels with no sideways scroll. `frontend/test/deployment-settings-browser.test.mjs`
 drives it in Chrome, and the mock manager answers the three routes, so `pnpm -C frontend dev:mock`
 shows it with no manager: main-stage is behind on a saved key, old-demo is stopped with one waiting
 for its Start, and field-unit has no records to compare with.
