@@ -103,6 +103,27 @@ function bodyParserErrorType(err: unknown): unknown {
 }
 
 /**
+ * yup's own messages for a value of the wrong type, which go on to quote the
+ * value whole: "<path> must be a `<type>` type, but the final value was: ..."
+ * and "<path> must match the configured type. The validated value was: ...".
+ */
+const YUP_WRONG_TYPE_MESSAGE = /^(.*?) must be a `(\w+)` type, but the final value was: /s;
+const YUP_WRONG_MIXED_MESSAGE = /^(.*?) must match the configured type\. The validated value was: /s;
+
+/**
+ * A refusal without the value yup's wrong-type message quotes. A password, a
+ * token or a key sent as a list or an object is exactly such a value, and the
+ * refusal goes back to a script or a session whose output is kept. A message a
+ * schema wrote itself names no value and is kept as written.
+ */
+function withoutQuotedValue(message: string): string {
+  const wrongType = YUP_WRONG_TYPE_MESSAGE.exec(message);
+  if (wrongType) return `${wrongType[1]} must be a ${wrongType[2]}`;
+  const wrongMixed = YUP_WRONG_MIXED_MESSAGE.exec(message);
+  return wrongMixed ? `${wrongMixed[1]} has the wrong type` : message;
+}
+
+/**
  * Centralised error → HTTP mapping. Domain errors get specific status codes;
  * everything else becomes a 500 with the message logged but not echoed back.
  */
@@ -142,7 +163,7 @@ export function errorHandler(
     return;
   }
   if (err instanceof YupValidationError) {
-    res.status(400).json({ error: 'validation_error', errors: err.errors });
+    res.status(400).json({ error: 'validation_error', errors: err.errors.map(withoutQuotedValue) });
     return;
   }
   if (isPayloadTooLarge(err)) {
