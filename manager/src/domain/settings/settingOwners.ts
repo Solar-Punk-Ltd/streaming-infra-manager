@@ -67,7 +67,7 @@ export interface SettingOwnerContext {
   /**
    * The deployment a settings list is for, which sets the engine settings it
    * reads in that list. Absent, every engine setting is the engine settings'
-   * own, which is the wizard's list, whose engine settings are a step of their
+   * own, which is the wizard's list, whose segment length is a field of its
    * own, and the deploy's, which writes the engine settings on their own.
    */
   engineReader?: EngineSettingsReader;

@@ -227,8 +227,9 @@ settings step on, and again whenever the version, the engine, the services or th
   and a typed one replaces that.
 - **A key a control decides** shows no field and names the control. `HLS_FRAGMENT`, which the engine
   settings decide, shows the segment length typed above it, so the two never read differently. The
-  engine settings are asked for in the wizard's own steps, so its list keeps every one of them out
-  of reach, where the deployment's page, once it exists, lists them as its own.
+  wizard asks for the segment length alone and leaves the other engine settings to the deployment's
+  page, so its list keeps every engine setting out of reach, where the deployment's page, once it
+  exists, lists them as its own.
 - **A value the manager would refuse** is named under its field, by the same shared rules, and stops
   Continue and Deploy, the footer naming the key and never the value. Values typed before the list
   for the current choices was read wait for it.
