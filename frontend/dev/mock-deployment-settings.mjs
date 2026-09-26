@@ -19,17 +19,28 @@
  * the new-deployment wizard edits, and stores what a create sends, checked
  * against that list by the manager's own `settingEditProblems`.
  *
+ * A deployment's engine settings are in its list as its own, as on the
+ * manager: the fields, the host defaults and what its config reads come from
+ * the Engine card's own reading in `mock-engine.mjs`, a save puts an engine key
+ * in the deployment's engine settings and judges them by the engine's shared
+ * rules, and the engine settings route scripts use moves the same revision.
+ *
  * A secret's value is never kept here. The mock records that one was stored,
  * and at which revision, which is all the list and the comparison need.
  */
 import {
   defaultServicesFor,
+  editsEngineSettings,
   engineOfServices,
-  hasBeePublishers,
+  engineSettingFieldOf,
+  engineSettingsAfterEdits,
+  engineSettingsSaveProblem,
+  isNotReadOwner,
   isSecretSettingKey,
   stackSettingFieldOf,
 } from '@streaming-infra-manager/common';
 
+import { SERVICE_ENV_KEYS } from '../../manager/src/domain/containerKeysSpec.ts';
 import { settingEditProblems } from '../../manager/src/domain/settings/settingEditProblems.ts';
 import { settingOwnerOf } from '../../manager/src/domain/settings/settingOwners.ts';
 import {
@@ -38,6 +49,7 @@ import {
   saveDeploymentSettingsSchema,
 } from '../../manager/src/schemas/deploymentSettings.ts';
 import { newDeploymentShapeQuerySchema, servicesOfList } from '../../manager/src/schemas/profile.ts';
+import { engineSettingsFacts } from './mock-engine.mjs';
 import { send } from './mock-http.mjs';
 import { PORT_BASES, state } from './mock-seed.mjs';
 
@@ -77,15 +89,19 @@ const ROOT_SAMPLE = [
   { key: 'LOG_FORMAT', section: 'Logging', description: 'Empty for plain lines, json for one JSON object per line.', version: '', services: UPLOADER },
 ];
 
-/** The engine samples, whose keys the root sample does not declare. */
+/**
+ * The engine samples, whose keys the root sample does not declare. An engine
+ * setting among them is read by the services the manager's own list names,
+ * which `listedOf` gives it.
+ */
 const ENGINE_SAMPLES = {
   srs: [
-    { key: 'HLS_FRAGMENT', section: 'SRS Media Server', description: 'Segment length in seconds.', services: ['srs'] },
-    { key: 'HLS_WINDOW', section: 'SRS Media Server', description: 'The playlist window in seconds.', services: ['srs'] },
+    { key: 'HLS_FRAGMENT', section: 'SRS Media Server', description: 'Segment length in seconds.' },
+    { key: 'HLS_WINDOW', section: 'SRS Media Server', description: 'The playlist window in seconds.' },
     { key: 'SRS_WEBHOOK_TOKEN', section: 'SRS Media Server', description: 'The token SRS sends with every webhook, which the uploader checks.', version: '', services: ['srs', 'stream-uploader'] },
   ],
   ome: [
-    { key: 'HLS_SEGMENT_DURATION', section: 'OvenMediaEngine', description: 'Segment length in seconds.', services: ['ome'] },
+    { key: 'HLS_SEGMENT_DURATION', section: 'OvenMediaEngine', description: 'Segment length in seconds.' },
     { key: 'OME_ADMISSION_SECRET', section: 'OvenMediaEngine', description: 'The secret OvenMediaEngine signs its admission requests with.', version: '', services: ['ome', 'stream-uploader'] },
   ],
 };
@@ -106,6 +122,12 @@ const SEEDS = {
   // Deployed before the manager recorded what each container got.
   'field-unit': { plain: {}, secrets: [], unrecorded: true },
 };
+
+/** The services whose containers read each key, from the manager's own list, as a version without a contract has them. */
+const READERS = new Map();
+for (const [service, keys] of Object.entries(SERVICE_ENV_KEYS)) {
+  for (const key of keys) READERS.set(key, [...(READERS.get(key) ?? []), service]);
+}
 
 const RUNNING_STATUSES = ['RUNNING', 'ERROR'];
 const BUSY_STATUSES = ['DEPLOYING', 'STOPPING', 'REMOVING'];
@@ -144,20 +166,31 @@ function versionOf(profile) {
   return state.versions.find((version) => version.id === profile.stack_version_id) ?? null;
 }
 
+/** A sample key with the services that read it, which for an engine setting are the manager's own list's. */
+function withReaders(sample) {
+  return engineSettingFieldOf(sample.key) ? { ...sample, services: READERS.get(sample.key) ?? null } : sample;
+}
+
 /** The root sample's keys, then those of the engine a deployment of this shape runs, if it runs one. */
 function samplesFor(shape) {
   const engine = engineOfServices(defaultServicesFor(shape));
-  return [...ROOT_SAMPLE, ...(engine ? ENGINE_SAMPLES[engine] ?? [] : [])];
+  return [...ROOT_SAMPLE, ...(engine ? ENGINE_SAMPLES[engine] ?? [] : [])].map(withReaders);
 }
 
-function ownerOf(key, profile) {
+/** Who sets a key of the deployment's own list, where the deployment sets the engine settings it reads. */
+function ownerOf(key, profile, facts) {
   const contract = versionOf(profile)?.contract;
-  return settingOwnerOf(key, { ports: contract?.ports ?? [], isLocalTarget: false });
+  const engineReader = { engine: facts?.engine ?? null, abr: facts?.abr ?? false };
+  return settingOwnerOf(key, { ports: contract?.ports ?? [], isLocalTarget: false, engineReader });
+}
+
+/** Whether the key is an engine setting the deployment reads, which its own list lets the operator set. */
+function isOwnEngineSetting(key, facts) {
+  return Boolean(facts?.fields.some((field) => field.key === key));
 }
 
 /** What a control of the deployment decides for its key. */
 function ownedValue(key, owner, profile) {
-  const contract = versionOf(profile)?.contract;
   switch (owner) {
     case 'stamp':
       return profile.stamp_id ?? '';
@@ -169,8 +202,6 @@ function ownedValue(key, owner, profile) {
       return profile.feed_owner ?? '';
     case 'port-slot':
       return String((PORT_BASES[key] ?? PORT_BASES.API_PORT) + profile.port_slot * 10);
-    case 'engine-settings':
-      return profile.engine_settings[key] ?? contract?.engineDefaults?.[key] ?? '';
     default:
       return '';
   }
@@ -183,10 +214,13 @@ function isGenerated(key, profile) {
 /**
  * What the next deploy gives each key, as a value to compare. A secret
  * stands as where it comes from rather than as its value, which the mock
- * never holds.
+ * never holds. An engine setting the deployment does not read is not written
+ * for it, whatever is stored, so it is what the version sets.
  */
-function nextValueOf(sample, profile, store) {
-  const owner = ownerOf(sample.key, profile);
+function nextValueOf(sample, profile, store, facts) {
+  if (isOwnEngineSetting(sample.key, facts)) return engineNextValue(sample.key, profile, facts);
+  const owner = ownerOf(sample.key, profile, facts);
+  if (owner && isNotReadOwner(owner)) return sample.version;
   if (owner) return ownedValue(sample.key, owner, profile);
   if (store.secrets.has(sample.key)) return `stored at revision ${store.secrets.get(sample.key)}`;
   if (sample.key in store.plain) return store.plain[sample.key];
@@ -194,19 +228,40 @@ function nextValueOf(sample, profile, store) {
   return sample.version;
 }
 
+/**
+ * What the next deploy writes for an engine setting: the stored value, or the
+ * manager's own default, which it writes where the host sets none. Any other
+ * default is left unset, as the manager leaves it.
+ */
+function engineNextValue(key, profile, facts) {
+  const stored = profile.engine_settings[key];
+  if (stored !== undefined) return stored;
+  return facts.defaults.sources[key] === 'manager' ? facts.defaults.values[key] : undefined;
+}
+
 function nextValuesOf(profile, store) {
+  const facts = engineSettingsFacts(profile);
   const values = {};
-  for (const sample of listedOf(profile, store)) values[sample.key] = nextValueOf(sample, profile, store);
+  for (const sample of listedOf(profile, store, facts)) values[sample.key] = nextValueOf(sample, profile, store, facts);
   return values;
 }
 
-function listedOf(profile, store) {
+/**
+ * The samples' keys, then the engine settings the deployment reads that no
+ * sample declares, then the stored keys none of those name any more. An
+ * engine setting is read by the services the manager's own list names.
+ */
+function listedOf(profile, store, facts) {
   const declared = samplesFor(profile);
   const known = new Set(declared.map(({ key }) => key));
-  const dropped = [...Object.keys(store.plain), ...store.secrets.keys()]
+  const engine = (facts?.fields ?? [])
+    .filter(({ key }) => !known.has(key))
+    .map(({ key }) => ({ key, section: '', description: '', services: READERS.get(key) ?? null }));
+  for (const { key } of engine) known.add(key);
+  const dropped = [...Object.keys(store.plain), ...store.secrets.keys(), ...Object.keys(profile.engine_settings)]
     .filter((key) => !known.has(key))
-    .map((key) => ({ key, section: '', description: '', services: null, undeclared: true }));
-  return [...declared, ...dropped];
+    .map((key) => withReaders({ key, section: '', description: '', services: null, undeclared: true }));
+  return [...declared, ...engine, ...dropped];
 }
 
 /** The services whose containers were started with another value for the key, or 'unknown'. */
@@ -219,18 +274,70 @@ function differingServices(sample, next, store) {
   return store.record.values[sample.key] === next ? [] : readers;
 }
 
+/** What the deployment stores for a key: in its engine settings for an engine setting, in the store for any other. */
+function isStored(key, profile, store) {
+  if (engineSettingFieldOf(key)) return key in profile.engine_settings;
+  return key in store.plain || store.secrets.has(key);
+}
+
+function storedValueOf(key, profile, store) {
+  if (engineSettingFieldOf(key)) return profile.engine_settings[key] ?? null;
+  return isSecretSettingKey(key) ? null : (store.plain[key] ?? null);
+}
+
 function sourceOf(sample, owner, profile, store) {
-  if (owner) return 'manager';
-  if (sample.key in store.plain || store.secrets.has(sample.key)) return 'deployment';
+  if (owner && !isNotReadOwner(owner)) return 'manager';
+  if (isStored(sample.key, profile, store)) return 'deployment';
   if (isSecretSettingKey(sample.key) && isGenerated(sample.key, profile)) return 'generated';
   return sample.version === undefined ? 'unset' : 'version';
 }
 
-function entryOf(sample, profile, store, running) {
+function runningStateOf(running, differing) {
+  if (!running) return 'not-running';
+  if (differing === 'unknown') return 'unknown';
+  return differing.length > 0 ? 'differs' : 'same';
+}
+
+/**
+ * An engine setting the deployment reads, which its list lets the operator
+ * set, with the default an unset one falls back to on this host.
+ */
+function engineEntryOf(sample, profile, store, running, facts) {
+  const { key } = sample;
+  const next = engineNextValue(key, profile, facts);
+  const stored = profile.engine_settings[key];
+  const defaultSource = facts.defaults.sources[key] ?? 'stack';
+  const differing = differingServices(sample, next, store);
+  return {
+    entry: {
+      key,
+      section: sample.section,
+      description: sample.description,
+      declared: true,
+      secret: false,
+      sampleValue: sample.version ?? null,
+      versionSet: true,
+      versionValue: facts.defaults.values[key] ?? null,
+      stored: stored !== undefined,
+      storedValue: stored ?? null,
+      value: next ?? null,
+      source: stored !== undefined ? 'deployment' : defaultSource === 'manager' ? 'manager-default' : 'version',
+      owner: null,
+      field: null,
+      services: sample.services,
+      running: runningStateOf(running, differing),
+      engineSetting: { defaultSource, notInConfig: facts.notInConfig.includes(key) },
+    },
+    differing: differing === 'unknown' ? [] : differing,
+  };
+}
+
+function entryOf(sample, profile, store, running, facts) {
+  if (isOwnEngineSetting(sample.key, facts)) return engineEntryOf(sample, profile, store, running, facts);
   const { key } = sample;
   const secret = isSecretSettingKey(key);
-  const owner = ownerOf(key, profile);
-  const next = nextValueOf(sample, profile, store);
+  const owner = ownerOf(key, profile, facts);
+  const next = nextValueOf(sample, profile, store, facts);
   const versionSet = sample.version !== undefined;
   const differing = differingServices(sample, next, store);
   return {
@@ -243,14 +350,14 @@ function entryOf(sample, profile, store, running) {
       sampleValue: sample.version ?? null,
       versionSet,
       versionValue: secret || !versionSet ? null : sample.version,
-      stored: key in store.plain || store.secrets.has(key),
-      storedValue: secret ? null : (store.plain[key] ?? null),
+      stored: isStored(key, profile, store),
+      storedValue: storedValueOf(key, profile, store),
       value: secret || next === undefined ? null : next,
       source: sourceOf(sample, owner, profile, store),
       owner,
       field: stackSettingFieldOf(key),
       services: sample.services,
-      running: !running ? 'not-running' : differing === 'unknown' ? 'unknown' : differing.length > 0 ? 'differs' : 'same',
+      running: runningStateOf(running, differing),
       engineSetting: null,
     },
     differing: differing === 'unknown' ? [] : differing,
@@ -297,8 +404,9 @@ function newDeploymentCatalogOf(version, shape) {
 
 function catalogOf(profile) {
   const store = storeOf(profile);
+  const facts = engineSettingsFacts(profile);
   const running = RUNNING_STATUSES.includes(profile.status);
-  const rows = listedOf(profile, store).map((sample) => entryOf(sample, profile, store, running));
+  const rows = listedOf(profile, store, facts).map((sample) => entryOf(sample, profile, store, running, facts));
   const behind = rows.filter(({ differing }) => differing.length > 0);
   return {
     instanceId: profile.instance_id,
@@ -311,9 +419,18 @@ function catalogOf(profile) {
       fullRedeploy: behind.some(({ entry }) => entry.services === null),
     },
     running,
-    engine: engineOfServices(defaultServicesFor(profile)),
-    abr: hasBeePublishers(profile),
+    engine: facts?.engine ?? null,
+    abr: facts?.abr ?? false,
   };
+}
+
+/**
+ * Moves the revision of a deployment whose engine settings the engine
+ * settings route saved, as the manager's does, so a page that read before it
+ * is refused rather than writing over it.
+ */
+export function engineSettingsSaved(profile) {
+  storeOf(profile).revision += 1;
 }
 
 /**
@@ -396,6 +513,16 @@ export function copyStoredSettings(from, to) {
   for (const key of source.secrets.keys()) target.secrets.set(key, target.revision);
 }
 
+/** Why the engine would refuse what a save leaves in the engine settings, by the shared rules and this host's defaults. */
+function engineSaveProblem(profile, entries) {
+  const facts = engineSettingsFacts(profile);
+  if (!facts || !editsEngineSettings(entries)) return null;
+  return engineSettingsSaveProblem(facts.engine, engineSettingsAfterEdits(profile.engine_settings, entries), {
+    abr: facts.abr,
+    defaults: facts.defaults.values,
+  });
+}
+
 function save(res, profile, body) {
   if (profile.status === 'REMOVING') {
     return send(res, 409, { error: 'profile_busy', name: profile.name, status: profile.status });
@@ -412,14 +539,20 @@ function save(res, profile, body) {
       message: "This deployment's settings changed after the page read them. Reload them and make the change again.",
     });
   }
+  const engineProblem = engineSaveProblem(profile, body.entries);
+  if (engineProblem) {
+    return send(res, 400, { error: 'validation_error', errors: [engineProblem], name: profile.name });
+  }
   store.revision += 1;
   for (const { key, value } of body.entries) {
+    if (engineSettingFieldOf(key)) continue;
     delete store.plain[key];
     store.secrets.delete(key);
     if (value === null) continue;
     if (isSecretSettingKey(key)) store.secrets.set(key, store.revision);
     else store.plain[key] = value;
   }
+  profile.engine_settings = engineSettingsAfterEdits(profile.engine_settings, body.entries);
   return send(res, 200, { revision: store.revision });
 }
 

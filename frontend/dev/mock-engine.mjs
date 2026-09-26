@@ -2,9 +2,11 @@
  * The engine card's five routes, for the mock manager.
  *
  * They behave the way `manager/src/api/routes/engine.ts` behaves: the settings
- * are validated with the same shared rules, saving them moves the deployment
- * through DEPLOYING and back, a restart changes nothing but the container's own
- * clock, and the live block is null with the reason the real manager gives.
+ * are validated with the same shared rules, saving them through the route
+ * scripts use moves the deployment through DEPLOYING and back and moves the
+ * settings revision a deployment's settings page saves under, a restart
+ * changes nothing but the container's own clock, and the live block is null
+ * with the reason the real manager gives.
  *
  * The logs and the config are generated rather than canned, so the config tab
  * shows the values that were just saved and a restart is visible in the log
@@ -15,7 +17,6 @@ import {
   containerNotRunningMessage,
   defaultServicesFor,
   assembleEngineSettingObservations,
-  environmentSettingReadings,
   effectiveEngineDefaults,
   effectiveEngineSettings,
   engineOfServices,
@@ -30,8 +31,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
-import { omeSettingReadings } from '../../manager/src/domain/engineConfig/omeSettingReadings.ts';
-import { srsSettingReadings, srsTemplateReadings } from '../../manager/src/domain/engineConfig/srsSettingReadings.ts';
+import { deploymentEngineReadings } from '../../manager/src/domain/engineConfig/deploymentEngineReadings.ts';
 import { engineSettingsSchema } from '../../manager/src/schemas/engine.ts';
 import { engineConfigSource } from './mock-engine-config.mjs';
 import { send, sendText } from './mock-http.mjs';
@@ -64,8 +64,8 @@ function engineFacts(profile) {
  * The manager reads the real one. A deploy server usually carries a value or
  * two set on the box by hand, and `.env.<profile>` is a copy of that file with
  * the unset keys left out, so those values are what the container starts with.
- * One key is set here so the drawer's "set on this host" wording is on screen
- * offline as well.
+ * One key is set here so the "set on this host" wording is on screen offline
+ * as well.
  */
 const HOST_BASE_ENV = { HLS_FRAGMENT: '2' };
 
@@ -77,6 +77,23 @@ function hostDefaults(engine, profile) {
     HOST_BASE_ENV,
     contract?.engineDefaults ?? {},
   );
+}
+
+/**
+ * What the Engine card and a deployment's settings list both read of its
+ * engine settings: the fields it reads, what each unset one falls back to on
+ * this host, and how the config its engine runs takes each, as the manager
+ * works them out. Null for a deployment that runs no media server.
+ */
+export function engineSettingsFacts(profile) {
+  const { engine, abr } = engineFacts(profile);
+  if (!engine) return null;
+  const defaults = hostDefaults(engine, profile);
+  const fields = engineSettingsFieldsFor(engine, { abr });
+  const { template, config } = engineConfigSource(profile.name, engine);
+  const readings = deploymentEngineReadings(engine, fields, { template, hasOwn: profile.has_engine_config, own: config }, { abr });
+  const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
+  return { engine, abr, fields, defaults, ...observed };
 }
 
 function noEngine(res, profile) {
@@ -181,27 +198,17 @@ function serverXml(settings) {
  * @param deps.withProfile wraps a handler so the 404 is written once
  * @param deps.deploy    the mock's own DEPLOYING then RUNNING transition
  * @param deps.publish   writes an event to every open SSE client
+ * @param deps.settingsSaved moves the settings revision of a deployment whose engine settings were saved here
  */
-export function engineRoutes({ readBody, withProfile, findProfile, deploy, publish }) {
+export function engineRoutes({ readBody, withProfile, findProfile, deploy, publish, settingsSaved }) {
   return [
     [
       'GET',
       /^\/profiles\/([^/]+)\/engine$/,
       withProfile((_req, res, profile) => {
-        const { engine, abr } = engineFacts(profile);
-        if (!engine) return noEngine(res, profile);
-        const defaults = hostDefaults(engine, profile);
-        const fields = engineSettingsFieldsFor(engine, { abr });
-        const { template, config } = engineConfigSource(profile.name, engine);
-        // Without a file of its own a deployment runs the version's template,
-        // which decides the SRT latency SRS waits on ingest, as on the manager.
-        const readings = profile.has_engine_config
-          ? engine === OME_SERVICE
-            ? omeSettingReadings(template, config, fields)
-            : srsSettingReadings(template, config, fields, { abr })
-          : engine === SRS_SERVICE
-            ? { ...environmentSettingReadings(fields), ...srsTemplateReadings(template, fields) }
-            : environmentSettingReadings(fields);
+        const facts = engineSettingsFacts(profile);
+        if (!facts) return noEngine(res, profile);
+        const { engine, abr, fields, defaults, observations, effective, notInConfig } = facts;
         send(res, 200, {
           identity: engineOverviewIdentity(profile),
           engine,
@@ -209,7 +216,9 @@ export function engineRoutes({ readBody, withProfile, findProfile, deploy, publi
           settings: profile.engine_settings,
           defaults: defaults.values,
           defaultSources: defaults.sources,
-          ...assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings }),
+          observations,
+          effective,
+          notInConfig,
           fields,
           live: null,
           liveUnavailableReason: liveUnavailableReason(
@@ -253,6 +262,7 @@ export function engineRoutes({ readBody, withProfile, findProfile, deploy, publi
         }
 
         profile.engine_settings = settings;
+        settingsSaved(profile);
         startedAt.set(`${profile.name}/${engine}`, Date.now());
         deploy(profile);
         send(res, 202, profile);
