@@ -766,5 +766,5 @@ function deploymentTestOutcome(profile) {
   const url = nextValuesOf(profile, store)[ADMIN_API_URL_KEY] ?? '';
   if (store.adminTokenOrigin !== null && url !== '' && !sameAdminOrigin(url, store.adminTokenOrigin)) return 'stored-token-elsewhere';
   const hasToken = store.secrets.has(ADMIN_API_TOKEN_KEY) || isGenerated(ADMIN_API_TOKEN_KEY, profile);
-  return mockTestOutcome({ url, hasToken, feedOwner: profile.public_key ?? null });
+  return mockTestOutcome({ url, hasToken, feedOwner: profile.has_private_key ? (profile.public_key ?? null) : null });
 }
