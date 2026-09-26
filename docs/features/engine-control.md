@@ -1,7 +1,8 @@
 # Engine control: SRS and OvenMediaEngine from the UI
 
-Status: decided 2026-09-05 (D7 backport wanted, D8 SRS first). D12 is on hold, so PR 1 (settings,
-restart, logs, effective config) proceeds and PR 2 (live status) waits for the upstream port change.
+Status: decided 2026-09-05 (D7 backport wanted, D8 SRS first, both in
+[next-features-2026-09.md](next-features-2026-09.md)). PR 1 (settings, restart, logs, effective
+config) is merged and PR 2 (live status) is not built.
 
 PR 1 was built on `feat/engine-control`, went in with pull request #40, and is merged to
 `main-v2`. It was written against the stack as pinned at the time, `main-v2` `ee99c36`. The
@@ -112,11 +113,11 @@ means: store it in the database, write it into `.env.<profile>` like the passphr
 and recreate the engine container, which `deploy.sh --profile <name> srs` already does. Nothing
 about the templates has to change for settings and restarts.
 
-What does not exist today:
+What did not exist before PR 1:
 
 - **Live status.** SRS has an HTTP API (`/api/v1/summaries`, `/api/v1/streams`, `/api/v1/clients`,
   `/api/v1/versions`) on port 1985 inside the container. The template enables it, and the compose
-  file of the current stack (`main-v2`) does not publish it, so nothing outside the container can
+  file of `main-v2`, the stack pinned then, does not publish it, so nothing outside the container can
   read it. `main-v3` publishes it per deployment as `SRS_HTTP_API_PORT`, 10009 plus slot times 10,
   the last free digit in the port table. The manager in its own container cannot reach a port
   that is not published: the profile's compose network is separate from the manager's, and Docker
@@ -130,11 +131,11 @@ What does not exist today:
   anything declared in `Server.xml`, and its docs do not promise that apps created through the
   API survive a restart. Everything here therefore goes through the template and a recreate,
   for OME exactly as for SRS.
-- **Restart.** Only Stop and Start of the whole deployment. Restarting one container means the
-  Docker API, which the manager already uses for metrics, on the container whose compose labels
+- **Restart.** Only Stop and Start of the whole deployment existed. Restarting one container means
+  the Docker API, which the manager already uses for metrics, on the container whose compose labels
   are `project=<profile>` and `service=srs`.
 - **Logs and the effective config.** Both are one Docker API call away (`logs`, and `exec cat` on
-  the generated `srs.conf`), and neither is exposed.
+  the generated `srs.conf`), and neither was exposed.
 
 ## What the operator sees
 
@@ -302,7 +303,7 @@ settings, restart, logs and effective config for OME regardless.
 ## PR split
 
 1. **Settings, restart, logs, effective config.** No upstream dependency, works on the stack as
-   pinned today.
+   pinned then.
 2. **Live status.** After the `SRS_HTTP_API_PORT` backport lands upstream and the submodule pin
    moves (or as part of the versions work if D7 picks (b)).
 
