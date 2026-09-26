@@ -5,7 +5,8 @@ its selected stack version advertises support. The manager checks the file,
 recreates the engine, then records the outcome of startup verification.
 Recovery can fail. Saving a file is not proof that publishing or playback works.
 
-Status, 2026-09-16. Everything on this page is merged to `main-v2`. It was
+Status, 2026-09-16. What this page described on that day is merged to
+`main-v2`, and the paragraphs dated after it describe `main`. It was
 written at `6dc33d1` on `feat/ai-remediation`, the head of pull request #40,
 which landed. It carries T01's service caller integration, the isolated SRS
 checks, the OvenMediaEngine validation and T11's effective settings. The branch
