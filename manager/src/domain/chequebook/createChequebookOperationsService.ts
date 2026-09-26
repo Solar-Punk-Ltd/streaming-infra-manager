@@ -28,7 +28,6 @@ export interface ChequebookServiceDependencies extends ChequebookTransportDepend
   readonly receiptPolling?: ReceiptPollerOptions;
 }
 
-/** Runtime strings route already qualified transports. Test dependencies are trusted code, never API or profile fields. */
 /** A saved transfer's node, which the chain registry reads again when it does not know that node's endpoint. */
 type SavedChainNode = Pick<ChequebookOperation, 'chainId' | 'nodeAddress'> & { readonly profileName?: string; readonly profileInstanceId?: string | null };
 
@@ -40,6 +39,7 @@ export interface ChequebookRuntime {
   readonly dockerHost?: string | undefined;
 }
 
+/** Runtime strings override the default routes, never the other way round. Test dependencies are trusted code, never API or profile fields. */
 export function createChequebookOperationsService(pool: Pool, runtime: ChequebookRuntime,
   dependencies: ChequebookServiceDependencies = {}): ChequebookOperationsService {
   let chainRegistry: ChequebookChainRegistry | undefined;
