@@ -122,6 +122,9 @@ export class InMemoryProfiles {
   /** The custom RPC URL, kept apart from the rows returned to pages and events. */
   readonly rpcEndpoints = new Map<string, string>();
 
+  /** The `stack_settings` and `stack_settings_secret` columns together, as the deploy reads them. */
+  readonly stackSettings = new Map<string, Record<string, string>>();
+
   onDeleted?: (name: string) => void;
 
   constructor(
@@ -472,6 +475,10 @@ export class InMemoryProfiles {
 
   async stackSecretsOf(name: string): Promise<StackSecrets> {
     return { ...(this.secrets.get(name) ?? {}) };
+  }
+
+  async stackSettingsForDeploy(name: string): Promise<Record<string, string>> {
+    return { ...(this.stackSettings.get(name) ?? {}) };
   }
 
   async storeStackSecrets(name: string, secrets: StackSecrets): Promise<void> {

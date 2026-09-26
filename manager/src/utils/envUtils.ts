@@ -23,6 +23,7 @@ import {
   isValidSrtPassphrase,
   normalizeBeePublishers,
   OME_SERVICE,
+  settingValueProblem,
   SRT_PASSPHRASE_MESSAGE,
 } from '@streaming-infra-manager/common';
 
@@ -557,11 +558,28 @@ export function managedEnvLines(
 }
 
 /** The deployment's env file: the version's base `.env` with every managed line upserted. */
+/**
+ * The deployment's env file: the version's base `.env`, then the values the
+ * operator stored for this deployment, then every managed line.
+ *
+ * The managed lines go last so that nothing stored can take their place,
+ * whatever reached the store. A stored value is checked here as well as where
+ * it was saved, because this is the last point before it becomes a line the
+ * stack reads, and the refusal names the key and never the value.
+ */
 export function renderProfileEnv(
   baseText: string,
   managed: ManagedEnvLines,
+  stored: Readonly<Record<string, string>> = {},
 ): string {
   let contents = baseText;
+  for (const [key, value] of Object.entries(stored)) {
+    const problem = settingValueProblem(key, value);
+    if (problem) {
+      throw new Error(`refusing to write ${key} to the env file: it ${problem}`);
+    }
+    contents = upsertEnvLine(contents, key, value);
+  }
   for (const [key, value] of Object.entries(managed)) {
     contents = upsertEnvLine(contents, key, value);
   }
@@ -575,6 +593,7 @@ export function writeProfileEnv(
   root: string,
   name: string,
   values: ProfileEnvValues,
+  stored: Readonly<Record<string, string>> = {},
 ): string {
   const basePath = baseEnvPath(root);
   const baseContents = existsSync(basePath)
@@ -583,6 +602,7 @@ export function writeProfileEnv(
   const contents = renderProfileEnv(
     baseContents,
     managedEnvLines(values, baseContents),
+    stored,
   );
 
   const path = profileEnvPath(root, name);

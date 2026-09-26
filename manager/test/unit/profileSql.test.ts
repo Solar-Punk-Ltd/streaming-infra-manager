@@ -94,8 +94,8 @@ function profileFields(): string[] {
  *
  * Each is read on its own, beside the row: `private_key` through
  * ProfileRepository.privateKeyOf, `stack_secrets` through stackSecretsOf,
- * `engine_config` through engineConfigOf and `srt_passphrase` through
- * srtPassphraseOf.
+ * `engine_config` through engineConfigOf, `srt_passphrase` through
+ * srtPassphraseOf and `stack_settings_secret` through stackSettingsForDeploy.
  *
  * The passphrase has a reader the others do not, the page that builds the
  * broadcaster's SRT URL, and that page asks for it one deployment at a time
@@ -109,6 +109,7 @@ const SECRET_COLUMNS: readonly string[] = [
   'engine_config',
   'srt_passphrase',
   'rpc_endpoint',
+  'stack_settings_secret',
 ];
 
 describe('PROFILE_COLUMNS — the shared profiles SELECT list', () => {

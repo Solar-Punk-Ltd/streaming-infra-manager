@@ -43,7 +43,8 @@ import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './ports/portReservations.js';
 import { portTableForEngine } from './versions/enginePortTable.js';
-import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
+import { isLocalTarget, targetAlias, type DeployTargets } from './ports/DeployTargets.js';
+import { operatorSettingsOf } from './settings/settingOwners.js';
 import {
   type AttemptOutcome,
   type DeployAttempt,
@@ -118,6 +119,10 @@ async function removeStaleEngineConfigs(
     if (name === keep || !isEngineConfigFile(engine, name)) continue;
     await rm(join(dir, name), { recursive: true, force: true });
   }
+}
+
+function withoutKeys<T extends Record<string, string>>(record: T, keys: readonly string[]): T {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !keys.includes(key))) as T;
 }
 
 function stripDockerWarnings(text: string): string {
@@ -592,6 +597,34 @@ export class DeploymentOrchestrator {
   }
 
   /**
+   * The values the operator stored for this deployment that its env file
+   * takes. A stored key that one of the deployment's own controls decides is
+   * left out and named in the log: the manager's line would win over it
+   * anyway, and a deploy refused over it would be refused over a value nothing
+   * reads.
+   */
+  private async operatorSettingsFor(
+    profile: Profile,
+    version: DeployVersionSnapshot | null,
+    host: string | null | undefined,
+  ): Promise<Record<string, string>> {
+    const contract = version?.contract;
+    const { values, ownedElsewhere } = operatorSettingsOf(
+      await this.profiles.stackSettingsForDeploy(profile.name),
+      {
+        ports: [...portTableOf(contract), ...(contract?.portAliases ?? [])],
+        isLocalTarget: isLocalTarget(targetAlias(host ?? profile.host)),
+      },
+    );
+    if (ownedElsewhere.length > 0) {
+      logger.warn(
+        `[Orchestrator] ${profile.name}: stored values for ${ownedElsewhere.join(', ')} are left out of its env file, because the deployment's own controls decide those keys`,
+      );
+    }
+    return values;
+  }
+
+  /**
    * Writes the deployment's own engine config into its data directory, where
    * the version's compose override mounts it from, and answers the path. Null
    * when the template runs. The file's name carries a hash of its content, see
@@ -1046,6 +1079,7 @@ export class DeploymentOrchestrator {
         srtPassphrase: await this.profiles.srtPassphraseOf(profile.name),
         rpcEndpoint: rpcEndpoint.rpcEndpoint,
       };
+      const stored = await this.operatorSettingsFor(profile, version, reservation.host);
       const written = writeProfileEnv(paths.root, profile.name, {
         engine,
         stampId: profile.stamp_id,
@@ -1061,7 +1095,12 @@ export class DeploymentOrchestrator {
         srtPassphrase: secrets.srtPassphrase,
         streamKey: secrets.streamKey,
         engineSettings: profile.engine_settings,
-        stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
+        // A generated secret the operator stored a value for is written as that
+        // value instead. The generated one stays stored for when it is reset.
+        stackSecrets: withoutKeys(
+          await this.stackSecretsFor(profile, version, paths.root, engine),
+          Object.keys(stored),
+        ),
         stackEngineDefaults: version?.contract?.engineDefaults,
         engineConfigFile,
         // From the profile's own components, deliberately not from the reserved
@@ -1069,7 +1108,7 @@ export class DeploymentOrchestrator {
         // must still resolve the local Bee address for it.
         localBeeUploader: ownsBeeNode(profile),
         ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
-      });
+      }, stored);
       logger.info(
         `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
       );

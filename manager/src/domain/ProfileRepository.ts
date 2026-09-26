@@ -467,6 +467,19 @@ export class ProfileRepository {
     return result.rows[0]?.stack_secrets ?? {};
   }
 
+  /**
+   * Every value the operator stored for this deployment, secret and plain
+   * alike, for the deploy to write into its env file. Read on its own for the
+   * reason `stackSecretsOf` is.
+   */
+  async stackSettingsForDeploy(name: string): Promise<Record<string, string>> {
+    const result = await this.pool.query<{ settings: Record<string, string> }>(
+      'SELECT stack_settings || stack_settings_secret AS settings FROM profiles WHERE name = $1',
+      [name],
+    );
+    return result.rows[0]?.settings ?? {};
+  }
+
   /** Adds to what is stored. A key already held keeps its value. */
   async storeStackSecrets(name: string, secrets: StackSecrets): Promise<void> {
     await this.pool.query(
