@@ -20,12 +20,14 @@ import type { WizardPrefill } from '../../app/EditorsContext';
 import { navigate } from '../../app/router';
 import { useToast } from '../../app/ToastProvider';
 import { useDeployments } from '../../app/useDeploymentsStore';
+import { useNewDeploymentSettings } from '../../deployments/settings/useNewDeploymentSettings';
 import { usePoolResults } from '../../groups/useBeePublishers';
 import { ApiError, SessionEndedError } from '../../http';
 import { beginPoolSetup, finishPoolSetup, overlayCreatedPool, type CreatedPool, type PoolSetupOutcome } from './poolDraft';
 import { matchingPool } from './poolIdentity';
 import { PoolResponseError } from './PoolResponseError';
 import { readPoolMembership } from './poolMembership';
+import { newDeploymentSettingsPathOf } from './advancedSettings';
 import { StepRail } from './StepRail';
 import {
   CREATE_TIMEOUT_MS,
@@ -80,7 +82,7 @@ export function NewDeploymentWizard({
   const poolResults = usePoolResults(projected.groups, projected.profiles);
   const toast = useToast();
 
-  const context = useMemo<WizardContext>(
+  const managerContext = useMemo<WizardContext>(
     () => ({
       profiles: projected.profiles,
       groups: projected.groups,
@@ -94,7 +96,12 @@ export function NewDeploymentWizard({
   );
 
   const [state, setState] = useState<WizardState>(() =>
-    initialWizardState(prefill, context),
+    initialWizardState(prefill, managerContext),
+  );
+  const newDeploymentSettings = useNewDeploymentSettings(newDeploymentSettingsPathOf(state));
+  const context = useMemo<WizardContext>(
+    () => ({ ...managerContext, newDeploymentSettings }),
+    [managerContext, newDeploymentSettings],
   );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);

@@ -7,7 +7,7 @@ import type { DeploymentSettingEntry } from '@streaming-infra-manager/common';
 import { DeploymentSettingRow, type SettingRowState } from './DeploymentSettingRow';
 import { filteredSections, isSectionOpen, sectionsOf } from './settingsSections';
 import { SettingsSectionFold } from './SettingsSectionFold';
-import { noMatchText, type SectionCounts } from './settingsText';
+import { noMatchText, type SectionCounts, type SettingsEditTarget } from './settingsText';
 
 const UNTOUCHED_ROW: SettingRowState = { edit: undefined, pending: false, behind: false, problem: null };
 
@@ -18,6 +18,9 @@ export interface SettingsListProps {
   /** Whether the deployment's containers run, which decides what a saved change still waits for. */
   running: boolean;
   disabled: boolean;
+  target?: SettingsEditTarget;
+  /** For keys a control decides, the value a control on the same form gives each, by key. */
+  controlValues?: Readonly<Record<string, string>>;
   onValue: (key: string, value: string) => void;
   onReset: (key: string) => void;
   onUndo: (key: string) => void;
@@ -44,7 +47,17 @@ function toggled(opened: ReadonlySet<string>, id: string): ReadonlySet<string> {
  * sample's sections, each key with the field that edits it. Whatever renders
  * it holds the edit and decides what becomes of it.
  */
-export function SettingsList({ entries, states, running, disabled, onValue, onReset, onUndo }: SettingsListProps) {
+export function SettingsList({
+  entries,
+  states,
+  running,
+  disabled,
+  target = 'deployment',
+  controlValues = {},
+  onValue,
+  onReset,
+  onUndo,
+}: SettingsListProps) {
   const [query, setQuery] = useState('');
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const sections = filteredSections(sectionsOf(entries), query);
@@ -79,6 +92,7 @@ export function SettingsList({ entries, states, running, disabled, onValue, onRe
               section={section}
               open={isSectionOpen(section.id, opened, query)}
               counts={countsOf(section.entries, states)}
+              target={target}
               onToggle={() => setOpened((current) => toggled(current, section.id))}
             >
               {section.entries.map((entry) => (
@@ -88,6 +102,8 @@ export function SettingsList({ entries, states, running, disabled, onValue, onRe
                   state={states.get(entry.key) ?? UNTOUCHED_ROW}
                   running={running}
                   disabled={disabled}
+                  target={target}
+                  controlValue={controlValues[entry.key]}
                   onValue={(value) => onValue(entry.key, value)}
                   onReset={() => onReset(entry.key)}
                   onUndo={() => onUndo(entry.key)}

@@ -2,6 +2,7 @@ import type {
   DeploymentPhase,
   EngineConfigState,
   EngineSettings,
+  NewDeploymentSetting,
   NodeMode,
   RpcEndpointSource,
 } from '@streaming-infra-manager/common';
@@ -139,4 +140,10 @@ export interface CreateProfileBody {
    * always means, so this is a create-only field.
    */
   engine_settings?: EngineSettings;
+  /**
+   * The stack settings the deployment is created with, each held to the
+   * version's settings list for it. Absent keeps the version's values. Create
+   * only: a deployment's page saves them afterwards.
+   */
+  stack_settings?: NewDeploymentSetting[];
 }

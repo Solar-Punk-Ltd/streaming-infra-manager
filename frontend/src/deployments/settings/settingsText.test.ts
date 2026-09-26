@@ -20,6 +20,7 @@ import {
 } from '@streaming-infra-manager/common';
 
 import {
+  NEW_DEPLOYMENT_SETTINGS_LEAD,
   OWNED_STORED_NOTE,
   REMOVAL_PENDING_NOTE,
   RESET_PENDING_NOTE,
@@ -35,9 +36,12 @@ import {
   driftNotice,
   fieldHint,
   loadFailureOf,
+  newDeploymentSettingsNote,
   noMatchText,
+  notTakenNote,
   ownedValueText,
   ownerSentence,
+  pendingChipLabel,
   recreatesText,
   saveNote,
   saveRefusalOf,
@@ -284,6 +288,49 @@ describe('sectionSummary', () => {
       '12 settings, 2 unsaved, 1 cannot be saved, 1 not applied',
     );
   });
+
+  it('says changed rather than unsaved for a deployment not created yet, which has nothing to save to', () => {
+    assert.equal(
+      sectionSummary(12, { unsaved: 2, refused: 1, behind: 0 }, 'new-deployment'),
+      '12 settings, 2 changed, 1 cannot be used',
+    );
+  });
+});
+
+describe('what the editor says for a deployment not created yet', () => {
+  it('marks a changed key as changed, since the create sends it rather than a save', () => {
+    assert.equal(pendingChipLabel('deployment'), 'unsaved');
+    assert.equal(pendingChipLabel('new-deployment'), 'changed');
+  });
+
+  it('says a required secret is generated at the first deploy rather than already', () => {
+    const generated = entry({ key: 'API_AUTH_TOKEN', secret: true, versionSet: false, source: 'generated' });
+
+    assert.equal(
+      secretNote(generated, 'new-deployment'),
+      'The manager generates a value for this deployment when it first deploys. Type one to use your own instead.',
+    );
+    assert.match(secretNote(generated), /^The manager generated a value/);
+  });
+
+  it('counts what the create sends, a value it cannot send first', () => {
+    assert.equal(newDeploymentSettingsNote(0, []), "Nothing changed, so every key keeps the version's value");
+    assert.equal(newDeploymentSettingsNote(1, []), '1 setting changed');
+    assert.equal(newDeploymentSettingsNote(3, []), '3 settings changed');
+    assert.equal(newDeploymentSettingsNote(2, ['MAX_QUEUE_SIZE']), 'One value cannot be used as written: MAX_QUEUE_SIZE');
+    assert.equal(
+      newDeploymentSettingsNote(2, ['MAX_QUEUE_SIZE', 'LOG_LEVEL']),
+      '2 values cannot be used as written: MAX_QUEUE_SIZE and LOG_LEVEL',
+    );
+  });
+
+  it('names the typed keys the choices made since do not take', () => {
+    assert.equal(notTakenNote(['STAMP']), 'Not sent, because this version does not take it with these choices: STAMP.');
+    assert.equal(
+      notTakenNote(['SRS_LOG_TANK', 'STAMP']),
+      'Not sent, because this version does not take them with these choices: SRS_LOG_TANK and STAMP.',
+    );
+  });
 });
 
 describe('what a save and the list say about the running containers', () => {
@@ -338,6 +385,12 @@ describe('the words themselves', () => {
       REMOVAL_PENDING_NOTE,
       behindNote(true),
       behindNote(false),
+      NEW_DEPLOYMENT_SETTINGS_LEAD,
+      secretNote(entry({ key: 'K', secret: true, source: 'generated' }), 'new-deployment'),
+      sectionSummary(3, { unsaved: 1, refused: 1, behind: 0 }, 'new-deployment'),
+      newDeploymentSettingsNote(0, []),
+      newDeploymentSettingsNote(1, ['K']),
+      notTakenNote(['A', 'B']),
     ];
     for (const sentence of sentences) {
       assert.equal(/[—;]/.test(sentence), false, sentence);

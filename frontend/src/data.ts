@@ -5,6 +5,7 @@ import {
   defaultServicesFor,
   type EngineSettings,
   hasBeePublishers,
+  type NewDeploymentSetting,
   hasStampId,
   type NodeMode,
   type RpcEndpointSource,
@@ -176,9 +177,11 @@ export function createProfile(
 // PUT /profiles/:name/engine-settings, which claims the deploy they need and
 // works out which containers to recreate. The update schema strips the key, so
 // carrying it in this type would only promise something the manager ignores.
+// stack_settings is create-only for the same reason, and a running
+// deployment's are saved through PUT /profiles/:name/settings.
 export type UpdateProfileBody = Omit<
   CreateProfileBody,
-  'name' | 'host' | 'srt_passphrase' | 'engine_settings'
+  'name' | 'host' | 'srt_passphrase' | 'engine_settings' | 'stack_settings'
 > & {
   /** The revision the drawer loaded the notes at, sent along with an edited note. */
   notes_revision?: number;
@@ -213,6 +216,8 @@ export interface CreateGroupBody {
   stack_version_id?: number;
   /** What every member is created with. Absent leaves the version's own fallbacks standing. */
   engine_settings?: EngineSettings;
+  /** The stack settings every member is created with. Absent keeps the version's values. */
+  stack_settings?: NewDeploymentSetting[];
 }
 
 export function createDeploymentGroup(

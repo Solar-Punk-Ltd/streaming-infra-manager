@@ -11,16 +11,17 @@ import {
 } from '../../data';
 import type { CreateProfileBody, Profile } from '../../types';
 import { addressForKey } from '../validation';
+import { advancedSettingsBody } from './advancedSettings';
 import { matchingPool, type CreatedPool } from './poolIdentity';
 import { PoolResponseError } from './PoolResponseError';
 import { segmentLengthSettings } from './segmentLength';
 import {
-  chosenComponents,
   chosenHost,
   chosenKey,
   chosenNodeMode,
   chosenPassphrase,
   chosenVersion,
+  createdShapeOf,
   needsExternalBeeUrl,
   needsFeedOwner,
   needsPassphrase,
@@ -60,6 +61,7 @@ export async function submitWizard(
       host: chosenHost(state),
       notes: notesOf(state),
       stack_version_id: versionOf(state),
+      stack_settings: advancedSettingsBody(state, context),
       // A pool is four publishing nodes, and they all reach the chain the same
       // way. The rest of this body is the pool's own shape rather than a
       // profile's, so the node choices are added here as well.
@@ -126,7 +128,14 @@ function sharedBody(state: WizardState, context: WizardContext) {
     engine_settings: offersSegmentLength(state)
       ? segmentLengthSettings(state.segmentSeconds)
       : undefined,
+    stack_settings: advancedSettingsBody(state, context),
   };
+}
+
+/** The kind and services the body names: those the settings list was read for, services left out where the kind decides them. */
+function shapeBody(state: WizardState): Pick<CreateProfileBody, 'kind' | 'components'> {
+  const { kind, components } = createdShapeOf(state);
+  return components === null ? { kind } : { kind, components: [...components] };
 }
 
 /**
@@ -174,17 +183,18 @@ function kindBody(
 
   if (state.goal === 'viewer') {
     return {
-      kind: 'viewer',
+      ...shapeBody(state),
       notes: shared.notes,
       feed_owner: shared.feed_owner,
       stack_version_id: shared.stack_version_id,
+      stack_settings: shared.stack_settings,
     };
   }
 
   if (state.goal === 'abr-uploader') {
     return {
       ...shared,
-      kind: 'abr-uploader',
+      ...shapeBody(state),
       bee_publishers: poolStringOf(state, context),
     };
   }
@@ -192,8 +202,7 @@ function kindBody(
   if (state.goal === 'stream') {
     return {
       ...shared,
-      kind: 'streamer',
-      components: chosenComponents(state),
+      ...shapeBody(state),
       stamp_id: stampIdOf(state),
       bee_url: usesExternalBee(state) ? state.beeUrl.trim() : undefined,
     };
@@ -201,8 +210,7 @@ function kindBody(
 
   return {
     ...shared,
-    kind: 'custom',
-    components: state.components,
+    ...shapeBody(state),
     stamp_id: stampIdOf(state),
     // Only where no bee-uploader runs: the manager refuses a bee_url that a
     // local node would overrule, and the field is hidden in that case anyway.

@@ -3,7 +3,7 @@ import { Box, ButtonBase, Collapse, Stack, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import type { SettingsSection } from './settingsSections';
-import { type SectionCounts, sectionSummary } from './settingsText';
+import { type SectionCounts, type SettingsEditTarget, sectionSummary } from './settingsText';
 
 /**
  * One section of the sample, folded until it is opened. The heading holds the
@@ -16,12 +16,14 @@ export function SettingsSectionFold({
   section,
   open,
   counts,
+  target = 'deployment',
   onToggle,
   children,
 }: {
   section: SettingsSection;
   open: boolean;
   counts: SectionCounts;
+  target?: SettingsEditTarget;
   onToggle: () => void;
   children: ReactNode;
 }) {
@@ -44,7 +46,7 @@ export function SettingsSectionFold({
               {section.title}
             </Box>
             <Typography component="span" variant="caption" color="text.secondary">
-              {sectionSummary(section.entries.length, counts)}
+              {sectionSummary(section.entries.length, counts, target)}
             </Typography>
           </Stack>
         </ButtonBase>

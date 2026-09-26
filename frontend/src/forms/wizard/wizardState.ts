@@ -1,4 +1,5 @@
 import {
+  ABR_RUNG_COMPONENTS,
   BEE_GATEWAY_SERVICE,
   BEE_UPLOADER_SERVICE,
   CLIENT_SERVICE,
@@ -20,6 +21,9 @@ import {
 import { generatePrivateKey } from 'viem/accounts';
 
 import type { WizardPrefill } from '../../app/EditorsContext';
+import type { NewDeploymentShape } from '../../deployments/settings/deploymentSettingsApi';
+import type { NewDeploymentSettingValues } from '../../deployments/settings/newDeploymentSettingsDraft';
+import type { NewDeploymentSettingsLoad } from '../../deployments/settings/useNewDeploymentSettings';
 import { streamersOf } from '../../deployments/shape';
 import type { PoolResults } from '../../groups/useBeePublishers';
 import type { DeploymentGroup, Profile } from '../../types';
@@ -82,6 +86,12 @@ export interface WizardState {
   poolString: string;
   /** Seconds, as the env file carries it. Empty means send none and take the version's. */
   segmentSeconds: string;
+  /**
+   * What the operator typed under Advanced settings, by key. A key left out
+   * keeps its version's value. The create sends the keys that the list read
+   * for the choices on screen takes.
+   */
+  stackSettings: NewDeploymentSettingValues;
   components: string[];
   /** The stack version to deploy on. Null until a default or an explicit choice supplies it. */
   versionId: number | null;
@@ -95,6 +105,9 @@ export const WIZARD_STEPS = [
 ] as const;
 
 export const LAST_STEP = WIZARD_STEPS.length;
+
+/** The step that asks the goal's settings, from which on the version's settings list is read. */
+export const SETTINGS_STEP = WIZARD_STEPS.indexOf('Settings') + 1;
 
 /** Every step reads the choices so far and writes back a slice of them. */
 export interface WizardStepProps {
@@ -115,6 +128,11 @@ export interface WizardContext {
   poolResults: PoolResults;
   /** Every stack version the manager holds, in any state. */
   versions: StackVersion[];
+  /**
+   * The chosen version's settings list for this deployment, read from the
+   * settings step on for the choices on screen. Absent where nothing reads it.
+   */
+  newDeploymentSettings?: NewDeploymentSettingsLoad;
 }
 
 /** The versions a deployment can be made on: the ones that finished building. */
@@ -220,6 +238,7 @@ export function initialWizardState(
     poolId: prefilledPool,
     poolString: '',
     segmentSeconds: SEGMENT_LENGTH_FIELD.defaultValue,
+    stackSettings: {},
     components: DEFAULT_CUSTOM_COMPONENTS,
     versionId: defaultVersionIn(context),
   };
@@ -314,6 +333,19 @@ export function chosenComponents(state: WizardState): string[] {
     }
     return [service];
   });
+}
+
+/**
+ * The kind and the services a create body names, which the manager reads the
+ * version's settings list for. A node pool's are one rung's, because each
+ * rung is created as a Bee node alone. Null services leave them to the kind.
+ */
+export function createdShapeOf(state: WizardState): Pick<NewDeploymentShape, 'kind' | 'components'> {
+  if (state.goal === 'viewer') return { kind: 'viewer', components: null };
+  if (state.goal === 'abr-uploader') return { kind: 'abr-uploader', components: null };
+  if (state.goal === 'abr-pool') return { kind: 'custom', components: [...ABR_RUNG_COMPONENTS] };
+  if (state.goal === 'stream') return { kind: 'streamer', components: chosenComponents(state) };
+  return { kind: 'custom', components: state.components };
 }
 
 /**

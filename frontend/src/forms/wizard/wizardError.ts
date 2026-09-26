@@ -16,6 +16,7 @@ import {
   privateKeyProblem,
   stampIdProblem,
 } from '../validation';
+import { advancedSettingsError } from './advancedSettings';
 import { segmentLengthError } from './segmentLength';
 import {
   chosenNodeMode,
@@ -209,9 +210,13 @@ function settingsError(
   const endpoint = rpcEndpointError(state, context);
   if (endpoint) return endpoint;
 
-  if (state.goal === 'abr-uploader') return poolError(state, context);
+  if (state.goal === 'abr-uploader') {
+    const pool = poolError(state, context);
+    if (pool) return pool;
+  }
 
-  return null;
+  // Last, because the fields above decide which list the advanced values are checked against.
+  return advancedSettingsError(state, context);
 }
 
 function poolError(
