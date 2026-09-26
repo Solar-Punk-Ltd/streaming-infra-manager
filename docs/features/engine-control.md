@@ -16,7 +16,8 @@ Update 2026-09-09: the bundled stack is now `main-v3` (Levi's ruling: main-v3 is
 main-v2 is obsolete and kept only to test version selection). `main-v3` already publishes
 `SRS_HTTP_API_PORT`, so the D7 backport to `main-v2` described below is no longer needed, and
 PR 2 (live status) waits only on the manager reading that port. The manager still answers
-`live: null` for it, with the reason "not read yet".
+`live: null` for it, with the reason `This stack version publishes the SRS API port. Reading live
+status from it is not built into the manager yet.`
 
 Update 2026-09-23, on `fix/srt-latency-setting` off `main` at `87673c9`, commits `5a5373d`,
 `6a37c2a` and `f42fba2`: `SRT_LATENCY` is an SRS setting like the others. On 2026-09-22 an outside
@@ -148,8 +149,10 @@ and Storage:
   video, 128 kbps audio, since 14:02` or `No publisher connected`. For the ABR ladder: `5 streams,
   1 source and 4 rungs`, red when the count keeps climbing, because that is the transcode loop
   the stack's README warns about. Then `SRS uptime 3d 4h · 2 HTTP clients`. Refreshed every five
-  seconds while the page is open. When the API is not reachable the block says `Live status
-  needs the SRS API port, which this stack version does not publish.`
+  seconds while the page is open. Until then the block says why. On a version that does not
+  publish the API port it says `Live status needs the SRS API port, which this stack version does
+  not publish.`, and on one that does it says `This stack version publishes the SRS API port.
+  Reading live status from it is not built into the manager yet.`
 - **Settings** brings the deployment's **Stack settings** card into view with its **Engine
   settings** section open and the first setting focused (since 2026-09-26, a drawer of its own
   before). That section has only the fields the engine has. For SRS: **Segment length**
