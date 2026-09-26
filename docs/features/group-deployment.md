@@ -146,8 +146,8 @@ As designed in 2026-05. The drawer is now a wizard, see the module table below.
 
 | File | Change |
 |---|---|
-| `frontend/src/types/interfaces.ts` | `DeploymentGroup` type, `group_id?: number` on `Profile`. |
-| `frontend/src/data.ts` | `createDeploymentGroup`, `listGroups`. |
+| `frontend/src/types/interfaces.ts` | `DeploymentGroup` type, `group_id?: number \| null` on `Profile`. |
+| `frontend/src/data.ts` | `createDeploymentGroup`, `fetchGroups`. |
 | `frontend/src/forms/wizard/` | Group size and the branching submit, as steps of the new deployment wizard. |
 | `frontend/src/deployments/GroupBlockRows.tsx` | Collapsible group row rendering on the deployments page. |
 | `frontend/src/groups/GroupPage.tsx` | A group's own page, with its shared settings and members. |
