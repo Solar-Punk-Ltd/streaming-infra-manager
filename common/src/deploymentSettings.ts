@@ -2,12 +2,12 @@
  * One deployment's stack settings as its page reads and edits them.
  *
  * Every key the deployment's version declares is editable per deployment, with
- * the version's value as the default (Levi, 2026-09-25). A few keys are decided
+ * the version's value as the default. A few keys are decided
  * by a control of their own instead, and the page shows those with their value
  * and points at that control. The page also says how many settings the
- * running containers are behind on, and offers to apply them, which Levi
- * okayed the same day. The engine settings are in the same list, one list of
- * settings per deployment (Levi, 2026-09-26), though they are stored apart.
+ * running containers are behind on, and offers to apply them. The engine
+ * settings are in the same list, one list of settings per deployment, though
+ * they are stored apart.
  */
 import type { EngineDefaultSource } from './engineDefaults.js';
 import type { EngineName } from './engines.js';
