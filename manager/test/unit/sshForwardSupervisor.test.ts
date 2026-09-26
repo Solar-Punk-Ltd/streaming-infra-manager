@@ -29,12 +29,23 @@ function harness() {
     disconnect: () => disconnect(), finishes: () => finishes };
 }
 
+it('reconstructs the default forward through the manager\'s ssh configuration from its locator, and refuses anything more', () => {
+  const configured = { kind: 'ssh-config', alias: 'bee-eu-1', remoteSocketPath: '/var/run/docker.sock' };
+  const validated = validateForwardStart({ ...start(), locator: configured }, 0n, 123);
+  assert.deepEqual(validated.command.args.slice(0, 3), ['-N', '-T', '-n']);
+  assert.deepEqual(validated.command.args.slice(-3), [`${socketPath}:/var/run/docker.sock`, '--', 'bee-eu-1']);
+  assert.deepEqual(validated.start.locator, configured);
+  for (const locator of [{ ...configured, alias: 'deploy@bee-eu-1' }, { ...configured, command: 'synthetic' }, { ...configured, remoteSocketPath: 'docker.sock' }]) {
+    assert.throws(() => validateForwardStart({ ...start(), locator }, 0n, 123), { name: 'DockerBeeAcquisitionError' });
+  }
+});
+
 it('reconstructs fixed isolated argv from the strict start locator and freezes the ownership receipt', () => {
   const input = start(); const validated = validateForwardStart(input, 0n, 123);
   assert.equal(validated.command.file, '/usr/bin/ssh'); assert.equal(validated.command.options.shell, false);
   assert.deepEqual(validated.command.args.slice(0, 5), ['-F', '/dev/null', '-N', '-T', '-n']);
   Object.assign(input.locator, { host: 'changed.invalid' }); Object.assign(input.directory.identity, { ino: 'changed' });
-  assert.equal(validated.start.locator.host, 'example.invalid'); assert.equal(validated.start.directory.identity.ino, '2');
+  assert.equal(validated.start.locator.kind === 'ssh-unix' && validated.start.locator.host, 'example.invalid'); assert.equal(validated.start.directory.identity.ino, '2');
   assert.ok(Object.isFrozen(validated.start)); assert.ok(Object.isFrozen(validated.start.directory.identity));
 });
 

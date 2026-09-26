@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { createBeeBridgeQualifier, type BeeBridgeExecution, type BeeBridgeQualificationRecord,
+import { beeBridgeTuple, createBeeBridgeQualifier, storedPassRecord, type BeeBridgeExecution, type BeeBridgeQualificationRecord,
   PRODUCTION_BEE_BRIDGE_QUALIFICATIONS, DOCKER_BEE_STREAM_BOUNDS } from '../../src/domain/chequebook/beeBridgeQualification.js';
+import { BEE_BRIDGE_CHECK_REVISION } from '../../src/domain/chequebook/beeBridgeCheck.js';
 import { DOCKER_BEE_BRIDGE_REVISION } from '../../src/domain/chequebook/dockerBeeBridge.js';
 
 const execution = (): BeeBridgeExecution => ({ imageId: `sha256:${'d'.repeat(64)}`, engineVersion: '29.1.3',
@@ -80,5 +81,38 @@ describe('trusted Bee bridge execution qualification', () => {
 
   it('rejects duplicate qualification ids', () => {
     assert.throws(() => createBeeBridgeQualifier([record(), record()], [record().id]));
+  });
+});
+
+describe('a pass the manager stored itself', () => {
+  const stored = () => storedPassRecord({ id: 'stored-7', tuple: { imageId: execution().imageId, engineVersion: '29.1.3',
+    platform: { os: 'linux', architecture: 'amd64', variant: '' }, bridgeRevision: DOCKER_BEE_BRIDGE_REVISION },
+    harnessRevision: BEE_BRIDGE_CHECK_REVISION, evidenceDigest: `sha256:${'b'.repeat(64)}` });
+
+  it('qualifies exactly its tuple, within the catalog\'s own lifetime, grace and stream bounds', () => {
+    const record = stored();
+    for (const seed of PRODUCTION_BEE_BRIDGE_QUALIFICATIONS) {
+      assert.deepEqual(record.bridgeLifetimeSeconds, seed.bridgeLifetimeSeconds);
+      assert.deepEqual(record.cleanupGraceMs, seed.cleanupGraceMs);
+      assert.deepEqual(record.streamBounds, seed.streamBounds);
+    }
+    const qualify = createBeeBridgeQualifier([record], [record.id]);
+    assert.equal(qualify(execution()), true);
+    assert.equal(qualify({ ...execution(), bridgeLifetimeSeconds: 271 }), false);
+  });
+
+  for (const changed of [
+    { imageId: `sha256:${'e'.repeat(64)}` }, { engineVersion: '29.1.4' }, { platform: { os: 'linux', architecture: 'arm64', variant: '' } },
+    { platform: { os: 'linux', architecture: 'amd64', variant: 'v2' } }, { bridgeRevision: `sha256:${'f'.repeat(64)}` },
+  ]) {
+    it(`does not qualify a changed ${Object.keys(changed)[0]}`, () => {
+      const record = stored();
+      assert.equal(createBeeBridgeQualifier([record], [record.id])({ ...execution(), ...changed }), false);
+    });
+  }
+
+  it('reads the tuple of an execution, the part of it a qualification is about', () => {
+    assert.deepEqual(beeBridgeTuple(execution()), { imageId: execution().imageId, engineVersion: '29.1.3',
+      platform: { os: 'linux', architecture: 'amd64', variant: '' }, bridgeRevision: DOCKER_BEE_BRIDGE_REVISION });
   });
 });

@@ -5,10 +5,15 @@ import { acquireDockerBeeStream, type AcquiredDockerBeeStream } from '../../src/
 import { ChequebookChainRegistry } from '../../src/domain/chequebook/ChequebookChainRegistry.js';
 import { ChequebookSubmission } from '../../src/domain/chequebook/ChequebookSubmission.js';
 import type { FrozenChequebookTarget } from '../../src/domain/chequebook/FrozenChequebookTarget.js';
+import type { ChequebookRefusalCause } from '@streaming-infra-manager/common';
+import { ChequebookPreparationError } from '../../src/domain/errors/ChequebookPreparationError.js';
 import { InMemoryChequebookOperations, transferContext, transferIntent } from '../support/chequebookOperations.js';
 import { syntheticDockerBee, syntheticImageId, syntheticTarget, type SyntheticBeeHandler } from '../support/syntheticDockerBee.js';
 
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const refusedAs = (cause: ChequebookRefusalCause) => (error: unknown) => {
+  assert.ok(error instanceof ChequebookPreparationError); assert.equal(error.refusal.cause, cause); return true;
+};
 const blockTurn = (ms: number) => { const until = performance.now() + ms; while (performance.now() < until) {} };
 function harness(t: TestContext, options: OwnedTransferPreparationOptions = {}, intercept?: SyntheticBeeHandler) {
   const docker = syntheticDockerBee(t, intercept);
@@ -52,9 +57,9 @@ describe('owned Docker/Bee transfer preparation composition', { timeout: 5000 },
   it('checks the monotonic step deadline after a blocking preflight recheck before another Bee read or claim', async t => {
     // The only case here whose setup runs a preparation that has to succeed
     // under the same budget the tested step then has to exceed, so the budget
-    // carries five times the headroom an in-memory run needs. At 100 ms the
-    // verification box, which shares its processor with a chain node and seven
-    // other job slots, spent the whole budget on the setup and read a refusal.
+    // carries five times the headroom an in-memory run needs. At 100 ms a
+    // loaded, shared runner spent the whole budget on the setup and read a
+    // refusal.
     const h = harness(t, { timeoutMs: 500 });
     const intent = transferIntent();
     const prepared = await h.preparation.prepare(intent);
@@ -162,7 +167,7 @@ describe('owned Docker/Bee transfer preparation composition', { timeout: 5000 },
       const h = harness(t);
       h.onAcquired(async value => ({ ...value, binding: { ...value.binding,
         ...(change === 'daemon' ? { daemonId: 'other' } : change === 'project' ? { project: 'other' } : { publishedBindings: [{ hostIp: '0.0.0.0', hostPort: 9999 }] }) } }));
-      await assert.rejects(h.preparation.prepare(transferIntent()), /checked/i);
+      await assert.rejects(h.preparation.prepare(transferIntent()), refusedAs(change === 'port' ? 'bee_container_unsupported' : 'target_changed'));
       assert.equal(h.docker.beeRequests.length, 0); assert.equal(h.docker.transport.destroyed, true); assert.equal(h.counts().acquisitions, 1);
     });
   }
@@ -241,7 +246,7 @@ describe('owned Docker/Bee transfer preparation composition', { timeout: 5000 },
 
   it('bounds a held framed identity response and aborts the owned lifetime', async t => {
     const h = harness(t, { readTimeoutMs: 20 }, request => request.url === '/addresses');
-    await assert.rejects(h.preparation.prepare(transferIntent()), /checked/i);
+    await assert.rejects(h.preparation.prepare(transferIntent()), refusedAs('bee_unreadable'));
     assert.equal(h.signals[0]!.aborted, true); assert.equal(h.docker.transport.destroyed, true);
     assert.equal(h.docker.counts().posts, 0); assert.equal(h.counts().acquisitions, 1);
   });
