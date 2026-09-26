@@ -14,6 +14,8 @@ const TEST_TEXT: Readonly<Record<AdminLinkTestOutcome, string>> = {
     "The web2 admin took the token but did not say which address it signs with, so this deployment's stream key could not be compared.",
   'owner-mismatch':
     "The web2 admin took the token but signs its catalog with another address than this deployment's stream key, so the uploader will refuse to start.",
+  'stored-token-elsewhere':
+    "The manager's stored token was saved for another address, so it was not sent here, and only a token typed for this address can be tested.",
   'token-refused': 'The web2 admin answered but refused the token.',
   'not-admin': 'Something answered at this address, but not the way a web2 admin does.',
   redirected: 'This address answered with a redirect, so give the address the web2 admin itself answers on.',

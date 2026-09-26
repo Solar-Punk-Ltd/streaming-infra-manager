@@ -146,11 +146,28 @@ describe('POST /manager-settings/admin-link/test', () => {
   it("presents the manager's stored token, which never reaches the answer", async () => {
     const api = await testApi({ storedToken: STORED_TOKEN });
     try {
-      const answer = await api.testTyped({ url: 'https://admin2.example.com', token: { source: 'stored' } });
+      const answer = await api.testTyped({ url: `${ADMIN_URL}/v2`, token: { source: 'stored' } });
 
       assert.deepEqual(answer.body, { outcome: 'linked' });
-      assert.deepEqual(api.probed, [{ url: 'https://admin2.example.com', token: STORED_TOKEN, feedOwner: null }]);
+      assert.deepEqual(api.probed, [{ url: `${ADMIN_URL}/v2`, token: STORED_TOKEN, feedOwner: null }]);
       assert.equal(answer.text.includes(STORED_TOKEN), false);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it('sends the stored token to no origin but the one it was saved with, and asks nothing there', async () => {
+    const api = await testApi({ storedToken: STORED_TOKEN });
+    try {
+      for (const elsewhere of ['https://admin2.example.com', 'http://admin.example.com', 'https://admin.example.com:8443']) {
+        const answer = await api.testTyped({ url: elsewhere, token: { source: 'stored' } });
+        assert.deepEqual(answer.body, { outcome: 'stored-token-elsewhere' });
+      }
+      assert.deepEqual(api.probed, []);
+
+      const typed = await api.testTyped({ url: 'https://admin2.example.com', token: { source: 'typed', value: TOKEN } });
+      assert.deepEqual(typed.body, { outcome: 'linked' });
+      assert.deepEqual(api.probed, [{ url: 'https://admin2.example.com', token: TOKEN, feedOwner: null }]);
     } finally {
       await api.close();
     }

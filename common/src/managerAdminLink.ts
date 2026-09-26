@@ -1,4 +1,4 @@
-import { ADMIN_API_TOKEN_KEY, ADMIN_API_URL_KEY } from './adminLink.js';
+import { ADMIN_API_TOKEN_KEY, ADMIN_API_URL_KEY, sameAdminOrigin } from './adminLink.js';
 import { settingValueProblem } from './settingValues.js';
 import { stackSettingFieldProblem } from './stackSettingFields.js';
 
@@ -43,16 +43,27 @@ export function adminTokenProblem(token: string): string | null {
   return keyValueProblem(ADMIN_API_TOKEN_KEY, token);
 }
 
+/** The link a save lands on: its address, or null for none, and whether it stores a token. */
+export type StoredManagerAdminLink = Pick<ManagerAdminLink, 'url' | 'tokenStored'>;
+
 /**
  * Why a save of the manager's link would be refused, one sentence each, or
  * none. The address and the token answer to the rules a deployment's own
  * `ADMIN_API_URL` and `ADMIN_API_TOKEN` do, because that is where a new
- * deployment gets them, and no sentence repeats either.
+ * deployment gets them, and no sentence repeats either. An address on
+ * another origin than the stored link's has to come with a new token or a
+ * cleared one, because the stored token goes only to the address it was saved
+ * with.
  */
-export function managerAdminLinkProblems({ url, token }: ManagerAdminLinkSave): string[] {
+export function managerAdminLinkProblems({ url, token }: ManagerAdminLinkSave, stored?: StoredManagerAdminLink): string[] {
   const problems: string[] = [];
   const urlProblem = url === '' ? null : adminUrlProblem(url);
   if (urlProblem) problems.push(urlProblem);
+  if (stored?.tokenStored && url !== '' && token === undefined && !sameAdminOrigin(url, stored.url ?? '')) {
+    problems.push(
+      'The address moves to another one than the stored token was saved with, and the manager sends its stored token only to the address it was saved with. Type the token again for the new address, or clear it.',
+    );
+  }
   if (typeof token === 'string') {
     const tokenProblem =
       url === ''

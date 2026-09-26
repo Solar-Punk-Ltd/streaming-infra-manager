@@ -13,8 +13,18 @@ export interface ManagerAdminLinkStore {
   read(): Promise<ManagerAdminLink>;
   /** Writes while the row is still at the revision the caller read, and answers what it holds then, or null once it had moved. */
   write(change: ManagerAdminLinkWrite, expectedRevision: number, username: string): Promise<ManagerAdminLink | null>;
-  /** The token, for Test connection alone, which presents it to the admin. Never answered to a page. */
-  storedToken(): Promise<string | null>;
+  /**
+   * The address and the token, read together, for Test connection alone,
+   * which presents the token to the admin at that address and no other.
+   * Never answered to a page.
+   */
+  storedLink(): Promise<StoredAdminLinkSecret>;
+}
+
+/** The manager's link with its token, as one read gives them. */
+export interface StoredAdminLinkSecret {
+  url: string | null;
+  token: string | null;
 }
 
 interface LinkRow {
@@ -32,7 +42,7 @@ function linkOf(row: LinkRow): ManagerAdminLink {
 /**
  * The manager's web2 admin link in its single-row table, migration 041. A read
  * selects whether a token is stored and never the token itself, which only
- * `storedToken` reads.
+ * `storedLink` reads.
  */
 export class ManagerAdminLinkRepository implements ManagerAdminLinkStore {
   constructor(private readonly pool: Pool) {}
@@ -60,8 +70,8 @@ export class ManagerAdminLinkRepository implements ManagerAdminLinkStore {
     return row ? linkOf(row) : null;
   }
 
-  async storedToken(): Promise<string | null> {
-    const result = await this.pool.query<{ token: string | null }>('SELECT token FROM manager_admin_link');
-    return result.rows[0]?.token ?? null;
+  async storedLink(): Promise<StoredAdminLinkSecret> {
+    const result = await this.pool.query<StoredAdminLinkSecret>('SELECT url, token FROM manager_admin_link');
+    return result.rows[0] ?? { url: null, token: null };
   }
 }

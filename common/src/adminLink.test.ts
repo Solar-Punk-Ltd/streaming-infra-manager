@@ -16,6 +16,8 @@ import {
   adminLinkAfterEdits,
   adminLinkEditProblem,
   adminLinkProblem,
+  sameAdminOrigin,
+  storedTokenMoveProblem,
 } from './adminLink.js';
 import { ADMIN_LINK_TEST_OUTCOMES, adminLinkTestProblems } from './adminLinkTest.js';
 import { managerAdminLinkProblems } from './managerAdminLink.js';
@@ -82,6 +84,60 @@ describe('the two keys once edits land', () => {
   });
 });
 
+describe('the address a stored token may go to', () => {
+  it('is the one it was stored with, however its scheme and host are cased or its default port written', () => {
+    assert.equal(sameAdminOrigin('HTTPS://Admin.Example.com:443/some/path', 'https://admin.example.com'), true);
+    assert.equal(sameAdminOrigin('http://[::1]:80/', 'http://[0:0:0:0:0:0:0:1]'), true);
+  });
+
+  it('is never another scheme, host or port', () => {
+    assert.equal(sameAdminOrigin('http://admin.example.com', 'https://admin.example.com'), false);
+    assert.equal(sameAdminOrigin('https://admin.example.com.evil.test', 'https://admin.example.com'), false);
+    assert.equal(sameAdminOrigin('https://admin.example.com:8443', 'https://admin.example.com'), false);
+    assert.equal(sameAdminOrigin('https://admin.example.com.', 'https://admin.example.com'), false);
+  });
+
+  it('is nowhere for an address that has no origin, or none at all', () => {
+    assert.equal(sameAdminOrigin('', ''), false);
+    assert.equal(sameAdminOrigin('https://admin.example.com', ''), false);
+    assert.equal(sameAdminOrigin('not an address', 'not an address'), false);
+    assert.equal(sameAdminOrigin('file:///etc/admin', 'file:///etc/admin'), false);
+  });
+});
+
+describe("a save that moves a deployment's address away from its stored token", () => {
+  const TOKEN = 'synthetic-admin-token-0123456789abcdef';
+  const STORED = { url: ADMIN_URL, tokenStored: true };
+  const MOVED =
+    'ADMIN_API_URL moves to another address than the one ADMIN_API_TOKEN was stored with, and the manager sends a stored token only to the address it was stored with. Type ADMIN_API_TOKEN again for the new address, or clear it.';
+
+  it('is refused when the token stays behind, and the sentence repeats neither value', () => {
+    assert.equal(storedTokenMoveProblem([{ key: ADMIN_API_URL_KEY, value: 'https://elsewhere.example.net' }], STORED), MOVED);
+  });
+
+  it('is refused for a reset that puts back another address', () => {
+    assert.equal(storedTokenMoveProblem([{ key: ADMIN_API_URL_KEY, value: null }], { ...STORED, afterReset: 'https://elsewhere.example.net' }), MOVED);
+  });
+
+  it('is refused for an address set where there was none, since the token was stored with none', () => {
+    assert.equal(storedTokenMoveProblem([{ key: ADMIN_API_URL_KEY, value: ADMIN_URL }], { url: '', tokenStored: true }), MOVED);
+  });
+
+  it('is taken with a new token, a cleared one or a reset one', () => {
+    const moved = { key: ADMIN_API_URL_KEY, value: 'https://elsewhere.example.net' };
+    assert.equal(storedTokenMoveProblem([moved, { key: ADMIN_API_TOKEN_KEY, value: TOKEN }], STORED), null);
+    assert.equal(storedTokenMoveProblem([moved, { key: ADMIN_API_TOKEN_KEY, value: '' }], STORED), null);
+    assert.equal(storedTokenMoveProblem([moved, { key: ADMIN_API_TOKEN_KEY, value: null }], STORED), null);
+  });
+
+  it('is taken on the same origin, when the address is emptied, and when no token is stored', () => {
+    assert.equal(storedTokenMoveProblem([{ key: ADMIN_API_URL_KEY, value: `${ADMIN_URL}/v2` }], STORED), null);
+    assert.equal(storedTokenMoveProblem([{ key: ADMIN_API_URL_KEY, value: '' }], STORED), null);
+    assert.equal(storedTokenMoveProblem([{ key: ADMIN_API_URL_KEY, value: 'https://elsewhere.example.net' }], { url: ADMIN_URL, tokenStored: false }), null);
+    assert.equal(storedTokenMoveProblem([{ key: 'LOG_LEVEL', value: 'debug' }], STORED), null);
+  });
+});
+
 describe("a save of the manager's own web2 admin link", () => {
   const TOKEN = 'synthetic-admin-token-0123456789abcdef';
 
@@ -109,6 +165,18 @@ describe("a save of the manager's own web2 admin link", () => {
     assert.equal(problems.length, 1);
     assert.match(problems[0] ?? '', /^ADMIN_API_TOKEN must not contain/);
     assert.doesNotMatch(problems[0] ?? '', /sed-syntax-0123456789/);
+  });
+
+  it('refuses an address on another origin that would keep the stored token, and takes one with a new or cleared token', () => {
+    const stored = { url: ADMIN_URL, tokenStored: true };
+    const elsewhere = 'https://elsewhere.example.net';
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: elsewhere }, stored), [
+      'The address moves to another one than the stored token was saved with, and the manager sends its stored token only to the address it was saved with. Type the token again for the new address, or clear it.',
+    ]);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: elsewhere, token: TOKEN }, stored), []);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: elsewhere, token: null }, stored), []);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: `${ADMIN_URL}/v2` }, stored), []);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: elsewhere }, { url: ADMIN_URL, tokenStored: false }), []);
   });
 
   it('refuses a token with no address, and an empty token, which clearing says with null', () => {
@@ -143,7 +211,7 @@ describe('a request to test a web2 admin link typed on a page', () => {
   it('knows every outcome the page has a sentence for', () => {
     assert.deepEqual([...ADMIN_LINK_TEST_OUTCOMES].sort(), [
       'invalid-address', 'linked', 'no-token', 'not-admin', 'not-linked', 'owner-mismatch',
-      'owner-unconfirmed', 'redirected', 'token-accepted', 'token-refused', 'unreachable',
+      'owner-unconfirmed', 'redirected', 'stored-token-elsewhere', 'token-accepted', 'token-refused', 'unreachable',
     ]);
   });
 });

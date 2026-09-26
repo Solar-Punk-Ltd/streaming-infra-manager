@@ -79,3 +79,51 @@ export function adminLinkEditProblem(edits: readonly AdminLinkEdit[], before: Ad
   if (!editsAdminLink(edits)) return null;
   return adminLinkProblem(adminLinkAfterEdits(edits, before));
 }
+
+/**
+ * The origin a request to this address goes to, scheme, host and port as the
+ * URL parser normalizes them, or null for an address that has none.
+ */
+function adminOriginOf(url: string): string | null {
+  if (!URL.canParse(url)) return null;
+  const { origin } = new URL(url);
+  return origin === 'null' ? null : origin;
+}
+
+/**
+ * Whether a token stored with the address `storedWith` may be sent to `url`.
+ * Only to the same origin, so a path may change and a host, port or scheme
+ * may not. The WHATWG parser lowercases the host and drops a default port. A
+ * trailing dot on the host is another origin here, which refuses more and
+ * never less.
+ */
+export function sameAdminOrigin(url: string, storedWith: string): boolean {
+  const origin = adminOriginOf(url);
+  return origin !== null && origin === adminOriginOf(storedWith);
+}
+
+/** Where a deployment's stored token stands before a save. */
+export interface StoredAdminToken {
+  /** The address the uploader is given now, which the stored token was stored with. */
+  url: string;
+  /** Whether the deployment stores a token of its own, which is the one the rule guards. */
+  tokenStored: boolean;
+  /** What a reset of `ADMIN_API_URL` puts back. Left out, it is empty. */
+  afterReset?: string;
+}
+
+/**
+ * Why these edits would send a deployment's stored token to another origin
+ * than the address it was stored with, or null. They are taken when they give
+ * a new token, clear it or reset it, or when they empty the address, which
+ * sends the token nowhere.
+ */
+export function storedTokenMoveProblem(edits: readonly AdminLinkEdit[], stored: StoredAdminToken): string | null {
+  if (!stored.tokenStored) return null;
+  if (edits.some(({ key }) => key === ADMIN_API_TOKEN_KEY)) return null;
+  const urlEdit = edits.find(({ key }) => key === ADMIN_API_URL_KEY);
+  if (urlEdit === undefined) return null;
+  const url = urlEdit.value ?? stored.afterReset ?? '';
+  if (url === '' || sameAdminOrigin(url, stored.url)) return null;
+  return `${ADMIN_API_URL_KEY} moves to another address than the one ${ADMIN_API_TOKEN_KEY} was stored with, and the manager sends a stored token only to the address it was stored with. Type ${ADMIN_API_TOKEN_KEY} again for the new address, or clear it.`;
+}

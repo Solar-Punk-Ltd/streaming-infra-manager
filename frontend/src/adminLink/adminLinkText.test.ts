@@ -30,6 +30,10 @@ describe('the sentence for each Test connection outcome', () => {
     assert.equal(adminLinkTestText('token-refused'), 'The web2 admin answered but refused the token.');
     assert.equal(adminLinkTestText('unreachable'), 'The web2 admin did not answer from where the manager runs.');
     assert.equal(
+      adminLinkTestText('stored-token-elsewhere'),
+      "The manager's stored token was saved for another address, so it was not sent here, and only a token typed for this address can be tested.",
+    );
+    assert.equal(
       adminLinkTestText('owner-mismatch'),
       "The web2 admin took the token but signs its catalog with another address than this deployment's stream key, so the uploader will refuse to start.",
     );
@@ -40,7 +44,7 @@ describe('the sentence for each Test connection outcome', () => {
     assert.equal(adminLinkTestSeverity('token-accepted'), 'success');
     assert.equal(adminLinkTestSeverity('owner-unconfirmed'), 'warning');
     assert.equal(adminLinkTestSeverity('not-linked'), 'info');
-    for (const outcome of ['owner-mismatch', 'token-refused', 'not-admin', 'redirected', 'unreachable', 'invalid-address', 'no-token'] as const) {
+    for (const outcome of ['owner-mismatch', 'token-refused', 'not-admin', 'redirected', 'unreachable', 'invalid-address', 'no-token', 'stored-token-elsewhere'] as const) {
       assert.equal(adminLinkTestSeverity(outcome), 'error', outcome);
     }
   });

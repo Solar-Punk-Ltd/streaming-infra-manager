@@ -107,7 +107,7 @@ describe('PUT /manager-settings/admin-link', () => {
       assert.deepEqual(saved.body, { url: ADMIN_URL, tokenStored: true, revision: 1 });
       assert.deepEqual(read.body, saved.body);
       for (const answer of [saved, read]) assert.equal(answer.text.includes(TOKEN), false);
-      assert.equal(await api.store.storedToken(), TOKEN);
+      assert.equal((await api.store.storedLink()).token, TOKEN);
     } finally {
       await api.close();
     }
@@ -117,16 +117,37 @@ describe('PUT /manager-settings/admin-link', () => {
     const api = await testApi();
     try {
       await api.save({ expectedRevision: 0, url: ADMIN_URL, token: TOKEN });
-      const kept = await api.save({ expectedRevision: 1, url: 'https://admin2.example.com' });
-      assert.deepEqual(kept.body, { url: 'https://admin2.example.com', tokenStored: true, revision: 2 });
-      assert.equal(await api.store.storedToken(), TOKEN);
+      const kept = await api.save({ expectedRevision: 1, url: `${ADMIN_URL}/v2` });
+      assert.deepEqual(kept.body, { url: `${ADMIN_URL}/v2`, tokenStored: true, revision: 2 });
+      assert.equal((await api.store.storedLink()).token, TOKEN);
 
       await api.save({ expectedRevision: 2, url: ADMIN_URL, token: OTHER_TOKEN });
-      assert.equal(await api.store.storedToken(), OTHER_TOKEN);
+      assert.equal((await api.store.storedLink()).token, OTHER_TOKEN);
 
       const cleared = await api.save({ expectedRevision: 3, url: ADMIN_URL, token: null });
       assert.deepEqual(cleared.body, { url: ADMIN_URL, tokenStored: false, revision: 4 });
-      assert.equal(await api.store.storedToken(), null);
+      assert.equal((await api.store.storedLink()).token, null);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it('refuses an address on another origin that would keep the stored token, and takes it with a new token or a cleared one', async () => {
+    const api = await testApi();
+    try {
+      await api.save({ expectedRevision: 0, url: ADMIN_URL, token: TOKEN });
+      for (const elsewhere of ['https://admin2.example.com', 'http://admin.example.com', 'https://admin.example.com:8443']) {
+        const refused = await api.save({ expectedRevision: 1, url: elsewhere });
+        assert.deepEqual(refusalOf(refused), [
+          'The address moves to another one than the stored token was saved with, and the manager sends its stored token only to the address it was saved with. Type the token again for the new address, or clear it.',
+        ]);
+      }
+      assert.deepEqual((await api.read()).body, { url: ADMIN_URL, tokenStored: true, revision: 1 });
+
+      const replaced = await api.save({ expectedRevision: 1, url: 'https://admin2.example.com', token: OTHER_TOKEN });
+      assert.deepEqual(replaced.body, { url: 'https://admin2.example.com', tokenStored: true, revision: 2 });
+      const cleared = await api.save({ expectedRevision: 2, url: ADMIN_URL, token: null });
+      assert.deepEqual(cleared.body, { url: ADMIN_URL, tokenStored: false, revision: 3 });
     } finally {
       await api.close();
     }
@@ -139,7 +160,7 @@ describe('PUT /manager-settings/admin-link', () => {
       const cleared = await api.save({ expectedRevision: 1, url: '' });
 
       assert.deepEqual(cleared.body, { url: null, tokenStored: false, revision: 2 });
-      assert.equal(await api.store.storedToken(), null);
+      assert.equal((await api.store.storedLink()).token, null);
     } finally {
       await api.close();
     }
@@ -193,7 +214,7 @@ describe('PUT /manager-settings/admin-link', () => {
         assert.equal(refused.status, 400, `${JSON.stringify(body)} answered ${refused.text}`);
         assert.equal(refused.text.includes(TOKEN), false, refused.text);
       }
-      assert.equal(await api.store.storedToken(), null);
+      assert.equal((await api.store.storedLink()).token, null);
     } finally {
       await api.close();
     }
@@ -204,7 +225,7 @@ describe('PUT /manager-settings/admin-link', () => {
     try {
       assert.equal((await api.read(false)).status, 401);
       assert.equal((await api.save({ expectedRevision: 0, url: ADMIN_URL, token: TOKEN }, false)).status, 401);
-      assert.equal(await api.store.storedToken(), null);
+      assert.equal((await api.store.storedLink()).token, null);
     } finally {
       await api.close();
     }

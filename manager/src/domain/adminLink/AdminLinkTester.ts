@@ -6,6 +6,7 @@ import {
   type AdminLinkTestRequest,
   adminLinkTestProblems,
   adminUrlProblem,
+  sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../../types/index.js';
@@ -38,7 +39,7 @@ function streamAddressOf(profile: Profile): string | null {
  */
 export class AdminLinkTester {
   constructor(
-    private readonly store: Pick<ManagerAdminLinkStore, 'storedToken'>,
+    private readonly store: Pick<ManagerAdminLinkStore, 'storedLink'>,
     private readonly profiles: Pick<ProfileRepository, 'findByName'>,
     private readonly orchestrator: Pick<DeploymentOrchestrator, 'nextEnvFor'>,
     private readonly probe: AdminLinkProbe = probeAdminLink,
@@ -48,12 +49,19 @@ export class AdminLinkTester {
   async testTyped(request: AdminLinkTestRequest, username: string): Promise<AdminLinkTestAnswer> {
     const problems = adminLinkTestProblems(request);
     if (problems.length > 0) throw new AdminLinkInputError(problems);
-    const token = request.token.source === 'typed' ? request.token.value : await this.store.storedToken();
-    const outcome = token === null
-      ? 'no-token'
-      : await this.probe({ url: request.url, token, feedOwner: request.feedOwner ?? null });
+    const outcome = request.token.source === 'typed'
+      ? await this.probe({ url: request.url, token: request.token.value, feedOwner: request.feedOwner ?? null })
+      : await this.outcomeWithStoredToken(request);
     logger.info(`[AdminLink] ${username} tested a web2 admin link typed on a page: ${outcome}`);
     return { outcome };
+  }
+
+  /** The stored token goes only to the origin it was saved with, so an address elsewhere is answered without asking it. */
+  private async outcomeWithStoredToken(request: AdminLinkTestRequest): Promise<AdminLinkTestOutcome> {
+    const stored = await this.store.storedLink();
+    if (stored.token === null) return 'no-token';
+    if (!sameAdminOrigin(request.url, stored.url ?? '')) return 'stored-token-elsewhere';
+    return this.probe({ url: request.url, token: stored.token, feedOwner: request.feedOwner ?? null });
   }
 
   /** Tests what the deployment's next deploy would give its uploader. */

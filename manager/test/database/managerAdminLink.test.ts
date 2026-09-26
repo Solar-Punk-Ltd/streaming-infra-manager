@@ -74,7 +74,7 @@ describe("the manager's web2 admin link table, in isolated PostgreSQL", {
 
     assert.deepEqual(rows.rows, [{ url: null, token: null, revision: 0 }]);
     assert.deepEqual(await link.read(), { url: null, tokenStored: false, revision: 0 });
-    assert.equal(await link.storedToken(), null);
+    assert.equal((await link.storedLink()).token, null);
   });
 
   it('refuses a second row', async () => {
@@ -88,7 +88,7 @@ describe("the manager's web2 admin link table, in isolated PostgreSQL", {
     assert.deepEqual(saved, { url: ADMIN_URL, tokenStored: true, revision: 1 });
     assert.deepEqual(await link.read(), saved);
     assert.doesNotMatch(JSON.stringify(await link.read()), new RegExp(TOKEN));
-    assert.equal(await link.storedToken(), TOKEN);
+    assert.equal((await link.storedLink()).token, TOKEN);
     const row = await pool.query('SELECT updated_by FROM manager_admin_link');
     assert.equal(row.rows[0].updated_by, 'operator');
   });
@@ -101,16 +101,16 @@ describe("the manager's web2 admin link table, in isolated PostgreSQL", {
       tokenStored: true,
       revision: 2,
     });
-    assert.equal(await link.storedToken(), TOKEN);
+    assert.equal((await link.storedLink()).token, TOKEN);
     assert.deepEqual(await link.write({ url: ADMIN_URL, token: null }, 2, 'operator'), { url: ADMIN_URL, tokenStored: false, revision: 3 });
-    assert.equal(await link.storedToken(), null);
+    assert.equal((await link.storedLink()).token, null);
   });
 
   it('takes the token out with the address, which leaves no default', async () => {
     await link.write({ url: ADMIN_URL, token: TOKEN }, 0, 'operator');
 
     assert.deepEqual(await link.write({ url: null }, 1, 'operator'), { url: null, tokenStored: false, revision: 2 });
-    assert.equal(await link.storedToken(), null);
+    assert.equal((await link.storedLink()).token, null);
   });
 
   it('writes nothing at a revision another write has moved past', async () => {
@@ -118,7 +118,7 @@ describe("the manager's web2 admin link table, in isolated PostgreSQL", {
 
     assert.equal(await link.write({ url: 'https://admin2.example.com', token: null }, 0, 'second'), null);
     assert.deepEqual(await link.read(), { url: ADMIN_URL, tokenStored: true, revision: 1 });
-    assert.equal(await link.storedToken(), TOKEN);
+    assert.equal((await link.storedLink()).token, TOKEN);
   });
 
   it('refuses a token with no address, and an empty address, from a write that skipped the service', async () => {

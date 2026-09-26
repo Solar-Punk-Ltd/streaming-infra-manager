@@ -32,9 +32,15 @@ export class ManagerAdminLinkService {
     return this.store.read();
   }
 
-  /** Stores one save, or refuses all of it, and answers the link as it stands after. */
+  /**
+   * Stores one save, or refuses all of it, and answers the link as it stands
+   * after. The save is judged against the link it names the revision of, and
+   * the write lands only while the row is still at that revision.
+   */
   async save(save: ManagerAdminLinkSave, username: string): Promise<ManagerAdminLink> {
-    const problems = managerAdminLinkProblems(save);
+    const stored = await this.store.read();
+    if (stored.revision !== save.expectedRevision) throw new ManagerSettingsChangedError();
+    const problems = managerAdminLinkProblems(save, stored);
     if (problems.length > 0) throw new AdminLinkInputError(problems);
     const saved = await this.store.write(writeOf(save), save.expectedRevision, username);
     if (!saved) throw new ManagerSettingsChangedError();

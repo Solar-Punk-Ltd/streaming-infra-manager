@@ -15,6 +15,8 @@ export const ADMIN_LINK_TEST_OUTCOMES = [
   'owner-unconfirmed',
   /** The admin took the token but signs with another address, which the uploader refuses to start with. */
   'owner-mismatch',
+  /** The manager's stored token was saved with another origin, so it was not sent. A token typed for this address is. */
+  'stored-token-elsewhere',
   /** The admin answered and refused the token. */
   'token-refused',
   /** Something answered at the address, but not as a web2 admin answers. */
