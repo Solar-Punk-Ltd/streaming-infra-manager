@@ -346,14 +346,14 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.match(await rowText('HLS_WINDOW'), /This version's config does not read this setting, so a value here has no effect on this version\./);
   });
 
-  await t.test('an engine field is named by its label and its key, and says its unit and bounds', async () => {
+  await t.test('an engine field is named by its label and its key, and says its unit, its bounds and its default', async () => {
     assert.deepEqual(await accessible('HLS_FRAGMENT'), {
       name: 'Segment length HLS_FRAGMENT',
-      description: 'A number of seconds from 0.5 to 30. Use a period for decimals.',
+      description: 'A number of seconds from 0.5 to 30. Use a period for decimals. Default: 2 seconds, set on this host',
     });
     assert.deepEqual(await accessible('SRT_LATENCY'), {
       name: 'SRT latency SRT_LATENCY',
-      description: 'A whole number of milliseconds from 20 to 10000.',
+      description: "A whole number of milliseconds from 20 to 10000. Default: 2000 milliseconds, the manager's own",
     });
   });
 
@@ -418,7 +418,10 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     await waitFor(() => rowText('HLS_FRAGMENT'), (text) => text.includes('Segment length must be at least 0.5. Got 0.1.'), 'the refusal under the field');
     await waitFor(saveDisabled, (off) => off === true, 'a Save that stops at the refused value');
     assert.match(await cardText(), /One value cannot be saved as written: HLS_FRAGMENT/);
-    assert.equal((await accessible('HLS_FRAGMENT')).description, 'Segment length must be at least 0.5. Got 0.1.');
+    assert.equal(
+      (await accessible('HLS_FRAGMENT')).description,
+      'Segment length must be at least 0.5. Got 0.1. Default: 2 seconds, set on this host',
+    );
     assert.equal(
       await evaluate(`document.getElementById('deployment-setting-HLS_FRAGMENT-helper-text')?.getAttribute('aria-live')`),
       'polite',

@@ -169,8 +169,9 @@ announces no change for a save, so both show the value it stored rather than the
 - **An engine setting** is named by its label with the key beside it, says its field's help, and takes
   a number field with its unit and bounds or a list of its choices. Its default is beside it, with
   where it comes from: set on this host, the version's own, or the manager's own. A search finds it by
-  its label and help as well as its key. A screen reader hears the field as its label and its key, and
-  the line under it, which says the unit with the bounds and is read out when a refusal replaces it.
+  its label and help as well as its key. A screen reader hears the field as its label and its key,
+  then the line under it, which says the unit with the bounds and is read out when a refusal replaces
+  it, then the default a reset goes back to.
 
 A value the manager would refuse is named under its field, by the same shared rules, and keeps Save
 off. A pair of engine settings the engine would refuse is named once above Save, in the manager's

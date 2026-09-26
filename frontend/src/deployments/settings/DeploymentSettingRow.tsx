@@ -7,7 +7,7 @@ import { MONO_STACK } from '../../app/theme';
 import { canReset, type SettingEdit, shownValue } from './deploymentSettingsDraft';
 import { EngineSettingValueField } from './EngineSettingValueField';
 import { SettingDescription } from './SettingDescription';
-import { settingKeyId, settingLabelId } from './settingFieldIds';
+import { settingDefaultId, settingKeyId, settingLabelId } from './settingFieldIds';
 import { SettingValueField } from './SettingValueField';
 import {
   OWNED_STORED_NOTE,
@@ -270,7 +270,12 @@ function ValueFrame({
     <Stack spacing={0.75}>
       {field}
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
-        <Typography variant="caption" color="text.secondary" sx={{ flex: '1 1 12rem', ...CAPTION_WRAP }}>
+        <Typography
+          id={settingDefaultId(entry.key)}
+          variant="caption"
+          color="text.secondary"
+          sx={{ flex: '1 1 12rem', ...CAPTION_WRAP }}
+        >
           {defaultLine}
         </Typography>
         {edit && <ActionButton label="Undo" settingKey={entry.key} disabled={disabled} onClick={onUndo} />}

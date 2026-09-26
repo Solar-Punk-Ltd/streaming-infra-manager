@@ -3,7 +3,7 @@ import { InputAdornment, TextField } from '@mui/material';
 import type { DeploymentSettingEntry, EngineSettingField } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../../app/theme';
-import { engineFieldLabelledBy, settingFieldId } from './settingFieldIds';
+import { engineFieldDescribedBy, engineFieldLabelledBy, settingFieldId, settingHelperTextId } from './settingFieldIds';
 import { PLAIN_TEXT_INPUT } from './SettingValueField';
 import { engineFieldHint } from './settingsText';
 
@@ -18,15 +18,20 @@ interface EngineFieldProps {
   onChange: (value: string) => void;
 }
 
-/** The line under the field is where a refusal appears, so it is read out as it changes. */
-const ANNOUNCED_HELPER = { 'aria-live': 'polite' } as const;
+/**
+ * The line under the field, with the id the field is described by. It is where
+ * a refusal appears, so it is read out as it changes.
+ */
+function announcedHelperOf(key: string) {
+  return { id: settingHelperTextId(key), 'aria-live': 'polite' } as const;
+}
 
 /**
  * The input for one of the deployment's engine settings, shaped by common's
  * field: a list of its choices, or a number field with its unit beside it and
  * its bounds under it. Named by the label and the key its row shows, and
  * described by the line under it, which says the unit, since the unit beside
- * the field is drawn and not read out.
+ * the field is drawn and not read out, and then by the default its row names.
  */
 export function EngineSettingValueField(props: EngineFieldProps) {
   return props.field.kind === 'choice' ? <EngineChoiceInput {...props} /> : <EngineNumberInput {...props} />;
@@ -42,12 +47,13 @@ function EngineNumberInput({ entry, field, value, disabled, problem, onChange }:
       disabled={disabled}
       error={problem !== null}
       helperText={problem ?? engineFieldHint(field) ?? undefined}
-      FormHelperTextProps={ANNOUNCED_HELPER}
+      FormHelperTextProps={announcedHelperOf(entry.key)}
       onChange={(event) => onChange(event.target.value)}
       InputProps={field.unit ? { endAdornment: <InputAdornment position="end">{field.unit}</InputAdornment> } : undefined}
       inputProps={{
         ...PLAIN_TEXT_INPUT,
         'aria-labelledby': engineFieldLabelledBy(entry.key),
+        'aria-describedby': engineFieldDescribedBy(entry.key, { helperText: true }),
         inputMode: field.kind === 'integer' ? 'numeric' : 'decimal',
       }}
     />
@@ -71,10 +77,14 @@ function EngineChoiceInput({ entry, field, value, disabled, problem, onChange }:
       disabled={disabled}
       error={problem !== null}
       helperText={problem ?? undefined}
-      FormHelperTextProps={ANNOUNCED_HELPER}
+      FormHelperTextProps={announcedHelperOf(entry.key)}
       onChange={(event) => onChange(event.target.value)}
       SelectProps={{ native: true }}
-      inputProps={{ 'aria-labelledby': engineFieldLabelledBy(entry.key), style: { fontFamily: MONO_STACK, fontSize: 13 } }}
+      inputProps={{
+        'aria-labelledby': engineFieldLabelledBy(entry.key),
+        'aria-describedby': engineFieldDescribedBy(entry.key, { helperText: problem !== null }),
+        style: { fontFamily: MONO_STACK, fontSize: 13 },
+      }}
     >
       {options.map((choice) => (
         <option key={choice} value={choice}>

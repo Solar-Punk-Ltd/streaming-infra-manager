@@ -13,6 +13,25 @@ export function settingKeyId(key: string): string {
   return `${settingFieldId(key)}-key`;
 }
 
+/** The id of the line under a key's field, its hint or a refusal. */
+export function settingHelperTextId(key: string): string {
+  return `${settingFieldId(key)}-helper-text`;
+}
+
+/** The id of the line that names the default a reset of a key goes back to. */
+export function settingDefaultId(key: string): string {
+  return `${settingFieldId(key)}-default`;
+}
+
+/**
+ * What describes an engine setting's field: the line under it while one
+ * shows, then the default, so a screen reader hears what the field takes and
+ * what a reset goes back to, as the row shows both.
+ */
+export function engineFieldDescribedBy(key: string, shows: { helperText: boolean }): string {
+  return shows.helperText ? `${settingHelperTextId(key)} ${settingDefaultId(key)}` : settingDefaultId(key);
+}
+
 /**
  * What names an engine setting's field: its label, then its key, as the row
  * shows them. A screen reader says "Segment length HLS_FRAGMENT", and voice
