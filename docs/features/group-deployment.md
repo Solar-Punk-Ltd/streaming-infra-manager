@@ -124,7 +124,8 @@ As designed in 2026-05. The drawer is now a wizard, see the module table below.
 ### The deployments table
 
 - Members with the same `group_id` collapse under a group header row.
-- Group header shows: group name, member count, created_at, expand/collapse caret.
+- Group header shows: expand/collapse caret, group name, member count, readiness, how many
+  members run, and the **Start all**, **Stop all** and **Open** buttons.
 - Per-row actions on individual members remain unchanged.
 - Profiles with `group_id = null` continue to render as flat rows.
 
