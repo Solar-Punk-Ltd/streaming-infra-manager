@@ -332,10 +332,10 @@ That puts `checks` at about 3 minutes, `database` at about 9, and `browser` at
 about 13. **Estimate about 25 Actions minutes per push, somewhere between 19
 and 30.** The browser job is more than half of it.
 
-**A decision that is Levi's, not this page's.** Whether all three jobs stay
+**A decision that is Levi's, not this page's.** Whether every job stays
 required on every push, or the browser job moves to a schedule or a manual
-dispatch, is a spend question. Keeping all three required is what the D06
-agreement says and what this slice built. Moving the browser job off every
+dispatch, is a spend question. Keeping all of them required is what the D06
+agreement says. Moving the browser job off every
 push would take roughly half the minutes back and would mean a pull request
 can go green while every Chrome suite has not run on it.
 
@@ -550,9 +550,8 @@ request.
 
 ## Pinning
 
-Actions are pinned by commit with the tag in a comment. **No action was added
-or moved in this slice**, so no new provenance check was owed. The three
-existing pins are unchanged:
+Actions are pinned by commit with the tag in a comment. Both workflows use
+the same three pins:
 
 | Action | Pin |
 | --- | --- |
