@@ -97,13 +97,13 @@ export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarg
         requireActive();
         if (acquired.stream.destroyed) throw new DockerBeeAcquisitionError();
         return acquired;
-      } catch { dispose(); throw new DockerBeeAcquisitionError(); }
+      } catch (error) { dispose(); throw DockerBeeAcquisitionError.keeping(error); }
     };
     const result = await Promise.race([work(), cancelled]);
     requireActive();
     return result;
-  } catch {
-    failed = true; dispose(); throw new DockerBeeAcquisitionError();
+  } catch (error) {
+    failed = true; dispose(); throw DockerBeeAcquisitionError.keeping(error);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);

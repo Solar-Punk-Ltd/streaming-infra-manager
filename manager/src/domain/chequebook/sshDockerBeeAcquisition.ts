@@ -1,6 +1,8 @@
 import { posix } from 'node:path';
 import { Duplex } from 'node:stream';
+import type { ChequebookRefusal } from '@streaming-infra-manager/common';
 import { DockerBeeAcquisitionError } from '../errors/DockerBeeAcquisitionError.js';
+import { TransferRefusalError } from '../errors/TransferRefusalError.js';
 import { targetLockIdentity, type FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { requireBeeBindingTarget } from './DockerBeeBinding.js';
 import { normalizeDockerBeeAcquisitionOptions, type acquireDockerBeeStream, type AcquiredDockerBeeStream,
@@ -127,6 +129,8 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
   let cancelAcquisition: (() => void) | undefined; let cancelLifetime: (() => void) | undefined;
   let cancelKill: (() => void) | undefined; let cancelCleanup: (() => void) | undefined; let cancelPoll: (() => void) | undefined;
   let stderrSize = 0;
+  /** Why the work failed, captured before close() rejects the result, so the refusal reaches the caller. */
+  let failure: ChequebookRefusal | null = null;
   const lifetime = new AbortController();
 
   function remaining(): Resource[] {
@@ -171,7 +175,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
       cleanupDeadline = Math.min(finalDeadline, clock.now() + (limits?.cleanupGraceMs ?? 1));
       cancelAcquisition?.(); cancelLifetime?.(); cancelPoll?.();
       signal?.removeEventListener('abort', close);
-      if (!published) rejectResult(new DockerBeeAcquisitionError());
+      if (!published) rejectResult(failure ? new DockerBeeAcquisitionError(failure.cause, failure.check) : new DockerBeeAcquisitionError());
       disposeStreams(); lifetime.abort();
       signalChild();
       cancelKill = clock.schedule(() => { signalChild(true); requestCleanup(); }, Math.max(0, Math.min(1000, (cleanupDeadline - clock.now()) / 2)));
@@ -332,7 +336,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
     cancelLifetime = clock.schedule(close, Math.max(0, operationalDeadline - clock.now()));
     signal?.addEventListener('abort', close, { once: true });
     if (signal?.aborted) close();
-    queueMicrotask(() => { void work().catch(close); });
+    queueMicrotask(() => { void work().catch(error => { failure ??= TransferRefusalError.carried(error); close(); }); });
   } catch { close(); }
   return Object.freeze({ result, cleanup, dispose: close });
 }

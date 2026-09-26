@@ -13,13 +13,20 @@ export const syntheticTarget: FrozenChequebookTarget = {
     kind: 'bee', components: null, host: 'synthetic-host', portSlot: 1, stackVersionId: 1, status: 'RUNNING' },
   reservation: { id: 1, protocol: 'tcp', port: 11633, service: 'bee-uploader', portVar: 'BEE_UPLOADER_API_PORT' },
 };
-const containerId = 'a'.repeat(64);
+export const syntheticContainerId = 'a'.repeat(64);
+const containerId = syntheticContainerId;
 const execId = 'c'.repeat(64);
 const labels = { 'com.docker.compose.project': syntheticTarget.profile.name, 'com.docker.compose.service': 'bee-uploader' };
+/** What the fixture answers for the Bee container's inspect, for a test that changes one field of it. */
+export const syntheticContainerInspect = () => ({ Id: containerId, Image: syntheticImageId, Config: { Labels: { ...labels } },
+  State: { Running: true, Paused: false, Restarting: false, Dead: false }, HostConfig: { NetworkMode: 'test-deployment_default' },
+  NetworkSettings: { Ports: { '1633/tcp': [{ HostIp: '0.0.0.0', HostPort: '11633' }] } } });
 export type SyntheticBeeHandler = (request: http.IncomingMessage, response: http.ServerResponse) => boolean;
+/** Replaces one Docker answer by path. Undefined keeps the fixture's own. */
+export type SyntheticDockerAnswer = (path: string) => { readonly status?: number; readonly body: unknown } | undefined;
 
 /** Docker upgrade and Bee HTTP share only in-memory duplexes. The bridge command is never executed. */
-export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandler, guardNetwork = true) {
+export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandler, guardNetwork = true, answer?: SyntheticDockerAnswer) {
   const inbound = new PassThrough(); const outbound = new PassThrough();
   const transport = Duplex.from({ readable: inbound, writable: outbound });
   const peer = Duplex.from({ readable: outbound, writable: inbound });
@@ -47,11 +54,11 @@ export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandl
     request.on('end', () => {
       dockerRequests.push({ method: request.method!, url: request.url! });
       const path = new URL(request.url!, 'http://docker.invalid').pathname;
+      const replaced = answer?.(path);
+      if (replaced) { response.statusCode = replaced.status ?? 200; response.end(JSON.stringify(replaced.body)); return; }
       response.statusCode = path.endsWith('/exec') ? 201 : 200;
       response.end(JSON.stringify(path === '/info' ? { ID: syntheticTarget.daemonId, ServerVersion: '29.1.3' } : path === '/containers/json' ? [{ Id: containerId, Labels: labels }] :
-        path.startsWith('/images/') ? { Id: syntheticImageId, Os: 'linux', Architecture: 'amd64' } : path.endsWith('/exec') ? { Id: execId } : { Id: containerId, Image: syntheticImageId, Config: { Labels: labels },
-          State: { Running: true, Paused: false, Restarting: false, Dead: false }, HostConfig: { NetworkMode: 'test-deployment_default' },
-          NetworkSettings: { Ports: { '1633/tcp': [{ HostIp: '0.0.0.0', HostPort: '11633' }] } } }));
+        path.startsWith('/images/') ? { Id: syntheticImageId, Os: 'linux', Architecture: 'amd64' } : path.endsWith('/exec') ? { Id: execId } : syntheticContainerInspect()));
     });
   });
   docker.keepAliveTimeout = 0; docker.headersTimeout = 0; docker.requestTimeout = 0;

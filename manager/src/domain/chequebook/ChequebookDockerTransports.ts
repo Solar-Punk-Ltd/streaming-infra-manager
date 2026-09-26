@@ -35,10 +35,11 @@ export class ChequebookDockerTransports {
   }
 
   select(alias: string): SelectedChequebookTransport {
+    if (!alias || targetAlias(alias) !== alias) throw new ChequebookConfigurationError('target_changed');
+    if (!this.configuration) throw new ChequebookConfigurationError('docker_route_missing');
+    const entries = this.entries(this.configuration);
+    if (!Object.hasOwn(entries, alias)) throw new ChequebookConfigurationError('docker_route_missing');
     try {
-      if (!alias || targetAlias(alias) !== alias || !this.configuration || Buffer.byteLength(this.configuration) > 65536) throw new ChequebookConfigurationError();
-      const entries = object(JSON.parse(this.configuration));
-      if (Object.keys(entries).length > 256 || !Object.hasOwn(entries, alias)) throw new ChequebookConfigurationError();
       const entry = object(entries[alias]);
       if (Object.keys(entry).sort().join(',') !== 'locator,qualificationIds') throw new ChequebookConfigurationError();
       const ids = entry.qualificationIds;
@@ -46,6 +47,15 @@ export class ChequebookDockerTransports {
           ids.some(id => typeof id !== 'string' || !this.#catalog.some(record => record.id === id))) throw new ChequebookConfigurationError();
       const qualify = createBeeBridgeQualifier(this.#catalog, ids);
       return Object.freeze({ locator: locator(alias, entry.locator), qualify });
-    } catch { throw new ChequebookConfigurationError(); }
+    } catch { throw new ChequebookConfigurationError('docker_setting_invalid'); }
+  }
+
+  private entries(configuration: string): Record<string, unknown> {
+    try {
+      if (Buffer.byteLength(configuration) > 65536) throw new ChequebookConfigurationError();
+      const entries = object(JSON.parse(configuration));
+      if (Object.keys(entries).length > 256) throw new ChequebookConfigurationError();
+      return entries;
+    } catch { throw new ChequebookConfigurationError('docker_setting_invalid'); }
   }
 }

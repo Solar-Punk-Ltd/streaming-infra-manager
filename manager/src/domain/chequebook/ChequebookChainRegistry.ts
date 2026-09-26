@@ -29,18 +29,22 @@ export class ChequebookChainRegistry {
         if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.hash) throw new ChequebookConfigurationError();
         this.#endpoints.set(chainId, value);
       }
-    } catch { throw new ChequebookConfigurationError(); }
+    } catch { throw new ChequebookConfigurationError('chain_setting_invalid'); }
   }
 
   async forChain(chainId: number, signal?: AbortSignal): Promise<ChequebookChainReader> {
     try {
+      if (!tokenAddressForChain(chainId)) throw new ChainReadError('unsupported_chain');
       const endpoint = this.#endpoints.get(chainId);
-      if (!endpoint || !tokenAddressForChain(chainId)) throw new ChainReadError();
+      if (!endpoint) throw new ChainReadError('chain_endpoint_missing');
       signal?.throwIfAborted();
       const reader = this.#createReader(endpoint);
-      if (await reader.chainId(signal) !== chainId) throw new ChainReadError();
+      let answered: number;
+      try { answered = await reader.chainId(signal); }
+      catch { throw new ChainReadError('chain_unreachable'); }
+      if (answered !== chainId) throw new ChainReadError('wrong_chain');
       signal?.throwIfAborted();
       return reader;
-    } catch { throw new ChainReadError(); }
+    } catch (error) { throw ChainReadError.keeping(error); }
   }
 }

@@ -105,7 +105,7 @@ export class OwnedChequebookTransports {
       if (closing || signal.aborted) throw new DockerBeeAcquisitionError();
       acquired.stream.once('close', dispose); acquired.stream.on('error', dispose);
       return acquired;
-    } catch { dispose(); throw new DockerBeeAcquisitionError(); }
+    } catch (error) { dispose(); throw DockerBeeAcquisitionError.keeping(error); }
     finally { workDone = true; maybeClosed(); }
   }
 }

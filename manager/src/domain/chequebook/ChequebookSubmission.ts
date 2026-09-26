@@ -37,7 +37,7 @@ export class ChequebookSubmission {
       prepared = await this.prepare(intent);
     } catch (error) {
       if (error instanceof ChequebookProfileChangedError) throw error;
-      throw new ChequebookPreparationError();
+      throw ChequebookPreparationError.keeping(error);
     }
     try {
       return await this.submitPrepared(prepared, intent);

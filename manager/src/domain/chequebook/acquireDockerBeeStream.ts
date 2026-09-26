@@ -39,7 +39,7 @@ function requireTarget(target: FrozenChequebookTarget): void {
   if (target?.version !== 1 || typeof target.daemonId !== 'string' || !target.daemonId.trim() || target.daemonId.length > 200 ||
       typeof target.profile?.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(target.profile.name) ||
       target.reservation?.service !== 'bee-uploader' || target.reservation.portVar !== 'BEE_UPLOADER_API_PORT' || target.reservation.protocol !== 'tcp' ||
-      !Number.isSafeInteger(target.reservation.port) || target.reservation.port < 1 || target.reservation.port > 65535) throw new DockerBeeAcquisitionError();
+      !Number.isSafeInteger(target.reservation.port) || target.reservation.port < 1 || target.reservation.port > 65535) throw new DockerBeeAcquisitionError('target_changed');
 }
 
 class DockerHandshake extends http.Agent {
@@ -170,14 +170,14 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     const totalDeadline = deadline + limits.preflightTimeoutMs + limits.postTimeoutMs + limits.cleanupGraceMs;
     handshake = new DockerHandshake(owned, deadline, signal);
     const info = dockerObject(await handshake.json('GET', '/info', 200));
-    if (info.ID !== target.daemonId) throw new DockerBeeAcquisitionError();
+    if (info.ID !== target.daemonId) throw new DockerBeeAcquisitionError('target_changed');
     const engineVersion = dockerEngineVersion(info);
     const filters = encodeURIComponent(JSON.stringify({ label: [`com.docker.compose.project=${target.profile.name}`, 'com.docker.compose.service=bee-uploader'] }));
     const containerId = listedBeeContainer(await handshake.json('GET', `/containers/json?all=0&filters=${filters}`, 200), target);
     const binding = observedBeeContainer(await handshake.json('GET', `/containers/${containerId}/json`, 200), containerId, target);
     const image = await handshake.json('GET', `/images/${binding.imageId}/json`, 200);
     const execution = observedBeeBridgeExecution(engineVersion, image, binding.imageId, bridgeLifetimeMs, limits.cleanupGraceMs);
-    if (typeof qualifyImage !== 'function' || qualifyImage(execution) !== true) throw new DockerBeeAcquisitionError();
+    if (typeof qualifyImage !== 'function' || qualifyImage(execution) !== true) throw new DockerBeeAcquisitionError('bridge_not_qualified');
     const created = dockerObject(await handshake.json('POST', `/containers/${containerId}/exec`, 201, {
       AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: false, Privileged: false,
       Cmd: dockerBeeBridgeCommand(binding.internalPort, bridgeLifetimeMs, limits.cleanupGraceMs),
@@ -188,10 +188,10 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     stream.on('error', ignoreLateError);
     handshake.release();
     return Object.freeze({ stream, binding });
-  } catch {
+  } catch (error) {
     stream?.destroy();
     handshake?.destroy();
     owned?.destroy();
-    throw new DockerBeeAcquisitionError();
+    throw DockerBeeAcquisitionError.keeping(error);
   }
 }

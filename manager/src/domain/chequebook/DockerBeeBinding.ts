@@ -13,13 +13,18 @@ export interface ObservedBeeContainer {
   readonly publishedBindings: readonly { readonly hostIp: string; readonly hostPort: number }[];
 }
 
+const UNSHARED_NETWORK_MODES = ['host', 'none'];
+
 export function requireBeeBindingTarget(binding: ObservedBeeContainer, expected: FrozenChequebookTarget): void {
   if (!binding || binding.daemonId !== expected.daemonId || binding.project !== expected.profile.name || binding.service !== expected.reservation.service ||
-      typeof binding.containerId !== 'string' || !/^[a-f0-9]{64}$/.test(binding.containerId) || typeof binding.imageId !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(binding.imageId) ||
-      !Number.isSafeInteger(binding.internalPort) || binding.internalPort < 1 || binding.internalPort > 65535 ||
-      typeof binding.networkMode !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(binding.networkMode) || ['host', 'none'].includes(binding.networkMode) ||
+      typeof binding.containerId !== 'string' || !/^[a-f0-9]{64}$/.test(binding.containerId) || typeof binding.imageId !== 'string' ||
+      !/^sha256:[a-f0-9]{64}$/.test(binding.imageId)) throw new DockerBeeAcquisitionError('target_changed');
+  if (!Number.isSafeInteger(binding.internalPort) || binding.internalPort < 1 || binding.internalPort > 65535 ||
+      typeof binding.networkMode !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(binding.networkMode) || UNSHARED_NETWORK_MODES.includes(binding.networkMode) ||
       !Array.isArray(binding.publishedBindings) || !binding.publishedBindings.length || binding.publishedBindings.some(value =>
-        !value || value.hostPort !== expected.reservation.port || typeof value.hostIp !== 'string' || !/^[a-fA-F0-9:.]+$/.test(value.hostIp) || !isIP(value.hostIp))) throw new DockerBeeAcquisitionError();
+        !value || value.hostPort !== expected.reservation.port || typeof value.hostIp !== 'string' || !/^[a-fA-F0-9:.]+$/.test(value.hostIp) || !isIP(value.hostIp))) {
+    throw new DockerBeeAcquisitionError('bee_container_unsupported');
+  }
 }
 
 export function dockerObject(input: unknown): Record<string, unknown> {
@@ -34,11 +39,15 @@ export function fullDockerId(input: unknown): string {
 
 function requireLabels(input: unknown, expected: FrozenChequebookTarget): void {
   const labels = dockerObject(input);
-  if (labels['com.docker.compose.project'] !== expected.profile.name || labels['com.docker.compose.service'] !== 'bee-uploader') throw new DockerBeeAcquisitionError();
+  if (labels['com.docker.compose.project'] !== expected.profile.name || labels['com.docker.compose.service'] !== 'bee-uploader') {
+    throw new DockerBeeAcquisitionError('target_changed');
+  }
 }
 
 export function listedBeeContainer(input: unknown, expected: FrozenChequebookTarget): string {
-  if (!Array.isArray(input) || input.length !== 1) throw new DockerBeeAcquisitionError();
+  if (!Array.isArray(input)) throw new DockerBeeAcquisitionError();
+  if (input.length === 0) throw new DockerBeeAcquisitionError('bee_container_not_found');
+  if (input.length !== 1) throw new DockerBeeAcquisitionError('target_changed');
   const candidate = dockerObject(input[0]);
   requireLabels(candidate.Labels, expected);
   return fullDockerId(candidate.Id);
@@ -52,14 +61,17 @@ function port(input: string): number {
 /** Drops unneeded inspect fields, including environment values, before returning immutable evidence. */
 export function observedBeeContainer(input: unknown, containerId: string, expected: FrozenChequebookTarget): ObservedBeeContainer {
   const inspect = dockerObject(input);
-  if (inspect.Id !== containerId) throw new DockerBeeAcquisitionError();
+  if (inspect.Id !== containerId) throw new DockerBeeAcquisitionError('target_changed');
   requireLabels(dockerObject(inspect.Config).Labels, expected);
   const state = dockerObject(inspect.State);
-  if (state.Running !== true || state.Paused !== false || state.Restarting !== false || state.Dead !== false) throw new DockerBeeAcquisitionError();
+  if (state.Running !== true || state.Paused !== false || state.Restarting !== false || state.Dead !== false) {
+    throw new DockerBeeAcquisitionError('bee_container_not_found');
+  }
   const imageId = inspect.Image;
   if (typeof imageId !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(imageId)) throw new DockerBeeAcquisitionError();
   const networkMode = dockerObject(inspect.HostConfig).NetworkMode;
-  if (typeof networkMode !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(networkMode) || ['host', 'none'].includes(networkMode)) throw new DockerBeeAcquisitionError();
+  if (typeof networkMode !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(networkMode)) throw new DockerBeeAcquisitionError();
+  if (UNSHARED_NETWORK_MODES.includes(networkMode)) throw new DockerBeeAcquisitionError('bee_container_unsupported');
   const ports = dockerObject(dockerObject(inspect.NetworkSettings).Ports);
   let internalPort: number | undefined;
   const bindings: { readonly hostIp: string; readonly hostPort: number }[] = [];
@@ -76,12 +88,12 @@ export function observedBeeContainer(input: unknown, containerId: string, expect
       if (protocol !== 'tcp' || hostPort !== expected.reservation.port) continue;
       const hostIp = binding.HostIp;
       if (typeof hostIp !== 'string' || !/^[a-fA-F0-9:.]+$/.test(hostIp) || !isIP(hostIp) ||
-          (internalPort !== undefined && internalPort !== candidatePort) || bindings.some(saved => saved.hostIp === hostIp)) throw new DockerBeeAcquisitionError();
+          (internalPort !== undefined && internalPort !== candidatePort) || bindings.some(saved => saved.hostIp === hostIp)) throw new DockerBeeAcquisitionError('bee_container_unsupported');
       internalPort = candidatePort;
       bindings.push(Object.freeze({ hostIp, hostPort }));
     }
   }
-  if (internalPort === undefined || !bindings.length) throw new DockerBeeAcquisitionError();
+  if (internalPort === undefined || !bindings.length) throw new DockerBeeAcquisitionError('bee_container_unsupported');
   return Object.freeze({ daemonId: expected.daemonId, containerId, imageId, project: expected.profile.name, service: 'bee-uploader',
     networkMode, internalPort, publishedBindings: Object.freeze(bindings) });
 }
