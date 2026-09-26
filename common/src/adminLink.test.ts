@@ -17,6 +17,7 @@ import {
   adminLinkEditProblem,
   adminLinkProblem,
 } from './adminLink.js';
+import { managerAdminLinkProblems } from './managerAdminLink.js';
 
 const ADMIN_URL = 'https://admin.example.com';
 
@@ -77,5 +78,44 @@ describe('the two keys once edits land', () => {
     const broken: AdminLinkBefore = { url: { current: ADMIN_URL, afterReset: ADMIN_URL }, token: { current: false, afterReset: false } };
     assert.equal(adminLinkEditProblem([{ key: 'LOG_LEVEL', value: 'debug' }], broken), null);
     assert.match(adminLinkEditProblem([{ key: ADMIN_API_URL_KEY, value: ADMIN_URL }], broken) ?? '', /ADMIN_API_URL is set and ADMIN_API_TOKEN is not/);
+  });
+});
+
+describe("a save of the manager's own web2 admin link", () => {
+  const TOKEN = 'synthetic-admin-token-0123456789abcdef';
+
+  it('takes an address with a token, an address alone, and no address at all', () => {
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: ADMIN_URL, token: TOKEN }), []);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: ADMIN_URL }), []);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: ADMIN_URL, token: null }), []);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: '' }), []);
+  });
+
+  it('holds the address and the token to the rules a deployment holds them to, repeating neither', () => {
+    const problems = managerAdminLinkProblems({
+      expectedRevision: 0,
+      url: 'https://operator:synthetic-password@admin.example.com',
+      token: 'synthetic-short-token',
+    });
+    assert.deepEqual(problems, [
+      'ADMIN_API_URL cannot carry a user name or a password.',
+      'ADMIN_API_TOKEN must be at least 32 characters.',
+    ]);
+  });
+
+  it('refuses a token with the characters the stack splices through sed, without repeating it', () => {
+    const problems = managerAdminLinkProblems({ expectedRevision: 0, url: ADMIN_URL, token: 'synthetic/token&with|sed-syntax-0123456789' });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /^ADMIN_API_TOKEN must not contain/);
+    assert.doesNotMatch(problems[0] ?? '', /sed-syntax-0123456789/);
+  });
+
+  it('refuses a token with no address, and an empty token, which clearing says with null', () => {
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: '', token: TOKEN }), [
+      "A token needs the admin's address. Give the address, or leave the token out.",
+    ]);
+    assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: ADMIN_URL, token: '' }), [
+      'The token cannot be empty. Leave it out to keep the stored one, or clear it.',
+    ]);
   });
 });

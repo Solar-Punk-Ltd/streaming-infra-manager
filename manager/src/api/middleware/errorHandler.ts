@@ -14,6 +14,7 @@ import { NextFunction, Request, Response } from 'express';
 import { ValidationError as YupValidationError } from 'yup';
 
 import {
+  AdminLinkInputError,
   AdminRequiredError,
   AllSlotsUsedError,
   PortReservedError,
@@ -46,6 +47,7 @@ import {
   InvalidUsernameError,
   LadderGroupError,
   LockedOutError,
+  ManagerSettingsChangedError,
   NotSignedInError,
   NotesConflictError,
   NoUsersError,
@@ -132,6 +134,14 @@ export function errorHandler(
   }
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors });
+    return;
+  }
+  if (err instanceof AdminLinkInputError) {
+    res.status(400).json({ error: 'validation_error', errors: err.reasons });
+    return;
+  }
+  if (err instanceof ManagerSettingsChangedError) {
+    res.status(409).json({ error: 'manager_settings_changed', message: err.message });
     return;
   }
   if (isPayloadTooLarge(err)) {

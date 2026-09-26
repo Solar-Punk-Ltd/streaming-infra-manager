@@ -35,6 +35,8 @@ import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { DeploymentSettingsService } from './domain/settings/DeploymentSettingsService.js';
+import { ManagerAdminLinkRepository } from './domain/adminLink/ManagerAdminLinkRepository.js';
+import { ManagerAdminLinkService } from './domain/adminLink/ManagerAdminLinkService.js';
 import { PostgresEngineConfigOperationRepository } from './domain/engineConfig/PostgresEngineConfigOperationRepository.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
@@ -409,6 +411,7 @@ async function main(): Promise<void> {
       containerControl,
       engineConfigService,
       deploymentSettingsService: new DeploymentSettingsService(profileRepository, containerRepository, orchestrator, stackVersionRepository),
+      managerAdminLinkService: new ManagerAdminLinkService(new ManagerAdminLinkRepository(database.pool)),
       stackVersionService,
       orchestrator,
       deployTargets,
