@@ -3,11 +3,17 @@
  * width.
  *
  * Levi ruled on 2026-09-25 that linking a deployment's stream uploader to the
- * web2 admin works out of the box. This drives the Manager settings page's
- * card: an address and a token set once for every new uploader deployment, a
- * token that is never shown and only said to be stored, a value the manager
- * would refuse named under its field, Test connection with the sentence for
- * its outcome, and clearing the stored token.
+ * web2 admin works out of the box. This drives it through the three places it
+ * is set. The Manager settings page's card: an address and a token set once
+ * for every new uploader deployment, a token that is never shown and only said
+ * to be stored, a value the manager would refuse named under its field, Test
+ * connection, and clearing the stored token. The new-deployment wizard's Web2
+ * admin group: on from the manager's link, the two keys of Advanced settings
+ * pointed at it, a deployment created linked with the manager's token copied
+ * in, and one created with the link off, which stores an empty address. And a
+ * deployment's Stack settings card: Test connection right after the two keys,
+ * with every outcome's sentence for what the next deploy would give the
+ * uploader.
  *
  * A real headless Chrome over a real Vite, proxying to the real dev mock
  * manager, whose Test connection reads its outcome off the address, so every
@@ -23,14 +29,19 @@ import { fileURLToPath } from 'node:url';
 
 import { createServer } from 'vite';
 
+import { ADMIN_LINK_TEST_OUTCOMES } from '@streaming-infra-manager/common';
+
 import { DEV_PASSWORD, DEV_USERNAME } from '../dev/mock-auth.mjs';
+import { adminLinkTestText } from '../src/adminLink/adminLinkText.ts';
 import {
   buttonWithText,
   clickWhenEnabled,
   fillWhenPresent,
   launchChrome,
   PAGE_TEXT,
+  paintedInView,
   readWhenPresent,
+  stillWithin,
   waitFor,
 } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
@@ -252,6 +263,48 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
     await searchCard('ADMIN_API_URL');
     await waitFor(() => cardRowText('ADMIN_API_URL'), (text) => text.includes('set here'), 'the stored empty address');
     assert.equal(await evaluate(`document.getElementById('deployment-setting-ADMIN_API_URL').value`), '');
+  });
+
+  const stackCard = `document.getElementById('stack-settings')`;
+  const cardTest = `${stackCard}?.querySelector('li [data-admin-link-test]')`;
+  const cardTestText = () => evaluate(`(${cardTest})?.innerText ?? ''`);
+  const cardTestButton = `[...((${cardTest})?.querySelectorAll('button') ?? [])].find(button => button.textContent.trim() === 'Test connection')`;
+  const cardSave = `[...(${stackCard}?.querySelectorAll('button') ?? [])].find(button => button.textContent.trim() === 'Save')`;
+  const stackCardText = () => evaluate(`${stackCard}?.innerText ?? ''`);
+
+  await t.test("a deployment's Stack settings card offers Test connection right after the two keys", async () => {
+    await evaluate(`location.hash = '#/deployments/linked-stream'`);
+    await waitFor(body, (text) => text.includes('linked-stream') && text.includes('Stack settings'), 'the linked-stream page');
+    await searchCard('ADMIN_API');
+    await waitFor(cardTestText, (text) => text.includes('Test connection'), 'the test beside the two keys');
+
+    assert.equal(await evaluate(`(${cardTest}).closest('li').previousElementSibling?.dataset.setting`), 'ADMIN_API_TOKEN');
+    assert.match(await cardTestText(), /The test runs from where the manager runs/);
+    await click(cardTestButton, 'the card Test connection button');
+    await waitFor(cardTestText, (text) => text.includes(adminLinkTestText('linked')), 'the linked sentence on the card');
+    assert.equal(await noSidewaysScroll(), true);
+
+    // A fold that is still opening clips its rows, so the rows are looked at once it has opened.
+    await waitFor(() => evaluate(stillWithin(stackCard)), Boolean, 'the Admin mode fold to finish opening');
+    await evaluate(`document.querySelector('li[data-setting="ADMIN_API_URL"]').scrollIntoView({ block: 'center' })`);
+    await waitFor(() => evaluate(paintedInView(`document.querySelector('li[data-setting="ADMIN_API_URL"]')`)), Boolean, 'the address row painted above the test');
+    await screenshot('card-test-linked-phone.png');
+  });
+
+  await t.test("says each outcome's sentence for what the next deploy would give the uploader", async () => {
+    for (const outcome of ADMIN_LINK_TEST_OUTCOMES.filter((each) => each !== 'linked')) {
+      const url = outcome === 'not-linked' ? '' : `https://${outcome}.admin.offline.example`;
+      await fillWhenPresent(evaluate, `document.getElementById('deployment-setting-ADMIN_API_URL')`, url, 'the card address field');
+      await waitFor(cardTestText, (text) => text.includes('The test uses what is saved, not the changes above that are not saved yet.'), 'the note on an unsaved address');
+      await click(cardSave, 'the card Save button');
+      await waitFor(stackCardText, (text) => text.includes('Nothing changed yet'), `the saved ${outcome} address`);
+      await click(cardTestButton, 'the card Test connection button');
+      await waitFor(cardTestText, (text) => text.includes(adminLinkTestText(outcome)), `the ${outcome} sentence on the card`);
+    }
+    assert.equal(await noSidewaysScroll(), true);
+    await waitFor(() => evaluate(stillWithin(stackCard)), Boolean, 'the card to stop moving');
+    await evaluate(`document.querySelector('li[data-setting="ADMIN_API_URL"]').scrollIntoView({ block: 'center' })`);
+    await screenshot('card-test-not-linked-phone.png');
   });
 
   assert.deepEqual(browser.errors, []);

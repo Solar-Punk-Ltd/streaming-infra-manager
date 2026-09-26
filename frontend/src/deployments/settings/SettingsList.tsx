@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
 import { Box, InputAdornment, TextField, Typography } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 
@@ -57,6 +57,8 @@ export interface SettingsListProps {
   engine?: EngineSettingsView;
   /** The latest request to show a key, which opens its section and focuses its field. */
   reveal?: SettingReveal | null;
+  /** Something to show right after a key's row, by key, such as Test connection after the web2 admin keys. */
+  afterRow?: Readonly<Record<string, ReactNode>>;
   onValue: (key: string, value: string) => void;
   onReset: (key: string) => void;
   onUndo: (key: string) => void;
@@ -104,6 +106,7 @@ export function SettingsList({
   controlValues = {},
   engine = NO_ENGINE_SETTINGS,
   reveal = null,
+  afterRow = {},
   onValue,
   onReset,
   onUndo,
@@ -174,19 +177,25 @@ export function SettingsList({
               onOpened={() => showOnceOpened(section.id)}
             >
               {section.entries.map((entry) => (
-                <DeploymentSettingRow
-                  key={entry.key}
-                  entry={entry}
-                  state={states.get(entry.key) ?? UNTOUCHED_ROW}
-                  running={running}
-                  disabled={disabled}
-                  target={target}
-                  controlValue={controlValues[entry.key]}
-                  engine={engineRowOf(engine, entry.key)}
-                  onValue={(value) => onValue(entry.key, value)}
-                  onReset={() => onReset(entry.key)}
-                  onUndo={() => onUndo(entry.key)}
-                />
+                <Fragment key={entry.key}>
+                  <DeploymentSettingRow
+                    entry={entry}
+                    state={states.get(entry.key) ?? UNTOUCHED_ROW}
+                    running={running}
+                    disabled={disabled}
+                    target={target}
+                    controlValue={controlValues[entry.key]}
+                    engine={engineRowOf(engine, entry.key)}
+                    onValue={(value) => onValue(entry.key, value)}
+                    onReset={() => onReset(entry.key)}
+                    onUndo={() => onUndo(entry.key)}
+                  />
+                  {afterRow[entry.key] && (
+                    <Box component="li" sx={{ listStyle: 'none', pb: 1.5, minWidth: 0 }}>
+                      {afterRow[entry.key]}
+                    </Box>
+                  )}
+                </Fragment>
               ))}
             </SettingsSectionFold>
           ))}

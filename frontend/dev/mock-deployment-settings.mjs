@@ -31,6 +31,7 @@
  */
 import {
   ADMIN_API_TOKEN_KEY,
+  ADMIN_API_URL_KEY,
   adminLinkEditProblem,
   defaultServicesFor,
   editsEngineSettings,
@@ -53,7 +54,7 @@ import {
   saveDeploymentSettingsSchema,
 } from '../../manager/src/schemas/deploymentSettings.ts';
 import { newDeploymentShapeQuerySchema, servicesOfList } from '../../manager/src/schemas/profile.ts';
-import { managerAdminLink } from './mock-admin-link.mjs';
+import { managerAdminLink, mockTestOutcome } from './mock-admin-link.mjs';
 import { engineSettingsFacts } from './mock-engine.mjs';
 import { send } from './mock-http.mjs';
 import { PORT_BASES, state } from './mock-seed.mjs';
@@ -692,5 +693,23 @@ export function deploymentSettingsRoutes({ readBody, withProfile, deploy }) {
     ],
     ['PUT', /^\/profiles\/([^/]+)\/settings$/, withVersionBuilt((req, res, profile) => saveRoute(req, res, profile, readBody))],
     ['POST', /^\/profiles\/([^/]+)\/settings\/apply$/, withVersionBuilt((req, res, profile) => applyRoute(req, res, profile, readBody))],
+    [
+      'POST',
+      /^\/profiles\/([^/]+)\/settings\/admin-link\/test$/,
+      withVersionBuilt((_req, res, profile) => send(res, 200, { outcome: deploymentTestOutcome(profile) }, { 'cache-control': 'no-store' })),
+    ],
   ];
+}
+
+/**
+ * What Test connection answers for what the deployment's next deploy would
+ * give its uploader: the address it stores or its version sets, whether a
+ * token is stored or generated, and its stream address, as the manager reads
+ * them. The outcome itself is the mock's, off the address.
+ */
+function deploymentTestOutcome(profile) {
+  const store = storeOf(profile);
+  const url = nextValuesOf(profile, store)[ADMIN_API_URL_KEY] ?? '';
+  const hasToken = store.secrets.has(ADMIN_API_TOKEN_KEY) || isGenerated(ADMIN_API_TOKEN_KEY, profile);
+  return mockTestOutcome({ url, hasToken, feedOwner: profile.public_key ?? null });
 }
