@@ -135,10 +135,12 @@ function capturedLogs(t: TestContext): string[] {
   return lines;
 }
 
-/** A web2 admin on loopback that takes `token` and names `owner` in its public config. */
-async function fakeAdmin(t: TestContext, token: string, owner: string): Promise<string> {
+/** A web2 admin on loopback that takes `token`, names `owner` in its public config, and records each request line and its headers. */
+async function fakeAdmin(t: TestContext, token: string, owner: string): Promise<{ url: string; received: string[] }> {
+  const received: string[] = [];
   const server = http.createServer((request, response) => {
     const path = request.url ?? '';
+    received.push(`${request.method} ${path} ${JSON.stringify(request.headers)}`);
     const reply = (status: number, body: unknown) => {
       response.writeHead(status, { 'content-type': 'application/json' });
       response.end(JSON.stringify(body));
@@ -157,7 +159,12 @@ async function fakeAdmin(t: TestContext, token: string, owner: string): Promise<
   }));
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
-  return `http://127.0.0.1:${address.port}`;
+  return { url: `http://127.0.0.1:${address.port}`, received };
+}
+
+/** Whether the text holds the key's hex digits, in any case and with or without `0x`. */
+function carriesKey(text: string, key: string): boolean {
+  return text.toLowerCase().includes(key.slice(2).toLowerCase());
 }
 
 function refusalOf(answer: { status: number; body: unknown }): string[] {
@@ -292,22 +299,43 @@ describe('POST /profiles/:name/settings/admin-link/test', () => {
   it("compares the admin's feed owner with the address of a stream key the version's base .env sets", async (t) => {
     const logs = capturedLogs(t);
     for (const [owner, outcome] of [[OWNER, 'owner-mismatch'], [FAKE_STREAM_ADDRESS, 'linked']] as const) {
-      const adminUrl = await fakeAdmin(t, TOKEN, owner);
+      const admin = await fakeAdmin(t, TOKEN, owner);
       const api = await testApi({ baseEnv: `STREAM_KEY=${FAKE_STREAM_KEY}\n`, probe: probeAdminLink });
       try {
-        api.harness.profiles.stackSettings.set('stage', { ADMIN_API_URL: adminUrl, ADMIN_API_TOKEN: TOKEN });
+        api.harness.profiles.stackSettings.set('stage', { ADMIN_API_URL: admin.url, ADMIN_API_TOKEN: TOKEN });
         const answer = await api.testDeployment();
 
         assert.equal(answer.status, 200, answer.text);
         assert.deepEqual(answer.body, { outcome });
         assert.equal(api.probed[0]?.feedOwner, FAKE_STREAM_ADDRESS);
-        assert.equal(answer.text.toLowerCase().includes(FAKE_STREAM_KEY.slice(2)), false);
+        assert.equal(carriesKey(answer.text, FAKE_STREAM_KEY), false);
+        assert.equal(admin.received.length, 2);
+        assert.equal(admin.received.some((request) => carriesKey(request, FAKE_STREAM_KEY)), false);
       } finally {
         await api.close();
       }
     }
     assert.ok(logs.length > 0);
-    assert.equal(logs.some((line) => line.toLowerCase().includes(FAKE_STREAM_KEY.slice(2))), false);
+    assert.equal(logs.some((line) => carriesKey(line, FAKE_STREAM_KEY)), false);
+  });
+
+  it("answers without the owner, and without repeating the value, for a version's stream key no address derives from", async (t) => {
+    const logs = capturedLogs(t);
+    const unusableKey = `0x${'f'.repeat(64)}`;
+    const admin = await fakeAdmin(t, TOKEN, OWNER);
+    const api = await testApi({ baseEnv: `STREAM_KEY=${unusableKey}\n`, probe: probeAdminLink });
+    try {
+      api.harness.profiles.stackSettings.set('stage', { ADMIN_API_URL: admin.url, ADMIN_API_TOKEN: TOKEN });
+      const answer = await api.testDeployment();
+
+      assert.equal(answer.status, 200, answer.text);
+      assert.deepEqual(answer.body, { outcome: 'token-accepted' });
+      assert.equal(carriesKey(answer.text, unusableKey), false);
+      assert.equal(admin.received.some((request) => carriesKey(request, unusableKey)), false);
+      assert.equal(logs.some((line) => carriesKey(line, unusableKey)), false);
+    } finally {
+      await api.close();
+    }
   });
 
   it('compares no owner when neither the deployment nor its version sets a stream key', async () => {
