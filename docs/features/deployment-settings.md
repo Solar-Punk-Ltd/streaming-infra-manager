@@ -3,7 +3,9 @@
 Status: the store, the record of what each container got, the API, the page that edits them, the
 new-deployment wizard that creates a deployment with them already set, and the engine settings in
 the same list in place of the Engine card's drawer, as of 2026-09-26 on
-`feat/deployment-settings-engine`.
+`feat/deployment-settings-engine`. The web2 admin keys became typed fields with a rule of their
+own, and got a group of their own in the wizard and Test connection on the card, on
+`feat/admin-link-out-of-the-box` the same day.
 
 ## What this is
 
@@ -126,9 +128,16 @@ against an older one is refused. So two operators editing at once cannot overwri
 Every value answers to the rules of the version settings page, which keep out a value the stack's
 loader and the manager's parser would read differently. For the keys whose accepted values are
 certain, such as the start gate mode, the chequebook floor and re-check interval, the stamp limits,
-the log level and format, and the switches, the value is also held to the stream uploader's own
-bounds, in `common/src/stackSettingFields.ts`. Any other key is plain text, checked by its container
-when it starts.
+the log level and format, the switches, and the two web2 admin keys, the value is also held to the
+stream uploader's own bounds, in `common/src/stackSettingFields.ts`. `ADMIN_API_URL` takes an http or
+https address with a host and no user name, password or `#` part, and `ADMIN_API_TOKEN` at least 32
+characters. Any other key is plain text, checked by its container when it starts.
+
+The two web2 admin keys also answer to a rule together, because the uploader turns admin mode on
+from the address alone and then refuses to start without a token: a save that names either key and
+leaves an address with no token anywhere, stored, set by the version or generated, is refused with
+both keys named. A save of other keys is not held to it.
+[The web2 admin link](web2-admin-link.md) has the rest of that feature.
 
 ## API
 
@@ -173,6 +182,10 @@ announces no change for a save, so both show the value it stored rather than the
   then the line under it, which says the unit with the bounds and is read out when a refusal replaces
   it, then the default a reset goes back to.
 
+Right after the two web2 admin keys the card offers Test connection, which asks the manager to try
+what the next deploy would give the uploader, the saved values, and says one sentence for the
+outcome. The stored token never leaves the manager for it.
+
 A value the manager would refuse is named under its field, by the same shared rules, and keeps Save
 off. A pair of engine settings the engine would refuse is named once above Save, in the manager's
 words, and keeps Save off until the pair is whole. Stored engine settings the next deploy would
@@ -216,7 +229,9 @@ settings step on, and again whenever the version, the engine, the services or th
 - **A key a control decides** shows no field and names the control. `HLS_FRAGMENT`, which the engine
   settings decide, shows the segment length typed above it, so the two never read differently. The
   engine settings are asked for in the wizard's own steps, so its list keeps every one of them out
-  of reach, where the deployment's page, once it exists, lists them as its own.
+  of reach, where the deployment's page, once it exists, lists them as its own. For a deployment
+  that runs a stream uploader, `ADMIN_API_URL` and `ADMIN_API_TOKEN` point at the step's Web2 admin
+  group the same way, the address shown while the link is on, so neither is set twice.
 - **A value the manager would refuse** is named under its field, by the same shared rules, and stops
   Continue and Deploy, the footer naming the key and never the value. Values typed before the list
   for the current choices was read wait for it.

@@ -146,7 +146,9 @@ All command endpoints stream output as Server-Sent Events
 or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
 `stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
 `stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
-`rpc_endpoint_source`, `node_mode`, `engine_settings` and `stack_settings`. `abr_ladder` belongs
+`rpc_endpoint_source`, `node_mode`, `engine_settings`, `stack_settings` and
+`use_manager_admin_token`, which [Linking uploaders to the web2
+admin](#linking-uploaders-to-the-web2-admin) describes. `abr_ladder` belongs
 to `POST /groups`, where it makes the group an ABR node pool, and a create body
 carrying it is refused. `manager/src/schemas/profile.ts` is the whole contract
 and its rules are the ones the route enforces.
@@ -437,9 +439,116 @@ defaults, and moves the one revision for the whole save.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/settings` | none | `{ instanceId, revision, buildId, entries, drift, running, engine, abr, engineSettingsProblem }`, `no-store`. No secret value, only whether one is stored. `engine` and `abr` say which engine's settings the list takes and whether the rung settings are among them, and an engine setting's entry carries `engineSetting`, where its default comes from and whether the config the engine runs still reads it. `engineSettingsProblem` is the sentence the next deploy would refuse the stored engine settings with, or null, which a change to the host's defaults can bring about under values it took when they were saved. 409 `settings_not_ready` for a version with no build |
-| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version or, for an engine setting, to its default | `{ revision }`. Stores and runs nothing. 400 `validation_error` for an undeclared key, a key a control of the deployment decides, an engine setting the deployment does not read, a value the stack would read differently, an engine value outside its field, or engine settings the engine would refuse together, 409 `deployment_settings_changed` for an older revision. A save that names no engine setting is taken while `engineSettingsProblem` stands |
+| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version or, for an engine setting, to its default | `{ revision }`. Stores and runs nothing. 400 `validation_error` for an undeclared key, a key a control of the deployment decides, an engine setting the deployment does not read, a value the stack would read differently, an engine value outside its field, engine settings the engine would refuse together, or a web2 admin address left with no token anywhere, 409 `deployment_settings_changed` for an older revision. A save that names no engine setting is taken while `engineSettingsProblem` stands |
 | POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 400 `validation_error` with the `engineSettingsProblem` sentence while it stands, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys |
 | GET | `/versions/:id/settings-catalog?kind=&components=&host=` | none | `{ versionId, buildId, entries }`, `no-store`. What a deployment not created yet starts with: the version's keys and values, the control that decides each key a control decides, nothing stored, recorded or running. No secret value. `kind` defaults to `custom`, `components` is a comma list, and `host` absent is the manager's own. 400 `validation_error` for a query no create body could describe, 404 `stack_version_not_found`, 409 `settings_not_ready` for a version with no build |
+| POST | `/profiles/:name/settings/admin-link/test` | none | `{ outcome }`, `no-store`. Test connection for what the next deploy would give the uploader, described in [Linking uploaders to the web2 admin](#linking-uploaders-to-the-web2-admin). 404 `profile_not_found` |
+
+### Linking uploaders to the web2 admin
+
+The web2 admin is a separate service where streams are declared and listed.
+A deployment's stream uploader reports to it when the stack gives it two
+settings (Levi, 2026-09-25: this works out of the box on any host a clone of
+this repository deploys to).
+
+- **`ADMIN_API_URL`** is where the uploader reaches the admin. Setting it alone
+  turns the uploader's admin mode on: a stream then has to be declared in the
+  admin before anything may publish to it. Empty keeps the uploader standalone.
+  The manager takes an http or https address with a host, and no user name,
+  password or `#` part, because the uploader adds its own paths after it.
+- **`ADMIN_API_TOKEN`** is the bearer token the uploader presents on the
+  admin's internal routes, the admin's own `INTERNAL_API_TOKEN`. It is at least
+  32 characters, the uploader's own floor, and it is a secret: no answer carries
+  it, only whether one is stored.
+
+In admin mode the uploader refuses to start without a token, so a save of a
+deployment's settings, or a create, that names either key and leaves an address
+with no token anywhere is refused with both keys named. A token counts when the
+deployment stores one, when its version sets one, or when the manager generates
+one because the version requires it. A save of other keys is not held to this.
+
+**The owner rule.** The admin signs its catalog with its `FEED_PRIVATE_KEY`,
+and the uploader signs every feed it writes with the deployment's stream key,
+`STREAM_KEY`. The two have to derive one address. The uploader reads the admin's
+public `/api/config` when it starts and refuses to start when the admin's
+`feed.owner` is another address, because every viewer would then resolve a feed
+nobody writes. Give the deployment the stream key whose address the admin signs
+with, or point it at the admin that signs with its own.
+
+**The manager-wide default.** The Manager settings page in the navigation has
+one card, Web2 admin link for new deployments: the address, and a token field
+that starts empty under a line saying whether a token is stored. Typing
+replaces the stored token, Clear takes it out, and leaving the field empty
+keeps it. Every new uploader deployment starts with this link. It reaches only
+deployments created after it is set, because a deployment keeps what it was
+created with in its own settings. The address is stored in clear and the token
+the way a deployment's own secrets are, in a single-row table, migration 041,
+whose token column no answer selects.
+
+**The new-deployment wizard.** For every goal that deploys a stream uploader,
+the settings step has a Web2 admin group: a switch, Link this deployment to the
+web2 admin, on when the manager has a link of its own and off otherwise, the
+address prefilled from it and editable, and either the manager's stored token
+or one typed there. The stored token never reaches the browser: the create
+sends `use_manager_admin_token` and the manager copies the token into the new
+deployment's secret settings inside the insert's own transaction, and refuses
+the whole create with 409 `admin_token_missing` when it stores none by then.
+Switched off, the deployment stores an empty `ADMIN_API_URL`, so its uploader
+runs standalone even when its version's base `.env` turns admin mode on. Under
+Advanced settings the two keys point at this group rather than being editable
+twice. A deployment's own Stack settings card edits both keys afterwards, the
+token hidden.
+
+**Test connection.** On the Manager settings card, in the wizard's group, and on
+a deployment's Stack settings card right after the two keys. The manager asks
+the admin what the uploader would ask it, from where the manager runs: the
+internal lookup of a stream nobody declared, `GET
+<address>/api/internal/streams/by-ingest/video/00000000-0000-0000-0000-000000000000`
+with the token, and where there is a stream address to compare, the admin's
+public `GET <address>/api/config` without it. The card's test uses what the
+deployment's next deploy would give its uploader, the saved values, and the
+deployment's stream address. It answers one of these, and the page says one
+sentence for each:
+
+| Outcome | What it means |
+| ------- | ------------- |
+| `linked` | The admin took the token, and signs its catalog with the deployment's stream address. |
+| `token-accepted` | The admin took the token. There was no stream address to compare. |
+| `owner-unconfirmed` | The admin took the token but its config named no owner, so the stream address was not compared. The uploader starts and checks each declaration instead. |
+| `owner-mismatch` | The admin took the token but signs with another address. The uploader will refuse to start. |
+| `token-refused` | The admin answered its own 401: the token is wrong. |
+| `not-admin` | Something answered, but not the way a web2 admin does: another status, another server's 404, a body that is not the admin's JSON, or one past the bound. |
+| `redirected` | The address answered with a redirect, which the test does not follow. Give the address the admin itself answers on. |
+| `unreachable` | Nothing answered from where the manager runs, within five seconds a request, the uploader's own lookup timeout. |
+| `invalid-address` | The address is not an http or https one the uploader can use. |
+| `not-linked` | The deployment has no address, so its uploader runs standalone. |
+| `no-token` | There is an address and no token to test with. |
+
+The admin's own 404 for that lookup is `{ "error": "stream_not_found" }` and its
+401 is `{ "error": "unauthenticated" }`, and the test reads those codes rather
+than the status alone, so a web server that answers 404 to everything is not
+taken for an admin. An answer is the outcome code and nothing the admin said,
+and the log names who tested and the outcome, never the address or a token.
+
+The test runs from where the manager runs, so an address only the deployment's
+own network can reach reads as unreachable here. It reaches whatever the
+manager's host can reach, loopback and private addresses included, as the
+uploader reaches whatever its host can. It takes http and https alone, follows
+no redirect, gives up after five seconds a request, and reads at most 64 KiB of
+an answer. It sends the token to the internal lookup alone. Every route that
+tests or edits the link needs a session.
+
+| Method | Path | Body | Answer |
+| ------ | ---- | ---- | ------ |
+| GET | `/manager-settings/admin-link` | none | `{ url, tokenStored, revision }`, `no-store`. `url` null is no default |
+| PUT | `/manager-settings/admin-link` | `{ expectedRevision, url, token? }`, `url` empty for no default, `token` left out to keep the stored one, null to clear it | The link as it stands after. 400 `validation_error` for an address or a token the uploader would refuse, or a token with no address, 409 `manager_settings_changed` for an older revision |
+| POST | `/manager-settings/admin-link/test` | `{ url, token: { source: 'stored' } or { source: 'typed', value }, feedOwner? }` | `{ outcome }`, `no-store`. `no-token` when the manager stores no token. 400 `validation_error` for an address or a typed token the uploader would refuse |
+| POST | `/profiles/:name/settings/admin-link/test` | none | `{ outcome }` for what the deployment's next deploy would give its uploader |
+
+`POST /profiles` and `POST /groups` take `use_manager_admin_token: true` beside
+`stack_settings`. It is refused beside a typed `ADMIN_API_TOKEN`, and for a
+version that gives the operator no `ADMIN_API_TOKEN` to set. The design and its
+limits are in [docs/features/web2-admin-link.md](../docs/features/web2-admin-link.md).
 
 ### Engine control
 
