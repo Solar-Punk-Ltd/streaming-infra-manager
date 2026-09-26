@@ -9,20 +9,39 @@ import {
   type SaveDeploymentSettingsBody,
   saveDeploymentSettingsSchema,
 } from '../../schemas/deploymentSettings.js';
-import { profileNameSchema } from '../../schemas/profile.js';
+import { newDeploymentShapeQuerySchema, profileNameSchema, servicesOfList } from '../../schemas/profile.js';
+import { versionIdSchema } from '../../schemas/version.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { signedInUser } from '../middleware/requireSession.js';
 import { validateBody, validateParams } from '../middleware/validate.js';
 
 /**
- * A deployment's own stack settings: the list, a save, and Apply.
+ * A deployment's own stack settings: the list, a save, and Apply, and the list
+ * the new-deployment wizard edits before the deployment exists.
  *
- * Mounted after the session gate like every other router here. The list never
- * carries a secret's value, only that one is stored, and it is not cached,
- * because it names what the running containers are behind on.
+ * Mounted after the session gate like every other router here. No list ever
+ * carries a secret's value, only that one is stored or set, and none is
+ * cached, because a deployment's names what its running containers are behind
+ * on and a version's follows its current build.
  */
 export function createDeploymentSettingsRouter(settings: DeploymentSettingsService): Router {
   const router = Router();
+
+  router.get(
+    '/versions/:id/settings-catalog',
+    validateParams(versionIdSchema),
+    asyncHandler(async (req: Request, res: Response) => {
+      const shape = await newDeploymentShapeQuerySchema.validate(req.query, { abortEarly: false, stripUnknown: true });
+      const components = servicesOfList(shape.components);
+      const catalog = await settings.newDeploymentCatalog(Number.parseInt(req.params.id as string, 10), {
+        kind: shape.kind,
+        components: components.length > 0 ? components : null,
+        host: shape.host ?? null,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(catalog);
+    }),
+  );
 
   router.get(
     '/profiles/:name/settings',

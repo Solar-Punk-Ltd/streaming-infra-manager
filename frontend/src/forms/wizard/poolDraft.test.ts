@@ -13,6 +13,7 @@ const uploader = {
   notes: 'uploader-only note', versionId: 7, keyMode: 'paste' as const,
   pastedKey: 'synthetic-uploader-key', ownPassphrase: 'synthetic-uploader-passphrase',
   passMode: 'custom' as const, poolString: 'retained-external-choice',
+  stackSettings: { LOG_LEVEL: 'debug' },
 };
 const group: DeploymentGroup = { id: 79, name: 'chosen-pool', size: ABR_LADDER_SIZE, kind: ABR_NODE_POOL_GROUP_KIND, created_at: '2026-09-08T00:00:00Z' };
 const profiles = ladderMemberNames(group.name).map(name => ({ name, group_id: group.id, kind: 'custom', status: 'RUNNING',
@@ -34,6 +35,7 @@ describe('uploader draft round trip through pool creation', () => {
     assert.equal(setup.pool.notes, '');
     assert.equal(setup.pool.pastedKey, '');
     assert.equal(setup.pool.ownPassphrase, '');
+    assert.deepEqual(setup.pool.stackSettings, {}, "the uploader's advanced settings are its own");
     setup.pool.components.push('fixture-change');
     assert.deepEqual(setup.uploader.components, uploader.components);
   });
@@ -47,6 +49,7 @@ describe('uploader draft round trip through pool creation', () => {
     assert.equal(result.state.name, uploader.name);
     assert.equal(result.state.pastedKey, uploader.pastedKey);
     assert.equal(result.state.ownPassphrase, uploader.ownPassphrase);
+    assert.deepEqual(result.state.stackSettings, uploader.stackSettings);
     assert.equal(result.created?.group.id, group.id);
   });
 

@@ -14,6 +14,7 @@ import { ServiceChip } from '../../../components/ServiceChip';
 import { nodeModeLabel, rpcEndpointLabel } from '../../../deployments/nodeText';
 import { shortHex } from '../../../format';
 import { describeVersion, lostApprovalWarning } from '../../../versions/versionText';
+import { advancedSettingsSummary } from '../advancedSettings';
 import { GOALS } from '../wizardGoals';
 import {
   chosenComponents,
@@ -142,6 +143,10 @@ export function ReviewStep({ state, context }: WizardStepProps) {
           'a pool on another manager, from the pasted string'
         ),
     });
+  }
+  const advanced = advancedSettingsSummary(state, context);
+  if (advanced) {
+    entries.push({ key: 'Advanced settings', value: advanced });
   }
   if (state.notes.trim()) {
     entries.push({ key: 'Notes', value: state.notes.trim() });

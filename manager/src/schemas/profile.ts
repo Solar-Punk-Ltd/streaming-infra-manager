@@ -24,6 +24,7 @@ import { array, boolean, number, object, string, InferType } from 'yup';
 
 import { ALL_SERVICES, PROFILE_KINDS } from '../types/index.js';
 
+import { newDeploymentSettingsField } from './deploymentSettings.js';
 import { ENGINE_SETTING_VALUE_FIELDS } from './engineSettingValues.js';
 
 const ONE_ENGINE_MESSAGE =
@@ -363,9 +364,40 @@ export const createProfileSchema = object({
     .matches(SRT_PASSPHRASE_RE, `srt_passphrase ${SRT_PASSPHRASE_MESSAGE}`),
   stack_version_id: stackVersionIdField(),
   engine_settings: engineSettingsField(),
+  stack_settings: newDeploymentSettingsField(),
 }).noUnknown(true);
 
 export type CreateProfileInput = InferType<typeof createProfileSchema>;
+
+/** The services a comma list names, the empty entries left out. */
+export function servicesOfList(value: string | null | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((service) => service.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The deployment a settings list is asked for before it exists, from the query
+ * of `GET /versions/:id/settings-catalog`: its kind, its services as a comma
+ * list, and its host, each held to the rule a create body holds it to.
+ */
+export const newDeploymentShapeQuerySchema = object({
+  kind: string()
+    .oneOf([...PROFILE_KINDS])
+    .default('custom'),
+  components: string()
+    .notRequired()
+    .test(
+      'known-services',
+      `components must be a comma list of ${ALL_SERVICES.join(', ')}`,
+      (value) => servicesOfList(value).every((service) => (ALL_SERVICES as readonly string[]).includes(service)),
+    )
+    .test('one-engine', ONE_ENGINE_MESSAGE, (value) => !hasConflictingEngines(servicesOfList(value))),
+  host: string()
+    .notRequired()
+    .matches(HOST_RE, 'host must be "localhost", an ssh alias, or user@host'),
+}).noUnknown(true);
 
 export const updateProfileSchema = object({
   notes: string().nullable().notRequired().max(500),
@@ -512,6 +544,8 @@ export const createGroupSchema = object({
   node_mode: nodeModeField(),
   stack_version_id: stackVersionIdField(),
   engine_settings: engineSettingsField(),
+  // One list for every member, as the engine settings are.
+  stack_settings: newDeploymentSettingsField(),
 }).noUnknown(true);
 
 export type CreateGroupInput = InferType<typeof createGroupSchema>;

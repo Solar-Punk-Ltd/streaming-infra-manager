@@ -132,6 +132,31 @@ export interface DeploymentSettingsCatalog {
   running: boolean;
 }
 
+/**
+ * What `GET /versions/:id/settings-catalog` answers: every key a deployment
+ * that does not exist yet would start with on that version, for the wizard
+ * that creates it. Nothing is stored, recorded or running, so a key's value is
+ * the version's, one of the deployment's own controls decides it at the first
+ * deploy, or nothing sets it.
+ */
+export interface NewDeploymentSettingsCatalog {
+  versionId: number;
+  /** The build of the version whose files the keys, values and descriptions come from. */
+  buildId: string | null;
+  /** In the sample's order, root sample first, then the engine's. */
+  entries: DeploymentSettingEntry[];
+}
+
+/**
+ * One key a new deployment is created with, in `stack_settings` of `POST
+ * /profiles` and `POST /groups`. Nothing is stored yet, so there is nothing to
+ * go back to and a value is always text.
+ */
+export interface NewDeploymentSetting {
+  key: string;
+  value: string;
+}
+
 /** One key of a save: a value to store, or null to go back to what the version sets. */
 export interface DeploymentSettingEdit {
   key: string;

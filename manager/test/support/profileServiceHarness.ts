@@ -363,6 +363,7 @@ export class InMemoryGroups {
     row.rpc_endpoint_host = metadata.host;
     if (endpoint) this.profiles.rpcEndpoints.set(name, endpoint);
     this.profiles.rows.set(name, row);
+    this.profiles.storeInitialStackSettings(name, shared.stack_settings);
     this.profiles.reservations.planNow(
       shared.daemon_id,
       name,
@@ -377,6 +378,7 @@ export class InMemoryGroups {
     for (const name of names) {
       this.profiles.rows.delete(name);
       this.profiles.rpcEndpoints.delete(name);
+      this.profiles.stackSettings.delete(name);
       this.profiles.reservations.dropProfile(name);
     }
   }

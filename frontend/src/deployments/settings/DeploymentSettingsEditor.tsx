@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { Alert, Box, Button, CircularProgress, InputAdornment, Stack, TextField, Typography } from '@mui/material';
-import SearchIcon from '@mui/icons-material/Search';
+import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material';
 
 import {
-  type DeploymentSettingEntry,
   type DeploymentSettingsApplied,
   type DeploymentSettingsCatalog,
   getErrorMessage,
@@ -24,23 +22,20 @@ import {
   withValue,
   withoutEdit,
 } from './deploymentSettingsDraft';
-import { DeploymentSettingRow, type SettingRowState } from './DeploymentSettingRow';
+import type { SettingRowState } from './DeploymentSettingRow';
 import { SettingsDriftBanner } from './SettingsDriftBanner';
-import { filteredSections, isSectionOpen, sectionsOf, type SettingsSection } from './settingsSections';
-import { SettingsSectionFold } from './SettingsSectionFold';
+import { SettingsList } from './SettingsList';
 import {
   UNRECORDED_NOTE,
   WHAT_SAVING_DOES,
   appliedText,
   applyRefusalText,
   driftNotice,
-  noMatchText,
   saveNote,
   saveRefusalOf,
   savedText,
   startedBeforeRecords,
   type LoadFailure,
-  type SectionCounts,
 } from './settingsText';
 import { useDeploymentSettings } from './useDeploymentSettings';
 
@@ -77,22 +72,6 @@ function rowStatesOf(catalog: DeploymentSettingsCatalog, draft: DeploymentSettin
   );
 }
 
-function countsOf(entries: readonly DeploymentSettingEntry[], states: Map<string, SettingRowState>): SectionCounts {
-  const of = (entry: DeploymentSettingEntry) => states.get(entry.key);
-  return {
-    unsaved: entries.filter((entry) => of(entry)?.pending).length,
-    refused: entries.filter((entry) => of(entry)?.problem).length,
-    behind: entries.filter((entry) => of(entry)?.behind && !of(entry)?.pending).length,
-  };
-}
-
-function toggled(opened: ReadonlySet<string>, id: string): ReadonlySet<string> {
-  const next = new Set(opened);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  return next;
-}
-
 /**
  * Every key a deployment's stack version declares, editable for this
  * deployment with the version's value as the default (Levi, 2026-09-25).
@@ -107,8 +86,6 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
   const toast = useToast();
   const load = useDeploymentSettings(profile);
   const [draft, setDraft] = useState<DeploymentSettingsDraft>(EMPTY_DRAFT);
-  const [query, setQuery] = useState('');
-  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const [busy, setBusy] = useState<Busy>(null);
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const [applyOutcome, setApplyOutcome] = useState<ApplyOutcome | null>(null);
@@ -134,7 +111,6 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
   const settling = isTransitional(profile);
   const notice = settling ? null : driftNotice(catalog);
   const unrecorded = !settling && startedBeforeRecords(catalog);
-  const sections = filteredSections(sectionsOf(catalog.entries), query);
   const disabled = busy !== null || profile.status === 'REMOVING';
   const hasEdits = Object.keys(draft.edits).length > 0;
 
@@ -205,30 +181,11 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
         </Typography>
       )}
 
-      <TextField
-        size="small"
-        fullWidth
-        value={query}
-        placeholder="Search by key or description"
-        onChange={(event) => setQuery(event.target.value)}
-        inputProps={{ 'aria-label': 'Search settings', spellCheck: false, autoComplete: 'off' }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon fontSize="small" />
-            </InputAdornment>
-          ),
-        }}
-      />
-
-      <SectionList
-        sections={sections}
-        query={query}
-        opened={opened}
+      <SettingsList
+        entries={catalog.entries}
         states={states}
         running={catalog.running}
         disabled={disabled}
-        onToggle={(id) => setOpened((current) => toggled(current, id))}
         onValue={(key, value) => edit((current) => withValue(current, catalog, key, value))}
         onReset={(key) => edit((current) => withReset(current, catalog, key))}
         onUndo={(key) => edit((current) => withoutEdit(current, key))}
@@ -258,64 +215,6 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
         </Alert>
       )}
     </Stack>
-  );
-}
-
-function SectionList({
-  sections,
-  query,
-  opened,
-  states,
-  running,
-  disabled,
-  onToggle,
-  onValue,
-  onReset,
-  onUndo,
-}: {
-  sections: SettingsSection[];
-  query: string;
-  opened: ReadonlySet<string>;
-  states: Map<string, SettingRowState>;
-  running: boolean;
-  disabled: boolean;
-  onToggle: (id: string) => void;
-  onValue: (key: string, value: string) => void;
-  onReset: (key: string) => void;
-  onUndo: (key: string) => void;
-}) {
-  if (sections.length === 0) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        {query.trim() === '' ? 'This version declares no settings.' : noMatchText(query)}
-      </Typography>
-    );
-  }
-  return (
-    <Box sx={{ borderBottom: 1, borderColor: 'divider', minWidth: 0 }}>
-      {sections.map((section) => (
-        <SettingsSectionFold
-          key={section.id}
-          section={section}
-          open={isSectionOpen(section.id, opened, query)}
-          counts={countsOf(section.entries, states)}
-          onToggle={() => onToggle(section.id)}
-        >
-          {section.entries.map((entry) => (
-            <DeploymentSettingRow
-              key={entry.key}
-              entry={entry}
-              state={states.get(entry.key) ?? { edit: undefined, pending: false, behind: false, problem: null }}
-              running={running}
-              disabled={disabled}
-              onValue={(value) => onValue(entry.key, value)}
-              onReset={() => onReset(entry.key)}
-              onUndo={() => onUndo(entry.key)}
-            />
-          ))}
-        </SettingsSectionFold>
-      ))}
-    </Box>
   );
 }
 

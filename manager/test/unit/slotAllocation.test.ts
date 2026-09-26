@@ -13,7 +13,7 @@ import { describe, it } from 'node:test';
 
 import { STANDARD_GROUP_KIND, type StackPortVar } from '@streaming-infra-manager/common';
 
-import type { NewProfilePlacement } from '../../src/domain/ProfileRepository.js';
+import { type NewProfilePlacement, NO_STACK_SETTINGS } from '../../src/domain/ProfileRepository.js';
 import type { SharedProfileParams } from '../../src/domain/DeploymentGroupRepository.js';
 import { AllSlotsUsedError } from '../../src/domain/errors/index.js';
 import { InMemoryPortReservations } from '../support/InMemoryPortReservations.js';
@@ -53,6 +53,7 @@ const shared = (table: StackPortVar[], slotCap: number): SharedProfileParams => 
   rpc_endpoint: null,
   stack_version_id: 1,
   engine_settings: {},
+  stack_settings: NO_STACK_SETTINGS,
   slot_cap: slotCap,
   daemon_id: 'daemon-1',
   table,

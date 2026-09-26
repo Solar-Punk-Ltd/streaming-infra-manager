@@ -4,7 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import pg, { type Pool } from 'pg';
 
-import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
+import { NO_STACK_SETTINGS, ProfileRepository } from '../../src/domain/ProfileRepository.js';
 import { DeploymentGroupRepository, type SharedProfileParams } from '../../src/domain/DeploymentGroupRepository.js';
 import { AllSlotsUsedError, PortReservedError } from '../../src/domain/errors/index.js';
 import { PostgresPortReservationRepository } from '../../src/domain/ports/PostgresPortReservationRepository.js';
@@ -227,7 +227,7 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
       kind: 'viewer', notes: null, components: null, host: null,
       feed_owner: null, feed_topic: null, private_key: null, public_key: null, stamp_id: null, srt_passphrase: null,
       node_mode: null, rpc_endpoint_source: 'stack', rpc_endpoint: null,
-      stack_version_id: 1, engine_settings: {}, slot_cap: 1, daemon_id: 'daemon', table,
+      stack_version_id: 1, engine_settings: {}, stack_settings: NO_STACK_SETTINGS, slot_cap: 1, daemon_id: 'daemon', table,
     };
     await assert.rejects(new DeploymentGroupRepository(pool).createGroupWithMembers('pool', 'standard',
       [{ name: 'a' }, { name: 'b' }], shared), AllSlotsUsedError);
@@ -244,7 +244,7 @@ describe('port reservations in isolated PostgreSQL schemas', { skip: !Number.isI
       kind: 'streamer', notes: null, components: null, host: null,
       feed_owner: null, feed_topic: null, private_key: null, public_key: null, stamp_id: null, srt_passphrase: null,
       node_mode: null, rpc_endpoint_source: 'stack', rpc_endpoint: null,
-      stack_version_id: 1, engine_settings: { HLS_FRAGMENT: '2' }, slot_cap: 100, daemon_id: 'daemon', table,
+      stack_version_id: 1, engine_settings: { HLS_FRAGMENT: '2' }, stack_settings: NO_STACK_SETTINGS, slot_cap: 100, daemon_id: 'daemon', table,
     };
 
     const { profiles: members } = await new DeploymentGroupRepository(pool).createGroupWithMembers(

@@ -13,6 +13,13 @@ import {
  * and a change of wording is a change here.
  */
 
+/**
+ * Whom an edit is for: a deployment that exists, whose values a save stores,
+ * or one the new-deployment wizard has not created yet, whose values its
+ * create sends.
+ */
+export type SettingsEditTarget = 'deployment' | 'new-deployment';
+
 /** The line over the list: what a save does, and what it does not. */
 export const WHAT_SAVING_DOES =
   "Every key this deployment's version declares, with the version's value as the default. Saving stores the values and restarts nothing. The running containers keep theirs until you apply them.";
@@ -59,8 +66,11 @@ export function defaultText(entry: DeploymentSettingEntry): string {
 }
 
 /** Where a secret's value comes from, in place of the value, which is never shown. */
-export function secretNote(entry: DeploymentSettingEntry): string {
+export function secretNote(entry: DeploymentSettingEntry, target: SettingsEditTarget = 'deployment'): string {
   if (entry.stored) return 'A value is stored for this deployment. It is never shown. Type a new one to replace it.';
+  if (entry.source === 'generated' && target === 'new-deployment') {
+    return 'The manager generates a value for this deployment when it first deploys. Type one to use your own instead.';
+  }
   if (entry.source === 'generated') {
     return 'The manager generated a value for this deployment. Type one to use your own instead.';
   }
@@ -137,11 +147,22 @@ export interface SectionCounts {
   behind: number;
 }
 
+/** What a key the next save or create would send is called, on its row and in its section's line. */
+export function pendingChipLabel(target: SettingsEditTarget): string {
+  return target === 'new-deployment' ? 'changed' : 'unsaved';
+}
+
+/** What a value the manager would refuse cannot be, for the target it is typed for. */
+const REFUSED_WORDS: Readonly<Record<SettingsEditTarget, string>> = {
+  deployment: 'cannot be saved',
+  'new-deployment': 'cannot be used',
+};
+
 /** The line under a section's title. */
-export function sectionSummary(total: number, counts: SectionCounts): string {
+export function sectionSummary(total: number, counts: SectionCounts, target: SettingsEditTarget = 'deployment'): string {
   const parts = [total === 1 ? '1 setting' : `${total} settings`];
-  if (counts.unsaved > 0) parts.push(`${counts.unsaved} unsaved`);
-  if (counts.refused > 0) parts.push(`${counts.refused} cannot be saved`);
+  if (counts.unsaved > 0) parts.push(`${counts.unsaved} ${pendingChipLabel(target)}`);
+  if (counts.refused > 0) parts.push(`${counts.refused} ${REFUSED_WORDS[target]}`);
   if (counts.behind > 0) parts.push(`${counts.behind} not applied`);
   return parts.join(', ');
 }
@@ -171,6 +192,25 @@ export function saveNote(changed: number, refused: readonly string[]): string {
   }
   if (changed === 0) return 'Nothing changed yet';
   return `${changed} ${changed === 1 ? 'setting' : 'settings'} changed`;
+}
+
+/** The line over the list in the new-deployment wizard, under the fold's own line saying what the list holds. */
+export const NEW_DEPLOYMENT_SETTINGS_LEAD =
+  "Each key shows the version's value as its default. Change only what this deployment needs, and its page can change any of them later.";
+
+/** The line under the list in the new-deployment wizard, a value the create cannot send first. */
+export function newDeploymentSettingsNote(changed: number, refused: readonly string[]): string {
+  if (refused.length > 0) {
+    const count = refused.length === 1 ? 'One value' : `${refused.length} values`;
+    return `${count} cannot be used as written: ${wordList(refused)}`;
+  }
+  if (changed === 0) return "Nothing changed, so every key keeps the version's value";
+  return `${changed} ${changed === 1 ? 'setting' : 'settings'} changed`;
+}
+
+/** Said of the typed keys the list for the version and services chosen now does not take. */
+export function notTakenNote(keys: readonly string[]): string {
+  return `Not sent, because this version does not take ${keys.length === 1 ? 'it' : 'them'} with these choices: ${wordList(keys)}.`;
 }
 
 /** Past this a description is folded to its opening words, because some samples explain a key for a page. */

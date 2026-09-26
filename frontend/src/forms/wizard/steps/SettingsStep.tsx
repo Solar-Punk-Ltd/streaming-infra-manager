@@ -1,6 +1,7 @@
 import { Box, Stack, Typography } from '@mui/material';
 
 import type { WizardGoal, WizardStepProps } from '../wizardState';
+import { AdvancedSettings } from './AdvancedSettings';
 import { CustomSettings } from './CustomSettings';
 import { PoolSettings } from './PoolSettings';
 import { StreamSettings } from './StreamSettings';
@@ -46,6 +47,7 @@ export function SettingsStep(props: WizardStepProps) {
         </Typography>
       </Box>
       <SettingsBody goal={goal} {...props} />
+      <AdvancedSettings {...props} />
     </Stack>
   );
 }

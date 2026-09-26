@@ -15,6 +15,10 @@
  * saved key, old-demo is stopped with one waiting for its Start, and
  * field-unit's containers were started before anything was recorded.
  *
+ * It also answers the list a deployment not created yet starts with, which
+ * the new-deployment wizard edits, and stores what a create sends, checked
+ * against that list by the manager's own `settingEditProblems`.
+ *
  * A secret's value is never kept here. The mock records that one was stored,
  * and at which revision, which is all the list and the comparison need.
  */
@@ -29,8 +33,10 @@ import { settingEditProblems } from '../../manager/src/domain/settings/settingEd
 import { settingOwnerOf } from '../../manager/src/domain/settings/settingOwners.ts';
 import {
   applyDeploymentSettingsSchema,
+  newDeploymentSettingsField,
   saveDeploymentSettingsSchema,
 } from '../../manager/src/schemas/deploymentSettings.ts';
+import { newDeploymentShapeQuerySchema, servicesOfList } from '../../manager/src/schemas/profile.ts';
 import { send } from './mock-http.mjs';
 import { PORT_BASES, state } from './mock-seed.mjs';
 
@@ -137,13 +143,9 @@ function versionOf(profile) {
   return state.versions.find((version) => version.id === profile.stack_version_id) ?? null;
 }
 
-function engineOf(profile) {
-  return engineOfServices(defaultServicesFor(profile));
-}
-
-/** Every key the list names: the version's samples, then the stored keys they no longer declare. */
-function declaredOf(profile) {
-  const engine = engineOf(profile);
+/** The root sample's keys, then those of the engine a deployment of this shape runs, if it runs one. */
+function samplesFor(shape) {
+  const engine = engineOfServices(defaultServicesFor(shape));
   return [...ROOT_SAMPLE, ...(engine ? ENGINE_SAMPLES[engine] ?? [] : [])];
 }
 
@@ -198,7 +200,7 @@ function nextValuesOf(profile, store) {
 }
 
 function listedOf(profile, store) {
-  const declared = declaredOf(profile);
+  const declared = samplesFor(profile);
   const known = new Set(declared.map(({ key }) => key));
   const dropped = [...Object.keys(store.plain), ...store.secrets.keys()]
     .filter((key) => !known.has(key))
@@ -253,6 +255,43 @@ function entryOf(sample, profile, store, running) {
   };
 }
 
+/**
+ * The list a deployment not created yet starts with on a version, as
+ * `GET /versions/:id/settings-catalog` answers it: nothing stored, nothing
+ * running, the version's values, and no value yet for a key a control
+ * decides, since the manager works that out at the first deploy.
+ */
+function newDeploymentCatalogOf(version, shape) {
+  const isLocalTarget = !shape.host || shape.host === 'localhost';
+  const required = version.contract?.requiredSecrets ?? [];
+  const entries = samplesFor(shape).map((sample) => {
+    const { key } = sample;
+    const secret = isSecretSettingKey(key);
+    const owner = settingOwnerOf(key, { ports: version.contract?.ports ?? [], isLocalTarget });
+    const versionSet = sample.version !== undefined;
+    const generated = secret && required.includes(key);
+    return {
+      key,
+      section: sample.section,
+      description: sample.description,
+      declared: true,
+      secret,
+      sampleValue: sample.version ?? null,
+      versionSet,
+      versionValue: secret || !versionSet ? null : sample.version,
+      stored: false,
+      storedValue: null,
+      value: secret || owner || !versionSet ? null : sample.version,
+      source: owner ? 'manager' : generated ? 'generated' : versionSet ? 'version' : 'unset',
+      owner,
+      field: stackSettingFieldOf(key),
+      services: sample.services,
+      running: 'not-running',
+    };
+  });
+  return { versionId: version.id, buildId: version.buildId ?? null, entries };
+}
+
 function catalogOf(profile) {
   const store = storeOf(profile);
   const running = RUNNING_STATUSES.includes(profile.status);
@@ -301,13 +340,55 @@ function withBody(schema, handler) {
   };
 }
 
-function notReady(res, profile) {
-  const version = versionOf(profile);
-  return send(res, 409, {
+function notReadyAnswer(version) {
+  return {
     error: 'settings_not_ready',
     name: version?.name ?? 'this version',
     message: `${version?.name ?? 'This version'} has no settings yet. It has no build to read them from.`,
-  });
+  };
+}
+
+function notReady(res, profile) {
+  return send(res, 409, notReadyAnswer(versionOf(profile)));
+}
+
+/**
+ * Why a create's stack settings are refused, as a status and the body the
+ * manager answers, or null. Checked against the list the version gives a
+ * deployment of the shape the body describes, a group's per member.
+ */
+export async function createdSettingsRefusal(stackSettings, version, shape, name) {
+  let settings;
+  try {
+    settings = await newDeploymentSettingsField().validate(stackSettings, { abortEarly: false });
+  } catch (error) {
+    return { status: 400, body: { error: 'validation_error', errors: error.errors ?? ['The stack settings are not valid.'] } };
+  }
+  if (!settings || settings.length === 0) return null;
+  if (!version?.buildId) return { status: 409, body: notReadyAnswer(version) };
+  const problems = settingEditProblems(settings, newDeploymentCatalogOf(version, shape).entries);
+  return problems.length > 0 ? { status: 400, body: { error: 'validation_error', errors: [problems.join(' ')], name } } : null;
+}
+
+/**
+ * Stores what a create sent for a deployment the mock has just made, as the
+ * manager stores it at the insert. A secret's value is not kept, only that
+ * one was stored. The deploy that lands records what the containers got.
+ */
+export function storeCreatedSettings(profile, stackSettings = []) {
+  const store = storeOf(profile);
+  for (const { key, value } of stackSettings) {
+    if (isSecretSettingKey(key)) store.secrets.set(key, store.revision);
+    else store.plain[key] = value;
+  }
+}
+
+/** Gives a member appended to a group the settings its sibling stores, as the manager copies them. */
+export function copyStoredSettings(from, to) {
+  const source = storeOf(from);
+  const target = storeOf(to);
+  Object.assign(target.plain, source.plain);
+  for (const key of source.secrets.keys()) target.secrets.set(key, target.revision);
 }
 
 function save(res, profile, body) {
@@ -354,6 +435,26 @@ function apply(res, profile, deploy) {
   return send(res, 202, { recreated: drift.fullRedeploy ? 'all' : drift.services });
 }
 
+async function newDeploymentList(req, res, id) {
+  const version = state.versions.find((candidate) => candidate.id === id);
+  if (!version) return send(res, 404, { error: 'stack_version_not_found', id });
+  if (!version.buildId) return send(res, 409, notReadyAnswer(version));
+  let shape;
+  try {
+    const query = Object.fromEntries(new URL(req.url, 'http://mock').searchParams);
+    shape = await newDeploymentShapeQuerySchema.validate(query, { abortEarly: false, stripUnknown: true });
+  } catch (error) {
+    return send(res, 400, { error: 'validation_error', errors: error.errors ?? ['The query does not describe a deployment.'] });
+  }
+  const components = servicesOfList(shape.components);
+  const catalog = newDeploymentCatalogOf(version, {
+    kind: shape.kind,
+    components: components.length > 0 ? components : null,
+    host: shape.host ?? null,
+  });
+  return send(res, 200, catalog, { 'cache-control': 'no-store' });
+}
+
 /**
  * @param deps.readBody    reads a JSON request body
  * @param deps.withProfile wraps a handler so the 404 is written once
@@ -365,6 +466,7 @@ export function deploymentSettingsRoutes({ readBody, withProfile, deploy }) {
   const saveRoute = withBody(saveDeploymentSettingsSchema, save);
   const applyRoute = withBody(applyDeploymentSettingsSchema, (res, profile) => apply(res, profile, deploy));
   return [
+    ['GET', /^\/versions\/(\d+)\/settings-catalog$/, (req, res, [id]) => newDeploymentList(req, res, Number(id))],
     [
       'GET',
       /^\/profiles\/([^/]+)\/settings$/,

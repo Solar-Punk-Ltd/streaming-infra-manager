@@ -244,3 +244,17 @@ describe('where a new node is told to reach the chain', () => {
     assert.equal(movedOff.rpcEndpoint, 'http://host.docker.internal:9000', 'still there on the way back');
   });
 });
+
+describe('the advanced settings a new deployment starts with', () => {
+  it('starts with none typed, so every key keeps its version value', () => {
+    assert.deepEqual(initialWizardState({ goal: 'stream' }, hostWith(null)).stackSettings, {});
+  });
+
+  it('starts them over with a new goal, whose list is another one, and keeps them for the same goal', () => {
+    const context = hostWith(null);
+    const typed: WizardState = { ...initialWizardState({ goal: 'stream' }, context), stackSettings: { LOG_LEVEL: 'debug' } };
+
+    assert.deepEqual(withGoal(typed, 'viewer', context).stackSettings, {});
+    assert.deepEqual(withGoal(typed, 'stream', context).stackSettings, { LOG_LEVEL: 'debug' });
+  });
+});
