@@ -18,7 +18,7 @@ import pg, { type Pool } from 'pg';
 
 import { buildContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
 import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
-import { settingDigest } from '../../src/domain/settings/runningRecord.js';
+import { settingDigest, unsetDigest } from '../../src/domain/settings/runningRecord.js';
 
 const port = Number(process.env.T11_TEST_PG_PORT);
 const connection = {
@@ -85,7 +85,10 @@ describe('the digests a container record keeps, in isolated PostgreSQL', {
     const [row] = await containers.listForProfile('stage');
 
     assert.equal(row?.env_salt, second.envSalt);
-    assert.deepEqual(row?.env_digests, { LOG_LEVEL: settingDigest(second.envSalt, 'LOG_LEVEL', 'info') });
+    assert.deepEqual(row?.env_digests, {
+      LOG_LEVEL: settingDigest(second.envSalt, 'LOG_LEVEL', 'info'),
+      ADMIN_API_TOKEN: unsetDigest(second.envSalt, 'ADMIN_API_TOKEN'),
+    });
     assert.deepEqual(row?.env, { LOG_LEVEL: 'info' });
   });
 

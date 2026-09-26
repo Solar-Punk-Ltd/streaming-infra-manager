@@ -26,7 +26,7 @@ import {
 } from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
-import { buildContainerSnapshot } from './containerKeysSpec.js';
+import { buildContainerSnapshot, deployOnlyKeys, SERVICE_ENV_KEYS } from './containerKeysSpec.js';
 import {
   beeDataDirsFor,
   engineConfigDirFor,
@@ -42,6 +42,7 @@ import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './ports/portReservations.js';
 import { portTableForEngine } from './versions/enginePortTable.js';
 import { isLocalTarget, targetAlias, type DeployTargets } from './ports/DeployTargets.js';
+import { stackDeclaredKeys } from './scriptEnv.js';
 import { effectiveEnvOf } from './settings/effectiveEnv.js';
 import { operatorSettingsOf } from './settings/settingOwners.js';
 import {
@@ -1662,9 +1663,13 @@ export class DeploymentOrchestrator {
         rootEnvText: readFileSync(profileEnvPath(paths.root, profile.name), 'utf8'),
         engineEnvText: readIfPresent(engineEnvPath(paths.root, engineForComponents(profile.components))),
       });
+      const deployKeys = deployOnlyKeys(
+        stackDeclaredKeys(paths.root),
+        version?.contract?.serviceEnvKeys ?? SERVICE_ENV_KEYS,
+      );
       for (const service of services) {
         const keys = version?.contract?.serviceEnvKeys?.[service];
-        const snapshot = buildContainerSnapshot(service, env, keys ? { keys } : {});
+        const snapshot = buildContainerSnapshot(service, env, { ...(keys ? { keys } : {}), deployKeys });
         await this.containers.upsert(profile.name, snapshot);
       }
     } catch (err) {

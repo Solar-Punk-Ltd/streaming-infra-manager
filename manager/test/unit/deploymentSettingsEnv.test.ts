@@ -31,7 +31,7 @@ process.env.SHLS_ROOT = root;
 const { orchestratorHarness, untilRunning } = await import('../support/orchestratorHarness.js');
 const { managedEnvLines, renderProfileEnv } = await import('../../src/utils/envUtils.js');
 const { settingOwnerOf } = await import('../../src/domain/settings/settingOwners.js');
-const { settingDigest } = await import('../../src/domain/settings/runningRecord.js');
+const { settingDigest, unsetDigest } = await import('../../src/domain/settings/runningRecord.js');
 
 const STAMP = 'a'.repeat(64);
 const OTHER_STAMP = 'b'.repeat(64);
@@ -215,7 +215,27 @@ describe('what a finished deploy records against each service', () => {
     assert.deepEqual(uploader.env, { LOG_LEVEL: 'debug' });
     assert.equal(uploader.envDigests.LOG_LEVEL, settingDigest(uploader.envSalt, 'LOG_LEVEL', 'debug'));
     assert.equal(uploader.envDigests.STREAM_KEY, settingDigest(uploader.envSalt, 'STREAM_KEY', key));
-    // Set nowhere, so compose's own default applied and the record says so by leaving it out.
-    assert.equal(uploader.envDigests.UPLOADER_START_GATES, undefined);
+    // Set nowhere, so compose's own default applied, and the record says it was unset.
+    assert.equal(uploader.envDigests.UPLOADER_START_GATES, unsetDigest(uploader.envSalt, 'UPLOADER_START_GATES'));
+  });
+
+  it('covers a key the version declares that no container reads, since it reached the deploy script', async () => {
+    writeFileSync(join(root, '.env'), 'ENGINE=srs\nCOMPOSE_NETWORK=\n', 'utf8');
+    writeFileSync(join(root, '.env.sample'), 'LOG_LEVEL=debug\nCOMPOSE_NETWORK=\n', 'utf8');
+    const stored = makeProfile({ name: 'stage', stamp_id: STAMP });
+    const harness = orchestratorHarness([stored]);
+    await harness.versions.setContract(1, {
+      ...structuredClone(ALLOCATION_CONTRACT),
+      serviceEnvKeys: { 'stream-uploader': ['LOG_LEVEL'] },
+    });
+    harness.profiles.stackSettings.set('stage', { COMPOSE_NETWORK: 'host' });
+
+    await harness.orchestrator.startDeploy(stored, ['stream-uploader']);
+    harness.runner.finish(0);
+    await untilRunning(harness.profiles, 'stage');
+
+    const uploader = harness.containers.snapshots.find((snapshot) => snapshot.service === 'stream-uploader');
+    assert.ok(uploader, 'the uploader has a record');
+    assert.equal(uploader.envDigests.COMPOSE_NETWORK, settingDigest(uploader.envSalt, 'COMPOSE_NETWORK', 'host'));
   });
 });

@@ -650,11 +650,13 @@ for when the value is reset. The API and the page that edit these values are
 the next part of the same work and are not on `main` yet.
 
 Every successful deploy records, per container it started, what that container
-got: the keys its compose block reads, a plain value where the page may show
-one, and a salted digest of every value, empty ones included, so the page can
-tell which settings a running copy is behind on. A secret, and a chain endpoint,
-which can carry a provider's key, are kept as the digest alone. Migration 036
-took the stream key and the SRT passphrase out of the records written before.
+got: the keys its compose block reads and the keys the version declares that
+only the deploy scripts read, a plain value where the page may show one, and a
+salted digest of every one of those keys, an empty or an unset one included, so
+the page can tell which settings a running copy is behind on and which it cannot
+know. A secret, and a chain endpoint, which can carry a provider's key, are kept
+as the digest alone. Migration 036 took the stream key and the SRT passphrase
+out of the records written before.
 
 Adding and updating run `manager/scripts/stack-version-build.sh <repo-root>
 <staging-dir> <ref> <repo-url> <attempt-id>`, which clones or fetches, exports
