@@ -407,6 +407,18 @@ missing, saved operations stay readable and recoverable and new transfers refuse
 rather than guess. `docs/testing/t09-money-api.md` has their exact shapes and
 the rules the registry applies to them.
 
+### A deployment's own settings
+
+Every key a deployment's version declares, with the value its next deploy
+writes, where that comes from, and whether the running containers got it
+(2026-09-26). `docs/features/deployment-settings.md` says what each part does.
+
+| Method | Path | Body | Answer |
+| ------ | ---- | ---- | ------ |
+| GET | `/profiles/:name/settings` | none | `{ instanceId, revision, buildId, entries, drift, running }`, `no-store`. No secret value, only whether one is stored. 409 `settings_not_ready` for a version with no build |
+| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version | `{ revision }`. Stores and runs nothing. 400 `validation_error` for an undeclared key, a key a control of the deployment decides or a value the stack would read differently, 409 `deployment_settings_changed` for an older revision |
+| POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys |
+
 ### Engine control
 
 The media server of one deployment: what it is configured with, and the two
@@ -646,8 +658,9 @@ key, the feed, the engine config file, the engine settings, every slotted port
 and, on the manager's own host, the data directories. A stored value for one of
 those is left out of the file and named in the log. A generated secret is the
 exception: a value stored for it replaces the generated one, which stays kept
-for when the value is reset. The API and the page that edit these values are
-the next part of the same work and are not on `main` yet.
+for when the value is reset. The API that lists, saves and applies them is
+under "A deployment's own settings" above. The page that edits them is the next
+part of the same work.
 
 Every successful deploy records, per container it started, what that container
 got: the keys its compose block reads and the keys the version declares that
