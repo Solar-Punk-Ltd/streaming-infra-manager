@@ -149,8 +149,10 @@ recovery stays explicit. An operation whose failure reason is `hash_conflict` is
 never polled either, whatever deadline its row still carries, and the page shows
 no automatic checking sentence for it.
 
-Check uses the recorded identity and trusted manager chain configuration.
-It first examines the known hash when available. Receipt verification checks
+Check uses the recorded identity and reads the chain through the endpoint that
+"Where a transfer reaches the node and the chain" below describes, the
+configured one or the node's own. It first examines the known hash when
+available. Receipt verification checks
 identity, canonical block ancestry and finality. Missing receipts remain
 pending. Unavailable RPC, incomplete history, contradictory evidence and reorgs
 remain unresolved. Checks are bounded and persist progress where supported.
