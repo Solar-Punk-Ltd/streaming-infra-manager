@@ -1,8 +1,9 @@
 # A deployment's own settings
 
-Status: the store, the record of what each container got, the API, the page that edits them, and the
-new-deployment wizard that creates a deployment with them already set, as of 2026-09-26 on
-`feat/deployment-settings-wizard`.
+Status: the store, the record of what each container got, the API, the page that edits them, the
+new-deployment wizard that creates a deployment with them already set, and the engine settings in
+the same list in place of the Engine card's drawer, as of 2026-09-26 on
+`feat/deployment-settings-engine`.
 
 ## What this is
 
@@ -12,6 +13,10 @@ just give defaults where it make sense"). A deployment's own value goes into its
 `.env.<name>`, over the version's base `.env`, and the manager's own lines are written after it. So a
 stored value never takes the place of a key the manager computes.
 
+The deployment's engine settings are in the same list, so a deployment has one list of settings
+(Levi, 2026-09-26). They are stored where they always were, in `profiles.engine_settings`, and held
+to the engine's own rules, as [The engine settings](#the-engine-settings) below says.
+
 ## Where a value comes from
 
 Each key of the list says where the value its next deploy writes comes from:
@@ -19,20 +24,59 @@ Each key of the list says where the value its next deploy writes comes from:
 | Source | Meaning |
 | --- | --- |
 | deployment | stored for this deployment |
-| version | set by the version's build, in its base or its engine env file |
+| version | set by the version's build, in its base or its engine env file, and for an engine setting what the version falls back to where the host sets nothing |
+| manager-default | an engine setting's default that is the manager's own, the SRT latency's 2000 |
 | manager | decided by one of the deployment's own controls, named on the key |
 | generated | a secret the manager generated for this deployment |
 | unset | set by nothing, so the stack's own default applies |
 
 The controls that decide a key are the services the deployment runs, its postage stamp, its node pool,
 its chain endpoint and the gateway's node mode, its Bee URL, its SRT passphrase, its feed key, owner
-and topic, the engine's own config file, the engine settings, the port slot, and on the manager's own
-host the data directories. A save that names one of those keys is refused with the control named.
-A value stored for one before a manager started deciding it is left out of the env file and named in
-the log.
+and topic, the engine's own config file, the port slot, and on the manager's own host the data
+directories. A save that names one of those keys is refused with the control named. A value stored
+for one before a manager started deciding it is left out of the env file and named in the log.
 
 A generated secret is the exception. A value stored for it replaces the generated one, and the
 generated one stays kept for when the value is reset.
+
+## The engine settings
+
+Every engine setting the deployment reads is listed as its own to set, whether the version's samples
+declare it or not, in the order the engine's field list gives them: for SRS the segment length, the
+force-close ceiling, the playlist window and the SRT latency, and on an ABR uploader the seven
+transcoding settings, for OvenMediaEngine the segment duration and count and the uploader's poll
+interval. The field list is `common/src/engineSettings.ts`, and the page takes each setting's label,
+unit, help, kind, bounds and choices from it, so the answer carries none of them.
+
+- **Its value** is what the deployment stores in its engine settings, and **its default** is what an
+  unset one falls back to on the deployment's host, as the Engine card names it: the host's base
+  `.env` first, then the version's own fallback, except for the SRT latency, whose 2000 is the
+  manager's own and is named as such.
+- **A key the config the engine runs no longer reads**, because the deployment's own config file
+  dropped its placeholder or the version's template never takes it, says on its row that a value
+  there has no effect.
+- **An engine setting the deployment does not read** is listed out of reach with the reason: a rung
+  setting on a deployment that does not encode the ABR ladder, and a setting of the engine it does
+  not run. A value stored for one before is listed so it can be reset.
+
+A save puts an engine key in `profiles.engine_settings` and never in the stack columns. Each value is
+held to its field, refused by key in the engine's own words. What the engine settings will be once the
+save lands, the stored ones with its values set and its resets taken out, is then held to the
+engine's own rules, with the host's default for a key nothing stores, so a pair the engine would
+refuse, a force-close ceiling under the segment length or a frame rate and segment length whose
+product is not whole, is refused with that sentence. A save that names no engine setting is not held
+to them. The stack columns, the engine settings and the revision move in one statement, so a save
+lands whole or not at all.
+
+A save recreates nothing, and Apply recreates the engine for an engine setting, and the uploader with
+it for the segment length and the OvenMediaEngine poll interval, which the uploader reads too. That
+comes from the same record of what each container got as for any key.
+
+The engine settings route, `PUT /profiles/:name/engine-settings`, stays as the way scripts save and
+recreate in one call. It moves the same revision, and it reads the stored settings with that revision
+before it writes, so it is refused with `engine_settings_changed` when a save from the page landed in
+between, and a page that read before it is refused with `deployment_settings_changed`. Neither save
+writes over the other unseen.
 
 ## What is never shown
 
@@ -72,18 +116,21 @@ when it starts.
 ## API
 
 `GET /profiles/:name/settings`, `PUT /profiles/:name/settings` and `POST
-/profiles/:name/settings/apply`, and for a deployment not created yet `GET
-/versions/:id/settings-catalog` and the `stack_settings` of `POST /profiles` and `POST /groups`, all
-described in `manager/README.md` under "A deployment's own settings".
+/profiles/:name/settings/apply`, the engine settings among them, and for a deployment not created yet
+`GET /versions/:id/settings-catalog` and the `stack_settings` of `POST /profiles` and `POST /groups`,
+all described in `manager/README.md` under "A deployment's own settings".
 
 ## The page
 
 A deployment's page shows these settings in a **Stack settings** card after the Engine card, the
-whole width of the main column. The Engine card and its settings drawer are unchanged, and the engine
-settings show in this list as keys the engine settings decide.
+whole width of the main column. The Engine card's own settings drawer went on 2026-09-26. The card
+keeps its list of what the engine runs with and where each value came from, and its **Settings**
+button brings this card into view with the engine settings open and the first one focused. The SRT
+ingest card's step to raise the SRT latency brings the card into view at that setting, focused.
 
-- **Folded by the sample's sections**, in the order they first appear, with the keys the version no
-  longer declares in a section of their own at the end. A section opens on a click, and a search by
+- **Folded by the sample's sections**, in the order they first appear, with the deployment's own
+  engine settings in an **Engine settings** section first and the keys the version no longer
+  declares in a section of their own at the end. A section opens on a click, and a search by
   key or description opens every section it matches and keeps only the matching keys. A folded
   section's line counts its keys and says how many are unsaved, cannot be saved or are not applied.
 - **Each key** shows its description, folded to its first words when long, and a field shaped by what
@@ -96,11 +143,17 @@ settings show in this list as keys the engine settings decide.
 - **A key a control of the deployment decides** shows its value and names the control, with no field.
   A value stored for it before a control decided it can be reset.
 - **A key the version no longer declares** shows its stored value and offers only a reset.
+- **An engine setting** is named by its label with the key beside it, says its field's help, and takes
+  a number field with its unit and bounds or a list of its choices. Its default is beside it, with
+  where it comes from: set on this host, the version's own, or the manager's own. A search finds it by
+  its label and help as well as its key.
 
 A value the manager would refuse is named under its field, by the same shared rules, and keeps Save
-off. Save sends the changed keys in one request with the revision the page read. A refused save shows
-the manager's sentence under the button. A save refused because another one landed first says the
-settings changed elsewhere and reads them again, and the change has to be made again.
+off. A pair of engine settings the engine would refuse is named once above Save, in the manager's
+words, and keeps Save off until the pair is whole. Save sends the changed keys in one request with
+the revision the page read. A refused save shows the manager's sentence under the button. A save
+refused because another one landed first says the settings changed elsewhere and reads them again,
+and the change has to be made again.
 
 Above the list, the banner names the settings the running containers are behind on and offers Apply,
 and after Apply says what was recreated. On a stopped deployment it says what Start will use, with no
@@ -131,7 +184,9 @@ settings step on, and again whenever the version, the engine, the services or th
 - **A required secret** the version leaves empty says the manager generates it at the first deploy,
   and a typed one replaces that.
 - **A key a control decides** shows no field and names the control. `HLS_FRAGMENT`, which the engine
-  settings decide, shows the segment length typed above it, so the two never read differently.
+  settings decide, shows the segment length typed above it, so the two never read differently. The
+  engine settings are asked for in the wizard's own steps, so its list keeps every one of them out
+  of reach, where the deployment's page, once it exists, lists them as its own.
 - **A value the manager would refuse** is named under its field, by the same shared rules, and stops
   Continue and Deploy, the footer naming the key and never the value. Values typed before the list
   for the current choices was read wait for it.
@@ -171,3 +226,14 @@ create sends, so `pnpm -C frontend dev:mock` shows it with no manager.
 - The wizard checks a typed value against the list it read, and the manager checks it again against
   the version's current build when the create arrives. A build published in between can refuse a
   create the wizard let through, and the refusal names the key.
+- The Engine card reads the stored engine settings, so after a save and before Apply it names a saved
+  value the engine does not run yet. The banner of this card says which settings are behind.
+- An engine setting's default is read from the host's base `.env` and the version's own fallback, as
+  the Engine card reads it, and not from the engine's own env file, `engines/<engine>/.env`, which
+  the version settings page can also set. Where that file sets an engine setting, an unset one
+  falls back to its value rather than to the default named here.
+- A key only some sections of a config file read is not flagged on its row, only one no section
+  reads. The Engine card still shows each reading.
+- Turning the ABR ladder off in the Edit drawer drops the rung settings by writing back the engine
+  settings it read, so a save from this card landing in the same moment can be undone by it without
+  a word. It needs both in the same instant, and the page then shows the value that stood.

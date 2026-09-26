@@ -21,20 +21,21 @@ Update 2026-09-23, on `fix/srt-latency-setting` off `main` at `87673c9`, commits
 `6a37c2a` and `f42fba2`: `SRT_LATENCY` is an SRS setting like the others. On 2026-09-22 an outside
 broadcaster's recording came out with broken blocks of picture. SRS's own SRT counters showed 5 to
 8.5% of the packets lost and nearly all of them resent, but the resends arrived after the latency
-window, so SRS dropped them and each drop became a hole in a frame. The drawer offers it as **SRT
-latency**, in whole milliseconds from 20 to 10000, and the owner decided on 2026-09-23 that it
+window, so SRS dropped them and each drop became a hole in a frame. The engine settings offer it as
+**SRT latency**, in whole milliseconds from 20 to 10000, and the owner decided on 2026-09-23 that it
 defaults to 2000.
 
 That default is the manager's own and not the stack's. `v3.1`, which the manager pinned from
 2026-09-19 to 2026-09-24, falls back to 200, as does every version cut before the decision that reads the key at
 all (`main-v2` does not). The stack's `main` has fallen back to 2000 itself since its PR #244, which
 its releases `v3.2`, `v3.3` and `v3.4` carry, and the manager has pinned it since 2026-09-24. On every version the manager writes
-`SRT_LATENCY=2000` into `.env.<profile>` for every SRS deployment that stores no value, and the
-drawer and the card call it **Manager default**. It is the only setting written while unset. A
-value set in the host's base `.env` still wins, as it does for every other setting, and the drawer
-then says it was set on this host. A deployment that stores no value gets `SRT_LATENCY=2000` the
-next time its env file is written, on its next deploy or engine settings save. Whether SRS then
-waits that long on ingest depends on the version's template, which the next paragraph explains.
+`SRT_LATENCY=2000` into `.env.<profile>` for every SRS deployment that stores no value. The Engine
+card calls it **Manager default**, and the Stack settings card names it as the manager's own
+default. It is the only setting written while unset. A value set in the host's base `.env` still
+wins, as it does for every other setting, and both then say it was set on this host. A deployment
+that stores no value gets `SRT_LATENCY=2000` the next time its env file is written, on its next
+deploy, an Apply of its settings included. Whether SRS then waits that long on ingest depends on the
+version's template, which the next paragraph explains.
 
 Measured 2026-09-23 on the stack's `fix/srt-ingest-latency` branch, head `a1b43f0a`. SRS 6 applies
 `latency` to both directions and `recvlatency` after it, and falls back to 120 for `recvlatency`
@@ -50,20 +51,20 @@ Until 2026-09-24 the manager pinned `v3.1` at `2c4867a`, which fills `latency` a
 on the bundled version then waited 120 ms on ingest whatever `SRT_LATENCY` said. Since 2026-09-24 the
 pin, now the stack's release `v3.4`, carries `36b6749f`, so the bundled version waits the
 setting on ingest. A deployment runs from a copy of the build it was last deployed from, so one on
-the bundled version moves onto that template on its next deploy or engine settings save. The drawer
-reads the template of the version's current build rather than that copy, so it shows the setting
-from the moment the host has built a pin that carries it, `v3.3` or `v3.4`. `v3.1` and the stack's tags before it keep waiting
+the bundled version moves onto that template on its next deploy. The Engine card reads the template
+of the version's current build rather than that copy, so it shows the setting from the moment the
+host has built a pin that carries it, `v3.3` or `v3.4`. `v3.1` and the stack's tags before it keep waiting
 SRS's own 120. For a deployment with a config file of its own the manager reads `recvlatency` as
 [engine-config.md](engine-config.md) describes. From later on 2026-09-23 it reads the SRT latency
 off the version's template for a deployment that runs that template as well. On a template that
-fills `recvlatency`, as the bundled one does, the card and the drawer show the stored value, or the
+fills `recvlatency`, as the bundled one does, the Engine card shows the stored value, or the
 default with its source, which is **Manager default** unless the host sets one. On a template that
-fills only `latency`, as `v3`'s and `v3.1`'s do, they show SRS's own 120 as **Engine default**, with
-the sentence that SRS ignores `latency` for ingest without `recvlatency`, and the drawer says that
-changing the setting will not change the wait on ingest on this stack version. A template that
+fills only `latency`, as `v3`'s and `v3.1`'s do, it shows SRS's own 120 as **Engine default**, with
+the sentence that SRS ignores `latency` for ingest without `recvlatency`, and the setting's row in
+the Stack settings card says a value there has no effect on this version. A template that
 never takes the setting is read at its own `srt_server` block, since `435ee1d`. The stack's `v1`
 and `v2` (`12632b50`) are such versions: their templates write `latency 200` themselves and no
-`recvlatency`, and their entrypoints never read `SRT_LATENCY`. On them the card and the drawer show
+`recvlatency`, and their entrypoints never read `SRT_LATENCY`. On them the Engine card shows
 SRS's own 120 as **Engine default**, with the sentence that this stack version does not read the
 setting and that its template decides the wait on ingest, and a `recvlatency` such a template wrote
 would be shown as the wait instead. The manager still writes `SRT_LATENCY=2000` into
@@ -76,6 +77,20 @@ Update 2026-09-23, on `feat/srt-ingest-health`: the SRT link's own packet counts
 retransmitted and dropped over the last minute, are read out of the SRS container's log and
 shown on a card of their own, because SRS's HTTP API does not expose them. That is not the live
 status of PR 2, which is still not built. See [srt-ingest-health.md](srt-ingest-health.md).
+
+Update 2026-09-26, on `feat/deployment-settings-engine`: the Engine card's settings drawer is gone.
+Levi ruled that day that a deployment has one list of settings, so its engine settings are edited
+in the deployment's **Stack settings** card, in an **Engine settings** section of their own at the
+top of its list, with the fields, defaults, help and rules the drawer had. A save there stores and
+recreates nothing, and Apply recreates the engine, and the uploader with it for the segment length
+and the OvenMediaEngine poll interval, which the uploader reads too.
+[deployment-settings.md](deployment-settings.md) describes the card. The Engine card keeps its list
+of what the engine runs with and where each value came from, and its config file dialog, and its
+**Settings** button brings that section into view with its first setting focused. The engine
+settings are still stored in `profiles.engine_settings`. `PUT /profiles/:name/engine-settings`
+stays, as the way scripts save and recreate in one call, and since that day it moves the settings
+revision the card saves under and is refused, rather than overwriting, when a save from the card
+landed after it read the settings.
 
 ## What the engines are and how they are configured today
 
@@ -133,23 +148,25 @@ and Storage:
   the stack's README warns about. Then `SRS uptime 3d 4h · 2 HTTP clients`. Refreshed every five
   seconds while the page is open. When the API is not reachable the block says `Live status
   needs the SRS API port, which this stack version does not publish.`
-- **Settings** opens a right drawer, the same frame the Edit drawer uses, with only the fields
-  the engine has. For SRS: **Segment length** (`HLS_FRAGMENT`, seconds), **Force-close a piece
-  after** (`HLS_SEGMENT_MAX`, seconds), **Playlist window** (`HLS_WINDOW`, seconds), **SRT
-  latency** (`SRT_LATENCY`, milliseconds, since 2026-09-23, whose default is the manager's own as
-  the update above says), and
-  under **Transcoding (ABR uploaders only)**: frame rate, preset, profile, threads, audio codec,
-  audio bitrate, VBV seconds (`ABR_FPS`, `ABR_PRESET`, `ABR_PROFILE`, `ABR_THREADS`, `ABR_ACODEC`,
+- **Settings** brings the deployment's **Stack settings** card into view with its **Engine
+  settings** section open and the first setting focused (since 2026-09-26, a drawer of its own
+  before). That section has only the fields the engine has. For SRS: **Segment length**
+  (`HLS_FRAGMENT`, seconds), **Force-close a piece after** (`HLS_SEGMENT_MAX`, seconds), **Playlist
+  window** (`HLS_WINDOW`, seconds), **SRT latency** (`SRT_LATENCY`, milliseconds, since 2026-09-23,
+  whose default is the manager's own as the update above says), and on an ABR uploader alone the
+  transcoding settings: frame rate, preset, profile, threads, audio codec, audio bitrate, VBV
+  seconds (`ABR_FPS`, `ABR_PRESET`, `ABR_PROFILE`, `ABR_THREADS`, `ABR_ACODEC`,
   `ABR_AUDIO_BITRATE`, `ABR_VBV_SECONDS`). The ladder itself stays fixed, it is the contract with
   the node pool. For OME: **Segment duration** and **Segment count** (`HLS_SEGMENT_DURATION`,
-  `HLS_SEGMENT_COUNT`), **Poll interval** (`OME_HLS_POLL_INTERVAL_MS`). Each field shows the
-  stack default and a one line explanation copied from the stack's sample files (for example
-  "SRS can only cut on a keyframe, keep the publisher's GOP at or below this"). The drawer
-  validates what the entrypoint validates: positive numbers, integers where required, and for
-  ABR `frame rate × segment length` must be a whole number or the engine refuses to start. Save
-  is labelled **Apply and recreate engine** and the drawer says what that does: `Recreates the
-  SRS container with the new values. A live publisher is disconnected for a few seconds and
-  reconnects on its own if OBS is set to retry.`
+  `HLS_SEGMENT_COUNT`), **Poll interval** (`OME_HLS_POLL_INTERVAL_MS`). Each field is named by its
+  label with the key beside it, shows its unit, the default an unset one falls back to on this
+  host, and a one line explanation from the stack's sample files. The card validates what the
+  entrypoint validates: positive numbers, integers where required, a ceiling at or over the
+  segment length, and for ABR `frame rate × segment length` must be a whole number or the engine
+  refuses to start. A pair it would refuse is named once above Save, which stays off. A save
+  stores and recreates nothing, and the card's Apply recreates the engine, and the uploader with
+  it for a key the uploader reads too. Until 2026-09-26 the drawer's Save, **Apply and recreate
+  engine**, stored and recreated in one step.
 - **Restart** asks first: `Restart SRS for stream1? The publisher (if any) is disconnected for a
   few seconds. Settings are not changed.` With live status available the dialog says whether a
   publisher is connected right now.
@@ -181,7 +198,7 @@ stack version, and validation lives in code:
   `engineSettingsProblem
   (engine, settings)` returns the first human readable problem or null, including the GOP rule.
   `engineSettingsEnv(engine, settings)` returns the `KEY=value` pairs to write. Shared, so the
-  drawer and the deploy validate identically. Since 2026-09-23 it takes the host's defaults as
+  settings page, its save and the deploy validate identically. Since 2026-09-23 it takes the host's defaults as
   well and adds a default the manager owns, `managerOwnsDefault` on the field, for a key the
   deployment does not store and the host's base `.env` does not set. `SRT_LATENCY` is the only
   such field.
@@ -193,8 +210,12 @@ stack version, and validation lives in code:
 - `ProfileService.updateEngineSettings(name, settings)`: refuses while the profile is
   transitional, stores, then `orchestrator.startDeploy(profile, [engine])` for the engine service
   only. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry
-  it to the UI.
-- Route `PUT /profiles/:name/engine-settings` with a yup schema built from the field list.
+  it to the UI. Since 2026-09-26 it reads the stored settings with their settings revision first,
+  moves that revision with its write, and refuses with `engine_settings_changed` when a save from
+  the Stack settings card moved it in between.
+- Route `PUT /profiles/:name/engine-settings` with a yup schema built from the field list. Since
+  2026-09-26 it is the way scripts save and recreate in one call. The page saves through the
+  deployment's settings routes instead.
 
 ### Restart, logs, effective config
 
@@ -221,7 +242,7 @@ Routes, `manager/src/api/routes/engine.ts`:
 | Method | Path | Answer |
 |---|---|---|
 | GET | `/profiles/:name/engine` | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason }`, where `live` is null in PR 1 and `liveUnavailableReason` says why |
-| PUT | `/profiles/:name/engine-settings` | 202, the profile |
+| PUT | `/profiles/:name/engine-settings` | 202, the profile. For scripts since 2026-09-26 |
 | POST | `/profiles/:name/containers/:service/restart` | 202 |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | `text/plain` |
 | GET | `/profiles/:name/engine/config` | `text/plain`, no-store |
@@ -257,12 +278,14 @@ settings, restart, logs and effective config for OME regardless.
 
 ## Frontend changes
 
-- `deployments/EngineCard.tsx`, `deployments/engineApi.ts`, `forms/EngineSettingsDrawer.tsx`
-  (fields rendered from the shared list, validation from `engineSettingsProblem`),
-  `deployments/LogsDialog.tsx` with the config tab, confirm dialogs through the existing
-  `ConfirmDialog`.
-- `EditorsContext` gains `openEngineSettings(name)`. `useDeploymentActions` gains
-  `restartContainer(name, service)` with its toast.
+- `deployments/EngineCard.tsx`, `deployments/engineApi.ts`, `deployments/LogsDialog.tsx` with
+  the config tab, confirm dialogs through the existing `ConfirmDialog`. The settings were edited in
+  `forms/EngineSettingsDrawer.tsx` until 2026-09-26, and since then in the Stack settings card,
+  `deployments/settings/`, with fields rendered from the shared list and validation from
+  `engineSettingsProblem`.
+- `useDeploymentActions` gains `restartContainer(name, service)` with its toast. `EditorsContext`
+  gained `openEngineSettings(name)`, which went with the drawer: the Engine card's Settings button
+  asks the deployment page to show the engine settings in the Stack settings card instead.
 - `AtAGlanceCard` shows `Engine: SRS · segment 2 s · window 15 s` for a deployment created with
   the manager's own defaults, off the same observations the engine card reads, so a deployment
   that stores neither shows whatever its own stack version falls back to instead.
@@ -284,15 +307,17 @@ settings, restart, logs and effective config for OME regardless.
 - `manager` unit: `writeProfileEnv` carries the settings, refuses a value with `/` or `&`,
   `ContainerControl.find` matches on both labels and not on one, restart refuses an unknown
   service, logs are demultiplexed and capped (a stubbed dockerode).
-- Browser pane against the mock: change segment length, watch the deployment go Deploying and
-  back, restart with and without a publisher, logs dialog, config tab, dark mode, the live block
-  on a running stream and its "not published" sentence on an old version.
+- Browser pane against the mock: change the segment length in the Stack settings card, save,
+  Apply, and watch the deployment go Deploying and back, restart with and without a publisher,
+  logs dialog, config tab, dark mode, the live block on a running stream and its "not published"
+  sentence on an old version.
 
 ## Done means
 
-- Engine settings are edited in a drawer with the stack's own defaults and help, validated the
-  way the entrypoint validates, applied by recreating only the engine, and visible in the
-  container snapshot afterwards.
+- Engine settings are edited in the deployment's Stack settings card (a drawer of their own until
+  2026-09-26) with this host's defaults and the stack's help, validated the way the entrypoint
+  validates, applied by recreating only the engine, and the uploader for a key it reads too, and
+  visible in the container snapshot afterwards.
 - Restart, logs and effective config work for srs, stream-uploader and bee-uploader on a running
   deployment, and answer plainly when the container is not running.
 - PR 2: a running stream shows publisher, codec, resolution, bitrate and uptime, refreshed while
