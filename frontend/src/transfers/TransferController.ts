@@ -1,4 +1,4 @@
-import type { ChequebookAdmissionDetail, ChequebookOperationDetail, TransferDirection } from '@streaming-infra-manager/common';
+import type { ChequebookAdmissionDetail, ChequebookOperationDetail, ChequebookRefusal, TransferDirection } from '@streaming-infra-manager/common';
 import { isExactTransfer, type StoredTransferIntent, type TransferIntentStore } from './transferIntentStore';
 import { isCompleteTransferDetail, permitsNewTransfer } from './transferEvidence';
 import { TransferApiError } from './TransferApiError';
@@ -12,7 +12,8 @@ export interface TransferControllerApi {
   submit(intent: StoredTransferIntent, signal: AbortSignal): Promise<ChequebookAdmissionDetail>;
 }
 export type TransferControllerIssue = 'lookup_missing' | 'lookup_unavailable' | 'incomplete_response' | 'response_unknown' |
-  'target_changed' | 'target_unavailable' | 'account_changed' | 'storage_unavailable' | 'identity_conflict' | 'terminal_required' | 'busy' | 'link_unavailable';
+  'target_changed' | 'target_unavailable' | 'account_changed' | 'storage_unavailable' | 'identity_conflict' | 'terminal_required' | 'busy' | 'link_unavailable' |
+  'preparation_refused';
 export interface TransferControllerState {
   readonly phase: 'idle' | 'signed_out' | 'entry' | 'loading' | 'sending' | 'ready';
   readonly intent: StoredTransferIntent | null;
@@ -20,10 +21,12 @@ export interface TransferControllerState {
   readonly blocking: ChequebookOperationDetail | null;
   readonly blockingReason: 'busy' | 'identity_conflict' | null;
   readonly issue: TransferControllerIssue | null;
+  /** Why the manager refused to prepare the saved request. Present only with the preparation_refused issue. */
+  readonly refusal: ChequebookRefusal | null;
 }
 type Context = { readonly accountId: number; readonly profile: TransferProfileIdentity };
 type ActiveTask = { readonly controller: AbortController; readonly epoch: number; readonly context: Context };
-const empty = (phase: TransferControllerState['phase']): TransferControllerState => ({ phase, intent: null, detail: null, blocking: null, blockingReason: null, issue: null });
+const empty = (phase: TransferControllerState['phase']): TransferControllerState => ({ phase, intent: null, detail: null, blocking: null, blockingReason: null, issue: null, refusal: null });
 
 /**
  * A saved UUID survives every interrupted UI action. Only explicit confirmation or retry can call submit.
@@ -161,13 +164,13 @@ export class TransferController {
       if (saved.kind === 'unavailable') issue = 'link_unavailable';
     } catch { issue = 'link_unavailable'; }
     if (!this.live(task)) return false;
-    this.update({ phase: 'ready', intent, detail, blocking: null, blockingReason: null, issue });
+    this.update({ phase: 'ready', intent, detail, blocking: null, blockingReason: null, issue, refusal: null });
     return true;
   }
 
   private async blocked(task: ActiveTask, intent: StoredTransferIntent, detail: ChequebookOperationDetail, issue: 'busy' | 'identity_conflict'): Promise<void> {
     if (!this.live(task)) return;
-    this.update({ phase: 'ready', intent, detail: null, blocking: detail, blockingReason: issue, issue });
+    this.update({ phase: 'ready', intent, detail: null, blocking: detail, blockingReason: issue, issue, refusal: null });
     try { await this.store.recordBlocking(intent.requestId, detail.operation.id); }
     catch { /* The immutable request UUID still provides exact recovery. */ }
   }
@@ -177,6 +180,9 @@ export class TransferController {
     if (error instanceof Error && error.name === 'SessionEndedError') { this.setContext(null, null); return; }
     if (error instanceof TransferApiError && (error.reason === 'account_changed' || error.reason === 'target_changed')) {
       this.patch({ phase: 'ready', issue: error.reason }); return;
+    }
+    if (error instanceof TransferApiError && error.reason === 'preparation_refused' && error.refusal) {
+      this.patch({ phase: 'ready', issue: 'preparation_refused', refusal: error.refusal }); return;
     }
     this.patch({ phase: 'ready', issue });
   }
@@ -192,6 +198,9 @@ export class TransferController {
   }
 
   private live(task: ActiveTask): boolean { return this.active === task && this.epoch === task.epoch && !task.controller.signal.aborted; }
-  private patch(patch: Partial<TransferControllerState>): void { this.update({ ...this.snapshot, ...patch }); }
+  private patch(patch: Partial<TransferControllerState>): void {
+    const next = { ...this.snapshot, ...patch };
+    this.update(next.issue === 'preparation_refused' ? next : { ...next, refusal: null });
+  }
   private update(state: TransferControllerState): void { this.snapshot = Object.freeze(state); for (const listener of this.listeners) listener(); }
 }

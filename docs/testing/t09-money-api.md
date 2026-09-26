@@ -18,22 +18,21 @@ The merged dependency baseline passed all 47 prior T09 SQL cases. The target che
 
 ## Runtime trust and target selection
 
-Two manager process settings are read at startup. They are not accepted from API requests, profile records or Bee responses.
+Updated 2026-09-26 at `9e4e8c8f` (pull request #61). Three manager process settings are read at startup, all optional. None is accepted from an API request, a profile record or a Bee response.
 
-- `CHEQUEBOOK_RPC_ENDPOINTS` is a JSON object keyed by supported chain ID, for example `{"100":"https://rpc.example.invalid"}`. Supported IDs are 1, 100 and 11155111, paired with the pinned token contracts in `transactionIdentity.ts`. Values must be HTTP or HTTPS URLs without user information or fragments. Route any real endpoint credential into the manager process through the existing secret mechanism. Do not paste it into a profile, source file, issue or log. The registry keeps endpoints private and checks the endpoint's actual chain ID before use.
-- `CHEQUEBOOK_DOCKER_TRANSPORTS` is a JSON object keyed by deploy target alias, at most 256 of them. Each value has exactly two fields, `locator` and `qualificationIds`, and anything else is refused.
-  - A `locator` of kind `unix` has exactly `kind`, `alias` and `socketPath`. The alias must equal the key, and the socket path must be absolute, normalised, free of control characters, not end in a slash and be at most 100 bytes, because a Unix socket path has a length limit of its own.
-  - A `locator` of kind `ssh-unix` has exactly `kind`, `alias`, `host`, `port`, `user`, `remoteSocketPath`, `identityPublicKeyPath`, `agentSocketPath`, `knownHostsPath` and `hostKeyAlias`. It names a public key path and an agent socket, never a private key: the key stays in the agent.
-  - `qualificationIds` is a non-empty list of ids that must each match a record in the qualification catalogue below. An id the catalogue does not hold refuses the transport.
-  Every field here is operator-owned routing. None of it comes from a profile or from a money request, and a malformed value refuses the transfer rather than falling back to a direct Bee URL. There is no direct-URL fallback at all. An earlier `CHEQUEBOOK_BEE_ENDPOINT_MODE` was removed.
+- `CHEQUEBOOK_RPC_ENDPOINTS` is a JSON object keyed by supported chain ID, for example `{"100":"https://rpc.example.invalid"}`. Supported IDs are 1, 100 and 11155111, paired with the pinned token contracts in `transactionIdentity.ts`. Values must be HTTP or HTTPS URLs without user information or fragments. For a chain it names, every transfer reads the chain there. For any other chain the default is the `--blockchain-rpc-endpoint` the node's container was started with, read from `Config.Cmd` of the container inspect the acquisition fetches on the connection it owns (`nodeChainEndpoint` in `DockerBeeBinding.ts`), held to the same shape rules. Either kind must answer the chain ID of the node's wallet before it is used, and a wrong answer refuses with `wrong_chain`. The default is remembered per chain and node for that node's saved transfers. When the manager does not know it, after a restart, and whenever the remembered one fails in any way, it opens the node's owned connection to read it again and closes the bridge unused. The fresh endpoint replaces the remembered one only after it verified. An endpoint is never logged, answered or put in an error.
+- `CHEQUEBOOK_DOCKER_TRANSPORTS` is a JSON object keyed by deploy target alias, at most 256 of them. Each value has `locator` and may have `qualificationIds`, and anything else is refused. An entry wins for the alias it names, and every other alias gets the default route below.
+  - A `locator` of kind `unix` has exactly `kind`, `alias` and `socketPath`. The alias must equal the key, and the socket path must be absolute, normalised, free of control characters, not end in a slash and be at most 100 bytes.
+  - A `locator` of kind `ssh-config` has exactly `kind`, `alias` and `remoteSocketPath`. It forwards the remote socket through the alias's `Host` block in the manager's own ssh configuration. An alias with `@` is refused.
+  - A `locator` of kind `ssh-unix` has exactly `kind`, `alias`, `host`, `port`, `user`, `remoteSocketPath`, `identityPublicKeyPath`, `agentSocketPath`, `knownHostsPath` and `hostKeyAlias`, reads no config file, and names a public key path and an agent socket, never a private key.
+  - `qualificationIds`, when given, is a non-empty list of ids that must each match a catalog record. Those records alone qualify that alias. Without it the alias is qualified automatically.
+- `DOCKER_HOST` is read the way the manager's Docker client reads it. The default route for `localhost` is its Unix socket, `/var/run/docker.sock` when it is unset. A remote alias's default route is an `ssh-config` forward to `/var/run/docker.sock`.
 
-  Route any credential this needs into the manager process rather than writing it down. The manager logs key names only.
+A malformed value refuses the transfer with its cause, `chain_setting_invalid` or `docker_setting_invalid`, rather than falling back to a direct Bee URL, and there is no direct-URL fallback at all. An earlier `CHEQUEBOOK_BEE_ENDPOINT_MODE` was removed. After profile deletion, frozen operation identity selects the chain through `CHEQUEBOOK_RPC_ENDPOINTS`, or through the endpoint the manager remembered for that node before the deletion, while that endpoint answers and until the manager restarts, because no node is left to read it from again. Runtime endpoint rotation takes effect after process restart. This implementation does not write or rotate configuration.
 
-An absent chain mapping refuses new preparation and records unavailable evidence during recovery. A wrong chain response cannot silently select another chain or endpoint. Frozen operation identity selects the trusted runtime mapping after profile deletion. Runtime endpoint rotation takes effect after process restart. This implementation does not write or rotate configuration.
+The transport is selected by the deploy target alias, wrapped so the operation owns it for its lifetime, and qualified before a byte is sent to Bee: pinned records on the bridge's own connection, or, on an automatic route, the check described under "Where a transfer reaches the node and the chain" in `docs/features/chequebook.md`, which runs on a connection of its own before the bridge's and stores its result in `bee_bridge_qualifications` (migration 040). `ConfiguredBeeTargetResolver`, which this section once described, resolved a target from the saved `bee-uploader` service and its `BEE_UPLOADER_API_PORT`, and the production composition no longer builds it. The external publishing destination `bee_url` does not select the transaction target. Known deploy, stop and remove transitions refuse preparation. Missing or duplicate Bee services, malformed ports and profiles without an owned Bee component refuse it too.
 
-The transport is selected from `CHEQUEBOOK_DOCKER_TRANSPORTS` by the deploy target alias, wrapped so the operation owns it for its lifetime, and qualified against the catalogue before a byte is sent. `ConfiguredBeeTargetResolver`, which this paragraph used to describe, resolved a target from the saved `bee-uploader` service and its `BEE_UPLOADER_API_PORT`, and the production composition no longer builds it. What has not changed: the external publishing destination `bee_url` does not select the transaction target. Known deploy, stop and remove transitions refuse preparation. Missing or duplicate Bee services, malformed ports and profiles without an owned Bee component refuse it too.
-
-The target revision includes the canonical T01 `profiles.instance_id`, profile creation/update timestamps, host, port slot, kind, components, status, stack version and selected API port. It is compared again before dispatch. The instance UUID identifies one deployment lifetime independently of timestamp precision. A saved name that is removed and recreated receives a different instance UUID. T06 current target and port-reservation integration was still required when this section was written, and it is in. No second SSH or Docker ownership implementation was added here.
+The target revision includes the canonical T01 `profiles.instance_id`, profile creation/update timestamps, host, port slot, kind, components, status, stack version and selected API port. It is compared again before dispatch. The instance UUID identifies one deployment lifetime independently of timestamp precision. A saved name that is removed and recreated receives a different instance UUID. No second SSH or Docker ownership implementation was added here: the default remote route is the same supervised forward with a second locator kind.
 
 ## Single-connection submission
 
@@ -71,7 +70,7 @@ New submissions require the current profile UUID as `profileInstanceId`. It is p
 
 Amounts are canonical positive integer PLUR strings, at most 30 digits. New transfer intent uses a UUID that the browser must persist before its POST. Repeated UUIDs replay the same intent and never prepare another transfer. A different payload under that key returns a conflict. The browser must use the read-only by-request route if it knows the UUID but lost the response containing the operation ID. No money POST is needed to discover that record, and no current profile is needed.
 
-Accepted or replayed admission returns 202. It can contain a rejected or unknown operation and never implies settlement. A busy node or conflicting request payload returns 409 with the current operation detail. Reads and recovery operations return 200, missing records 404, invalid input 400, unavailable preparation or journal storage 503, and an ineligible assertion 409. Errors at the storage and preparation boundaries carry fixed safe messages. Upstream diagnostics and endpoint values are not attached as error causes.
+Accepted or replayed admission returns 202. It can contain a rejected or unknown operation and never implies settlement. A busy node or conflicting request payload returns 409 with the current operation detail. Reads and recovery operations return 200, missing records 404, invalid input 400, unavailable preparation or journal storage 503, and an ineligible assertion 409. A preparation 503 carries `cause` and `check` from the closed list in `common/src/chequebookRefusals.ts` and the cause's own sentence as `message`, and `manager/test/unit/chequebookRefusalAnswers.test.ts` drives every cause through the production composition to that answer, the ssh path's "Bee container not found" among them. Errors at the storage and preparation boundaries carry fixed safe messages. Upstream diagnostics and endpoint values are not attached as error causes.
 
 History defaults to 50 rows and permits at most 100. It orders by immutable creation timestamp and UUID. The opaque cursor retains PostgreSQL microseconds so rows inside the same millisecond are not skipped. Detail reads obtain the operation and all direct-response evidence in one SQL statement. No profile join can remove historical records.
 
@@ -159,14 +158,23 @@ suite. It composes the production `createChequebookOperationsService` over a
 real PostgreSQL schema, the real router behind `requireSameSite` and the real
 session gate, and the owned Docker transport over a temporary Unix socket served
 by `manager/test/support/syntheticDockerBee.ts`. Only the Bee, the chain and the
-database are synthetic. Its ten cases cover an accepted deposit polled to
+database are synthetic. Its twelve cases cover an accepted deposit polled to
 settlement with no Check request, a reverted receipt, a lost response that stays
 unknown and unpolled and blocks the next intent, an RPC outage that polling
 survives, a spent budget that leaves the chain to the operator, a restart that
 resumes a live budget and adopts nothing after it, exact replay, a start that
 fails partway and leaves no schema behind, a close that finishes every step
 before reporting the first failure, and the removal of the temporary socket
-directory. The composition itself lives in
+directory. Two more, added 2026-09-26, set neither `CHEQUEBOOK_RPC_ENDPOINTS` nor
+`CHEQUEBOOK_DOCKER_TRANSPORTS` and seed no catalog record for the synthetic
+image: one checks the image automatically, stores the pass, transfers and polls
+to settlement through the node's own endpoint, and one refuses an image whose
+check says `/bin/bash` is missing with `bridge_not_qualified` and `check: bash`,
+stores the failure and sends nothing to Bee. The restarted manager in the
+restart case now has no transport configured either, so it reads the node's
+endpoint again over the default local route. Every composition in this suite
+reaches Docker through a connector that refuses any socket but the fixture's
+own, so none of them can reach a real daemon. The composition itself lives in
 `manager/test/support/connectedChequebook.ts` and is shared with
 `connectedChequebookServer.ts`, the process the connected browser suite forks.
 Both refuse to run unless the API is on loopback and the synthetic Docker is on

@@ -1,6 +1,6 @@
 import type { ChainTransaction } from './chainEvidence.js';
 import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
-import type { ChequebookHistoryQuery, ChequebookHistoryPage, ChequebookOperationEvidence, ChequebookAssertionInput, ChequebookSubmissionResponseEvidence, ChequebookRecoveryObservation, ChequebookAdmissionResult, ChequebookOperation, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import type { ChequebookHistoryQuery, ChequebookHistoryPage, ChequebookOperationEvidence, ChequebookAssertionInput, ChequebookSubmissionResponseEvidence, ChequebookRecoveryObservation, ChequebookAdmissionResult, ChequebookOperation, ChequebookPreflightRefusal, ChequebookReceiptObservation, ChequebookTransferContext, ChequebookTransferIntent } from '@streaming-infra-manager/common';
 
 export interface NewChequebookOperation extends ChequebookTransferIntent, ChequebookTransferContext {
   readonly id: string;
@@ -11,7 +11,7 @@ export interface NewChequebookOperation extends ChequebookTransferIntent, Cheque
 export type SubmissionOutcome =
   | { readonly state: 'submitted'; readonly transactionHash: string; readonly failureReason: null }
   | { readonly state: 'unknown'; readonly transactionHash: null; readonly failureReason: 'response_unavailable' | 'invalid_response' }
-  | { readonly state: 'rejected'; readonly transactionHash: null; readonly failureReason: 'preflight_failed' };
+  | { readonly state: 'rejected'; readonly transactionHash: null; readonly failureReason: ChequebookPreflightRefusal };
 
 export interface ChequebookOperationRepository {
   listHistory(query: ChequebookHistoryQuery): Promise<ChequebookHistoryPage>;

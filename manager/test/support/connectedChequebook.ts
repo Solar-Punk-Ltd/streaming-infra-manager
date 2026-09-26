@@ -18,7 +18,8 @@ import type { TestContext } from 'node:test';
 import express, { type Express, type RequestHandler } from 'express';
 import pg, { type Pool } from 'pg';
 import type { ChequebookChainReader } from '../../src/domain/chequebook/ChequebookChainRegistry.js';
-import { createChequebookOperationsService } from '../../src/domain/chequebook/createChequebookOperationsService.js';
+import { createChequebookOperationsService, type ChequebookRuntime } from '../../src/domain/chequebook/createChequebookOperationsService.js';
+import { openUnixDockerConnection, type ConnectUnixDocker } from '../../src/domain/chequebook/acquireLocalDockerBeeStream.js';
 import type { ChequebookOperationsService } from '../../src/domain/chequebook/ChequebookOperationsService.js';
 import { createAuthRouter } from '../../src/api/routes/auth.js';
 import { createChequebookRouter } from '../../src/api/routes/chequebook.js';
@@ -95,6 +96,10 @@ export interface ConnectedChequebookOptions {
   readonly dropNextResponse?: boolean;
   readonly receiptPollBudgetMs?: number;
   readonly pollIntervalMs?: number;
+  /** Sets neither CHEQUEBOOK_RPC_ENDPOINTS nor CHEQUEBOOK_DOCKER_TRANSPORTS and seeds no catalog record for the synthetic image. */
+  readonly unconfigured?: boolean;
+  /** What the synthetic Docker answers the bridge check with. */
+  readonly checkAnswer?: string;
 }
 
 export interface ConnectedChequebookBackend {
@@ -104,9 +109,16 @@ export interface ConnectedChequebookBackend {
   readonly chain: SyntheticChain;
   readonly directory: string;
   readonly schema: string;
+  /** The runtime this backend's service was built with, for a second manager on the same fixture. */
+  readonly runtime: ChequebookRuntime;
+  /** Refuses every Docker socket but this fixture's own, so no composition here can reach a real daemon. */
+  readonly connectUnix: ConnectUnixDocker;
+  /** Every endpoint a chain reader was created for. */
+  chainEndpoints(): readonly string[];
   pollerLines(): readonly string[];
   beePosts(): number;
   beeRequests(): readonly { method: string; url: string }[];
+  dockerRequests(): readonly { method: string; url: string; exec?: 'check' | 'bridge' }[];
   dropNextResponse(): void;
   close(): Promise<void>;
 }
@@ -157,7 +169,7 @@ export async function startConnectedChequebook(options: ConnectedChequebookOptio
         dropResponse = false;
         request.socket.destroy();
         return true;
-      }, false);
+      }, false, undefined, { checkAnswer: options.checkAnswer });
       beeFixtures.push(bee);
       connections.add(socket);
       socket.on('error', () => {});
@@ -179,21 +191,31 @@ export async function startConnectedChequebook(options: ConnectedChequebookOptio
 
     const chain = syntheticChain();
     const pollerLines: string[] = [];
+    const chainEndpoints: string[] = [];
     const repository = new SyntheticTargetChequebookRepository(pool, { receiptPollBudgetMs: options.receiptPollBudgetMs });
-    const runtime = { rpcEndpoints: '{"100":"https://rpc.example.invalid"}', dockerTransports: JSON.stringify({
-      localhost: { locator: { kind: 'unix', alias: 'localhost', socketPath }, qualificationIds: ['synthetic-only'] } }) };
+    const dockerHost = `unix://${socketPath}`;
+    const runtime: ChequebookRuntime = options.unconfigured ? { rpcEndpoints: undefined, dockerTransports: undefined, dockerHost } : {
+      rpcEndpoints: '{"100":"https://rpc.example.invalid"}', dockerHost, dockerTransports: JSON.stringify({
+        localhost: { locator: { kind: 'unix', alias: 'localhost', socketPath }, qualificationIds: ['synthetic-only'] } }) };
+    const connectUnix: ConnectUnixDocker = path => {
+      if (path !== socketPath) throw new Error('The connected fixture reaches only its own synthetic Docker socket.');
+      return openUnixDockerConnection(path);
+    };
     const service = createChequebookOperationsService(pool, runtime, {
-      repository, qualificationCatalog: [qualifiedBridge()], createChainReader: () => chain.reader,
+      repository, qualificationCatalog: options.unconfigured ? undefined : [qualifiedBridge()], connectUnix,
+      createChainReader: endpoint => { chainEndpoints.push(endpoint); return chain.reader; },
       preparation: { cleanupGraceMs: 20, timeoutMs: 3000 },
       receiptPolling: { intervalMs: options.pollIntervalMs ?? 50, log: { info: line => pollerLines.push(line), warn: line => pollerLines.push(line) } },
     });
 
     let closed = false;
     return {
-      pool, repository, service, chain, directory, schema,
+      pool, repository, service, chain, directory, schema, runtime, connectUnix,
+      chainEndpoints: () => chainEndpoints,
       pollerLines: () => pollerLines,
       beePosts: () => beeFixtures.reduce((total, fixture) => total + fixture.counts().posts, 0),
       beeRequests: () => beeFixtures.flatMap(fixture => fixture.beeRequests),
+      dockerRequests: () => beeFixtures.flatMap(fixture => fixture.dockerRequests),
       dropNextResponse() { dropResponse = true; },
       async close() {
         if (closed) return;

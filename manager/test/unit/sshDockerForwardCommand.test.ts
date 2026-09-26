@@ -52,7 +52,7 @@ describe('pure trusted remote Docker forward command', () => {
   it('copies and deeply freezes every retained record, argv and spawn option', () => {
     const input = record(); const bounds = options(); const command = build(input, bounds);
     input.host = 'changed.invalid'; input.agentSocketPath = '/changed'; bounds.localSocketPath = '/changed'; bounds.acquisitionTimeoutMs = 30000;
-    assert.equal(command.target.host, 'docker.example.invalid'); assert.equal(command.args.at(-1), 'docker.example.invalid');
+    assert.equal(command.target.kind === 'ssh-unix' && command.target.host, 'docker.example.invalid'); assert.equal(command.args.at(-1), 'docker.example.invalid');
     for (const value of [command, command.target, command.args, command.options, command.options.stdio, command.options.env]) assert.equal(Object.isFrozen(value), true);
     assert.throws(() => Object.assign(command.target, { alias: 'another' }), TypeError);
     assert.throws(() => Object.assign(command.options.env, { SSH_AUTH_SOCK: '/unselected' }), TypeError);
@@ -116,5 +116,58 @@ describe('pure trusted remote Docker forward command', () => {
   }
   for (const alias of ['', '-host', 'host with space']) {
     it(`refuses invalid captured alias ${JSON.stringify(alias)}`, () => assert.throws(() => build({ ...record(), alias }, options(), alias), safeError));
+  }
+});
+
+describe('the default remote Docker forward, through the manager\'s own ssh configuration', () => {
+  const configured = (alias = 'bee-eu-1', remoteSocketPath = '/var/run/docker.sock') => ({ kind: 'ssh-config', alias, remoteSocketPath });
+  const forward = (input: unknown = configured(), alias = 'bee-eu-1') => sshDockerForwardCommand(alias, input, options());
+
+  it('reaches the Host block the alias names, with every restriction of the explicit forward except what that block supplies', () => {
+    const command = forward();
+    assert.equal(command.file, '/usr/bin/ssh');
+    assert.deepEqual(command.args, [
+      '-N', '-T', '-n',
+      '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ControlPersist=no',
+      '-o', 'SessionType=none', '-o', 'ForkAfterAuthentication=no',
+      '-o', 'PermitLocalCommand=no', '-o', 'ProxyCommand=none', '-o', 'ProxyJump=none',
+      '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'Tunnel=no', '-o', 'CanonicalizeHostname=no',
+      '-o', 'BatchMode=yes', '-o', 'PreferredAuthentications=publickey', '-o', 'PubkeyAuthentication=yes',
+      '-o', 'IdentitiesOnly=yes', '-o', 'PKCS11Provider=none',
+      '-o', 'PasswordAuthentication=no', '-o', 'KbdInteractiveAuthentication=no', '-o', 'GSSAPIAuthentication=no', '-o', 'HostbasedAuthentication=no',
+      '-o', 'StrictHostKeyChecking=yes', '-o', 'UpdateHostKeys=no', '-o', 'VerifyHostKeyDNS=no', '-o', 'CheckHostIP=no',
+      '-o', 'ExitOnForwardFailure=yes', '-o', 'StreamLocalBindMask=0177', '-o', 'StreamLocalBindUnlink=no',
+      '-o', 'ConnectionAttempts=1', '-o', 'ConnectTimeout=2', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=1',
+      '-L', '/tmp/t09-ssh-synthetic/docker.sock:/var/run/docker.sock', '--', 'bee-eu-1',
+    ]);
+    assert.deepEqual(command.options, { shell: false, detached: false, stdio: ['ignore', 'ignore', 'pipe'], env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' } });
+    assert.deepEqual(command.target, configured());
+  });
+
+  it('leaves the identity, agent, known hosts, host key alias, user, port and config file to the system configuration', () => {
+    const args = forward().args;
+    for (const absent of ['-F', '-i', '-l', '-p']) assert.equal(args.includes(absent), false, absent);
+    for (const prefix of ['IdentityAgent=', 'UserKnownHostsFile=', 'GlobalKnownHostsFile=', 'HostKeyAlias=', 'User=', 'Port=', 'HostName=']) {
+      assert.equal(args.some(value => value.startsWith(prefix)), false, prefix);
+    }
+  });
+
+  it('forwards another remote socket when the override names one', () => {
+    assert.equal(forward(configured('bee-eu-1', '/run/user/1000/docker.sock')).args.at(-3), '/tmp/t09-ssh-synthetic/docker.sock:/run/user/1000/docker.sock');
+  });
+
+  for (const alias of ['deploy@bee-eu-1', 'bee-eu-1@', '@bee-eu-1']) {
+    it(`refuses an alias ssh would read as a destination rather than a Host block, ${JSON.stringify(alias)}`, () => {
+      assert.throws(() => forward(configured(alias), alias), safeError);
+    });
+  }
+
+  for (const [name, input] of [
+    ['another alias', configured('bee-eu-2')], ['a relative socket', configured('bee-eu-1', 'docker.sock')],
+    ['a socket with a space', configured('bee-eu-1', '/run/docker socket.sock')], ['an explicit host', { ...configured(), host: 'bee.example.invalid' }],
+    ['an identity', { ...configured(), identityPublicKeyPath: '/synthetic/key.pub' }], ['a config file', { ...configured(), configFile: '/synthetic/ssh_config' }],
+    ['no socket', { kind: 'ssh-config', alias: 'bee-eu-1' }],
+  ] as const) {
+    it(`refuses ${name}`, () => assert.throws(() => forward(input), safeError));
   }
 });

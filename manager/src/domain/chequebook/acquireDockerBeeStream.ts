@@ -5,9 +5,10 @@ import { DockerBeeAcquisitionError } from '../errors/DockerBeeAcquisitionError.j
 import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { OwnedHttpStream } from './OwnedHttpStream.js';
 import { createDockerExecDuplex } from './createDockerExecDuplex.js';
-import { dockerObject, fullDockerId, listedBeeContainer, observedBeeContainer, type ObservedBeeContainer } from './DockerBeeBinding.js';
+import { dockerObject, fullDockerId, listedBeeContainer, nodeChainEndpoint, observedBeeContainer, type ObservedBeeContainer } from './DockerBeeBinding.js';
 import { dockerBeeBridgeCommand } from './dockerBeeBridge.js';
-import { DOCKER_BEE_STREAM_BOUNDS, dockerEngineVersion, observedBeeBridgeExecution, type QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
+import { DOCKER_BEE_STREAM_BOUNDS, dockerEngineVersion, observedBeeBridgeExecution, type BeeBridgeExecution,
+  type QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
 
 export interface DockerBeeAcquisitionOptions {
   acquisitionTimeoutMs?: number;
@@ -18,6 +19,8 @@ export interface DockerBeeAcquisitionOptions {
 export interface AcquiredDockerBeeStream {
   readonly stream: Duplex;
   readonly binding: ObservedBeeContainer;
+  /** What the node's container was started with for --blockchain-rpc-endpoint, or null. Never logged or answered. */
+  readonly chainEndpoint: string | null;
 }
 /** Trusted qualification of the exact immutable image, never a request field or an operator assertion. */
 export type { QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
@@ -39,10 +42,11 @@ function requireTarget(target: FrozenChequebookTarget): void {
   if (target?.version !== 1 || typeof target.daemonId !== 'string' || !target.daemonId.trim() || target.daemonId.length > 200 ||
       typeof target.profile?.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(target.profile.name) ||
       target.reservation?.service !== 'bee-uploader' || target.reservation.portVar !== 'BEE_UPLOADER_API_PORT' || target.reservation.protocol !== 'tcp' ||
-      !Number.isSafeInteger(target.reservation.port) || target.reservation.port < 1 || target.reservation.port > 65535) throw new DockerBeeAcquisitionError();
+      !Number.isSafeInteger(target.reservation.port) || target.reservation.port < 1 || target.reservation.port > 65535) throw new DockerBeeAcquisitionError('target_changed');
 }
 
-class DockerHandshake extends http.Agent {
+/** One HTTP conversation with Docker over a connection it owns, ending in at most one upgraded exec stream. */
+export class DockerHandshake extends http.Agent {
   #assigned = false;
   #released = false;
   #closed = false;
@@ -151,16 +155,26 @@ class DockerHandshake extends http.Agent {
   }
 }
 
-/** Owns one supplied Docker API connection. The optional cap is a local monotonic deadline, never an API field. */
-export async function acquireDockerBeeStream(transport: Duplex, expected: FrozenChequebookTarget, options: DockerBeeAcquisitionOptions = {},
-  qualifyImage: QualifiedBeeBridgeExecution = () => false, signal?: AbortSignal, acquisitionDeadline?: number): Promise<AcquiredDockerBeeStream> {
+/** A connection's own Docker conversation, and the deadlines one acquisition over it keeps. */
+export interface OwnedDockerConversation {
+  readonly owned: OwnedHttpStream;
+  readonly handshake: DockerHandshake;
+  readonly target: FrozenChequebookTarget;
+  readonly limits: Readonly<Required<DockerBeeAcquisitionOptions>>;
+  readonly bridgeLifetimeMs: number;
+  /** When the acquisition over this connection must have finished. */
+  readonly deadline: number;
+  /** When everything an exec stream opened here may still do must have ended. */
+  readonly totalDeadline: number;
+}
+
+/** Takes ownership of one Docker connection for one acquisition. The optional cap is a local monotonic deadline, never an API field. */
+export function openDockerConversation(transport: Duplex, expected: FrozenChequebookTarget, options: DockerBeeAcquisitionOptions,
+  signal?: AbortSignal, acquisitionDeadline?: number): OwnedDockerConversation {
   const startedAt = performance.now();
-  let owned: OwnedHttpStream | undefined;
-  let handshake: DockerHandshake | undefined;
-  let stream: Duplex | undefined;
+  const owned = new OwnedHttpStream(transport);
+  owned.on('error', ignoreLateError);
   try {
-    owned = new OwnedHttpStream(transport);
-    owned.on('error', ignoreLateError);
     const target = structuredClone(expected);
     const limits = normalizeDockerBeeAcquisitionOptions(structuredClone(options));
     requireTarget(target);
@@ -168,16 +182,46 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     const deadline = Math.min(startedAt + limits.acquisitionTimeoutMs, acquisitionDeadline ?? Infinity);
     const bridgeLifetimeMs = deadline - startedAt + limits.preflightTimeoutMs + limits.postTimeoutMs;
     const totalDeadline = deadline + limits.preflightTimeoutMs + limits.postTimeoutMs + limits.cleanupGraceMs;
-    handshake = new DockerHandshake(owned, deadline, signal);
-    const info = dockerObject(await handshake.json('GET', '/info', 200));
-    if (info.ID !== target.daemonId) throw new DockerBeeAcquisitionError();
-    const engineVersion = dockerEngineVersion(info);
-    const filters = encodeURIComponent(JSON.stringify({ label: [`com.docker.compose.project=${target.profile.name}`, 'com.docker.compose.service=bee-uploader'] }));
-    const containerId = listedBeeContainer(await handshake.json('GET', `/containers/json?all=0&filters=${filters}`, 200), target);
-    const binding = observedBeeContainer(await handshake.json('GET', `/containers/${containerId}/json`, 200), containerId, target);
-    const image = await handshake.json('GET', `/images/${binding.imageId}/json`, 200);
-    const execution = observedBeeBridgeExecution(engineVersion, image, binding.imageId, bridgeLifetimeMs, limits.cleanupGraceMs);
-    if (typeof qualifyImage !== 'function' || qualifyImage(execution) !== true) throw new DockerBeeAcquisitionError();
+    return { owned, handshake: new DockerHandshake(owned, deadline, signal), target, limits, bridgeLifetimeMs, deadline, totalDeadline };
+  } catch (error) { owned.destroy(); throw error; }
+}
+
+/** What Docker says about the container the bridge would run in, read over one conversation. */
+export interface ObservedBeeBridgeTarget {
+  readonly containerId: string;
+  readonly binding: ObservedBeeContainer;
+  readonly execution: BeeBridgeExecution;
+  readonly chainEndpoint: string | null;
+}
+
+/** Reads the daemon, the one running Bee container of the deployment, its inspect and its image. Starts nothing. */
+export async function observeBeeBridgeTarget(conversation: OwnedDockerConversation): Promise<ObservedBeeBridgeTarget> {
+  const { handshake, target, limits } = conversation;
+  const info = dockerObject(await handshake.json('GET', '/info', 200));
+  if (info.ID !== target.daemonId) throw new DockerBeeAcquisitionError('target_changed');
+  const engineVersion = dockerEngineVersion(info);
+  const filters = encodeURIComponent(JSON.stringify({ label: [`com.docker.compose.project=${target.profile.name}`, 'com.docker.compose.service=bee-uploader'] }));
+  const containerId = listedBeeContainer(await handshake.json('GET', `/containers/json?all=0&filters=${filters}`, 200), target);
+  const inspect = await handshake.json('GET', `/containers/${containerId}/json`, 200);
+  const binding = observedBeeContainer(inspect, containerId, target);
+  const image = await handshake.json('GET', `/images/${binding.imageId}/json`, 200);
+  const execution = observedBeeBridgeExecution(engineVersion, image, binding.imageId, conversation.bridgeLifetimeMs, limits.cleanupGraceMs);
+  return Object.freeze({ containerId, binding, execution, chainEndpoint: nodeChainEndpoint(inspect) });
+}
+
+/** Owns one supplied Docker API connection. The optional cap is a local monotonic deadline, never an API field. */
+export async function acquireDockerBeeStream(transport: Duplex, expected: FrozenChequebookTarget, options: DockerBeeAcquisitionOptions = {},
+  qualifyImage: QualifiedBeeBridgeExecution = () => false, signal?: AbortSignal, acquisitionDeadline?: number): Promise<AcquiredDockerBeeStream> {
+  let owned: OwnedHttpStream | undefined;
+  let handshake: DockerHandshake | undefined;
+  let stream: Duplex | undefined;
+  try {
+    const conversation = openDockerConversation(transport, expected, options, signal, acquisitionDeadline);
+    ({ owned, handshake } = conversation);
+    const { limits, bridgeLifetimeMs, totalDeadline } = conversation;
+    const { containerId, binding, execution, chainEndpoint } = await observeBeeBridgeTarget(conversation);
+    if (typeof qualifyImage !== 'function' || await qualifyImage(execution, binding) !== true) throw new DockerBeeAcquisitionError('bridge_not_qualified');
+    handshake.requireActive();
     const created = dockerObject(await handshake.json('POST', `/containers/${containerId}/exec`, 201, {
       AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: false, Privileged: false,
       Cmd: dockerBeeBridgeCommand(binding.internalPort, bridgeLifetimeMs, limits.cleanupGraceMs),
@@ -187,11 +231,12 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     stream = createDockerExecDuplex(owned, { ...DOCKER_BEE_STREAM_BOUNDS, totalTimeoutMs: Math.max(1, Math.ceil(totalDeadline - performance.now())) }, signal);
     stream.on('error', ignoreLateError);
     handshake.release();
-    return Object.freeze({ stream, binding });
-  } catch {
+    return Object.freeze({ stream, binding, chainEndpoint });
+  } catch (error) {
     stream?.destroy();
     handshake?.destroy();
     owned?.destroy();
-    throw new DockerBeeAcquisitionError();
+    if (!owned) transport.destroy();
+    throw DockerBeeAcquisitionError.keeping(error);
   }
 }

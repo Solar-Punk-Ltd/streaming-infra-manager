@@ -154,8 +154,14 @@ export function errorHandler(
     res.status(404).json({ error: 'chequebook_operation_not_found', message: err.message });
     return;
   }
-  if (err instanceof ChequebookJournalError || err instanceof ChequebookPreparationError) {
-    res.status(503).json({ error: err instanceof ChequebookJournalError ? 'chequebook_journal_unavailable' : 'chequebook_preparation_unavailable', message: err.message });
+  if (err instanceof ChequebookJournalError) {
+    res.status(503).json({ error: 'chequebook_journal_unavailable', message: err.message });
+    return;
+  }
+  if (err instanceof ChequebookPreparationError) {
+    // The cause and the check come from the closed lists in common, and the message is that cause's own sentence.
+    const { cause, check } = err.refusal;
+    res.status(503).json({ error: 'chequebook_preparation_unavailable', cause, check, message: err.message });
     return;
   }
   if (err instanceof ChequebookRecoveryRequiredError) {

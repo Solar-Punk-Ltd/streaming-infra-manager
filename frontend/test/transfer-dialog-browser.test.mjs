@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { BEE_BRIDGE_CHECKS, CHEQUEBOOK_REFUSAL_CAUSES, chequebookPreflightSentence, chequebookRefusalSentence } from '@streaming-infra-manager/common';
 import { createMockChequebookJournal } from '../dev/mock-chequebook.mjs';
 import { buttonWithText, clickWhenEnabled, createProtocolClient, fillWhenPresent, launchChrome, pageShows, protocolTimeoutFor, readWhenPresent, throttleCpu, waitFor } from './support/chrome.mjs';
 import { json, launchTransferFixture } from './support/transfer-fixture.mjs';
@@ -16,16 +17,18 @@ const initialProfile = { name: 'synthetic-test', instance_id: instanceId, kind: 
 const receipt = { kind: 'settled', receiptBlockNumber: '501', receiptBlockHash: `0x${'77'.repeat(32)}`,
   finalizedBlockNumber: '510', finalizedBlockHash: `0x${'88'.repeat(32)}` };
 
-async function fixture(t, { unknown = false } = {}) {
+async function fixture(t, { unknown = false, xdai = '1000000000000000' } = {}) {
   let profile = { ...initialProfile };
   let user = { id: 7 };
   let dropResponse = false;
   let missing = false;
   let view = null;
+  let refusal = null;
+  const refusedRequests = [];
   const dispatched = [];
   const posts = [];
   const journal = createMockChequebookJournal({ profileFor: () => profile,
-    nodeFor: () => ({ ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai: '1000000000000000',
+    nodeFor: () => ({ ethereum: `0x${'11'.repeat(20)}`, bzz: '20000000000000000', xdai,
       chequebook: { address: `0x${'22'.repeat(20)}`, total: '10000000000000000', available: '10000000000000000' } }),
     userFor: () => user, onSubmitted: operation => dispatched.push(operation), ...(unknown ? { responseFor: () => null } : {}) });
   const server = await launchTransferFixture(t, async (req, res) => {
@@ -39,6 +42,12 @@ async function fixture(t, { unknown = false } = {}) {
     }
     if (req.method === 'POST') {
       posts.push(path);
+      if (refusal) {
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        refusedRequests.push(JSON.parse(body).requestId);
+        return json(res, 503, refusal);
+      }
       if (dropResponse) {
         const end = res.end.bind(res);
         res.end = (...args) => { req.socket.destroy(); return end(...args); };
@@ -50,9 +59,9 @@ async function fixture(t, { unknown = false } = {}) {
     }
     json(res, 404, {});
   });
-  return { ...server, journal, dispatched, posts, account(id) { user = id === null ? null : { id }; },
+  return { ...server, journal, dispatched, posts, refusedRequests, account(id) { user = id === null ? null : { id }; },
     replace() { profile = { ...profile, instance_id: randomUUID() }; return profile; }, remove() { profile = null; },
-    view(transform) { view = transform; },
+    view(transform) { view = transform; }, refuse(value) { refusal = value; },
     drop(value) { dropResponse = value; }, missing(value) { missing = value; } };
 }
 
@@ -186,6 +195,49 @@ test('lost HTTP response and missing lookup retain one UUID until an explicit id
   assert.equal(h.posts.length, 2);
   assert.equal(h.dispatched.length, 1);
   await visible(browser, id);
+});
+
+test('a refused submission says its cause in its own sentence, for every cause, and the same request can be sent again', async t => {
+  const refusals = [...CHEQUEBOOK_REFUSAL_CAUSES.map(cause => ({ cause, check: null })),
+    ...BEE_BRIDGE_CHECKS.map(check => ({ cause: 'bridge_not_qualified', check }))];
+  const h = await fixture(t);
+  h.refuse({ error: 'chequebook_preparation_unavailable', ...refusals[0], message: 'the manager\'s own words' });
+  const browser = await open(t, h);
+  await click(browser, 'Fill chequebook');
+  await confirm(browser);
+  await visible(browser, chequebookRefusalSentence(refusals[0]));
+  for (const refusal of refusals.slice(1)) {
+    h.refuse({ error: 'chequebook_preparation_unavailable', ...refusal, message: 'the manager\'s own words' });
+    await click(browser, 'Retry this saved request');
+    await click(browser, 'Send the same request again');
+    await visible(browser, chequebookRefusalSentence(refusal));
+  }
+  const text = await browser.evaluate(`${DIALOG}.innerText`);
+  assert.doesNotMatch(text, /the manager's own words/);
+  assert.doesNotMatch(text, /outcome is unknown/i, 'a refusal before recording is not an unknown outcome');
+  assert.equal(h.posts.length, refusals.length);
+  assert.equal(h.dispatched.length, 0, 'nothing was ever dispatched');
+  assert.equal(new Set(h.refusedRequests).size, 1, 'every retry sent the same saved request');
+  assert.match(text, new RegExp(h.refusedRequests[0]));
+  t.diagnostic(await screenshot(browser, h, 'refused-bridge-check', 1280));
+  t.diagnostic(await screenshot(browser, h, 'refused-bridge-check', 390));
+  h.refuse({ error: 'chequebook_preparation_unavailable', cause: 'connect ECONNREFUSED 10.0.0.7:2375', check: null });
+  await click(browser, 'Retry this saved request');
+  await click(browser, 'Send the same request again');
+  await visible(browser, 'The submission response was lost');
+  assert.doesNotMatch(await browser.evaluate(`${DIALOG}.innerText`), /ECONNREFUSED|10\.0\.0\.7/);
+  assert.deepEqual(browser.errors, []);
+});
+
+test('a transfer the last check refused for no gas says so on the saved record', async t => {
+  const h = await fixture(t, { xdai: '0' });
+  const browser = await open(t, h);
+  await click(browser, 'Fill chequebook');
+  await confirm(browser);
+  await visible(browser, 'Transfer refused before submission');
+  await visible(browser, chequebookPreflightSentence('preflight_no_gas', 'deposit'));
+  assert.equal(h.dispatched.length, 0);
+  t.diagnostic(await screenshot(browser, h, 'refused-no-gas', 390));
 });
 
 test('new transfers require explicit confirmation and harmless rerenders preserve amount edits', async t => {
