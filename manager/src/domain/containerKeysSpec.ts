@@ -4,6 +4,7 @@ import {
   CLIENT_SERVICE,
   type EngineName,
   engineSettingsFields,
+  isSecretSettingKey,
   OME_SERVICE,
   SRS_SERVICE,
   STREAM_UPLOADER_SERVICE,
@@ -145,11 +146,18 @@ export interface ContainerSnapshot {
   env: Record<string, string>;
 }
 
+/**
+ * What one service's container was started with, as recorded against it.
+ *
+ * A secret the service reads is left out. The deployment's own row keeps the
+ * one copy a deploy reads, and a record that no page shows gains nothing from
+ * holding a second.
+ */
 export function buildContainerSnapshot(
   service: string,
   env: Record<string, string>,
 ): ContainerSnapshot {
-  const envKeys = SERVICE_ENV_KEYS[service] ?? [];
+  const envKeys = (SERVICE_ENV_KEYS[service] ?? []).filter((key) => !isSecretSettingKey(key));
   const portKeys = SERVICE_PORT_KEYS[service] ?? [];
 
   const envSubset: Record<string, string> = {};
