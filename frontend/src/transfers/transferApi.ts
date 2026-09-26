@@ -1,4 +1,5 @@
-import type { ChequebookAdmissionDetail, ChequebookOperationDetail, ChequebookSubmitRequest } from '@streaming-infra-manager/common';
+import { isChequebookRefusal, type ChequebookAdmissionDetail, type ChequebookOperationDetail, type ChequebookRefusal,
+  type ChequebookSubmitRequest } from '@streaming-infra-manager/common';
 import { apiFetch, SessionEndedError, type ApiRequest } from '../http';
 import type { TransferControllerApi, TransferProfileIdentity } from './TransferController';
 import { TransferApiError } from './TransferApiError';
@@ -20,12 +21,21 @@ async function body(response: Response): Promise<unknown> {
   catch { throw new TransferApiError('invalid_response'); }
 }
 
+/** The cause a 503 names, only when it is one from the shared closed list. Nothing else in the body is read. */
+function preparationRefusal(status: number, value: unknown): ChequebookRefusal | null {
+  if (status !== 503 || !value || typeof value !== 'object' || !('error' in value) || value.error !== 'chequebook_preparation_unavailable') return null;
+  const refusal = { cause: 'cause' in value ? value.cause : undefined, check: 'check' in value ? value.check : undefined };
+  return isChequebookRefusal(refusal) ? refusal : null;
+}
+
 async function refused(response: Response): Promise<never> {
   let value: unknown;
   try { value = await response.json(); } catch { /* Error bodies are optional and never copied into product messages. */ }
   const code = value && typeof value === 'object' && 'error' in value ? value.error : null;
   if (response.status === 409 && code === 'account_changed') throw new TransferApiError('account_changed');
   if (response.status === 409 && code === 'chequebook_profile_changed') throw new TransferApiError('target_changed');
+  const refusal = preparationRefusal(response.status, value);
+  if (refusal) throw new TransferApiError('preparation_refused', refusal);
   throw new TransferApiError('unavailable');
 }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { chequebookRefusalSentence, isChequebookRefusal } from '@streaming-infra-manager/common';
 import { createMockChequebookJournal } from '../dev/mock-chequebook.mjs';
 
 async function fixture(t, options = {}) {
@@ -111,6 +112,17 @@ test('mock preflight names too little balance as its own reason, as the manager 
   const refused = await (await h.request(depositPath, h.input())).json();
   assert.equal(refused.operation.state, 'rejected');
   assert.equal(refused.operation.failureReason, 'preflight_insufficient_balance');
+  assert.equal(h.dispatched.length, 0);
+});
+
+test('mock refuses a submission it cannot prepare with a cause from the shared list, as the manager does', async t => {
+  const h = await fixture(t, { nodeFor: () => null });
+  const response = await h.request(depositPath, h.input());
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.error, 'chequebook_preparation_unavailable');
+  assert.equal(isChequebookRefusal({ cause: body.cause, check: body.check }), true);
+  assert.equal(body.message, chequebookRefusalSentence({ cause: body.cause, check: body.check }));
   assert.equal(h.dispatched.length, 0);
 });
 

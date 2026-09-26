@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE, chequebookAssertionConfirmation } from '@streaming-infra-manager/common';
+import { CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE, chequebookAssertionConfirmation, chequebookRefusal, chequebookRefusalSentence } from '@streaming-infra-manager/common';
 import { readBody, send } from './mock-http.mjs';
 import { mockChequebookRecoveryRoutes } from './mock-chequebook-recovery.mjs';
 import { openReceiptPollBudget } from './mock-receipt-polling.mjs';
@@ -74,7 +74,10 @@ export function createMockChequebookJournal({ profileFor, nodeFor, userFor, onSu
     const profile = profileFor(name);
     if (!profile || profile.instance_id !== input.profileInstanceId.toLowerCase()) return send(res, 409, { error: 'chequebook_profile_changed' });
     const node = nodeFor(name);
-    if (!node) return send(res, 503, { error: 'chequebook_preparation_unavailable' });
+    if (!node) {
+      const refusal = chequebookRefusal('bee_unreadable');
+      return send(res, 503, { error: 'chequebook_preparation_unavailable', ...refusal, message: chequebookRefusalSentence(refusal) });
+    }
     const blocking = [...records.values()].find(({ operation }) => operation.chainId === 100 && operation.nodeAddress === node.ethereum.toLowerCase() &&
       (ACTIVE.has(operation.state) || operation.failureReason === 'hash_conflict'));
     if (blocking) return answer(res, 'busy', blocking.operation.id);
