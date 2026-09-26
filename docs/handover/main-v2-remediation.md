@@ -1354,7 +1354,7 @@ node answered about and warns one it could not read, the gate messages state
 the finding and leave the boot to the runner, the five pages that describe the
 mode say so, and a raw NUL byte that had made the postage gate's source binary
 to grep since August is written as its escape. A copy of that head merged with
-Nandi's open pull requests #235 and #236 typechecks and passes the uploader
+Nandi's open pull requests #235 and #236 on the stack's repository typechecks and passes the uploader
 suite with a three-hunk resolution in the uploader's `index.ts` and two README
 rows, kept for whoever merges second and never posted on his pull request.
 
