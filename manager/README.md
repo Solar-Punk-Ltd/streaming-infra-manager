@@ -490,7 +490,7 @@ text, an endpoint or a socket path.
 
 | `cause` | What is wrong | The fix |
 | --- | --- | --- |
-| `docker_unreachable` | The manager could not open or use the Docker connection to the host. | Check that Docker runs there and, for a remote host, that `ssh <alias> docker info` works from the api container. |
+| `docker_unreachable` | The manager could not open or use the Docker connection to the host. | Check that Docker runs there and, for a remote host, that `ssh <alias> docker info` works from the api container. That check also passes for a host whose `Host` block reaches it through `ProxyJump` or `ProxyCommand`, but the transfer's forward turns both off, so such a host needs a `Host` block that reaches it directly. |
 | `docker_route_missing` | No Docker connection is known for the host: a `user@host` host, or a `DOCKER_HOST` that is not a Unix socket. | Give the host a `Host` block and deploy under that alias, or name it in `CHEQUEBOOK_DOCKER_TRANSPORTS`. |
 | `docker_setting_invalid` | `CHEQUEBOOK_DOCKER_TRANSPORTS` is malformed or names a qualification id that does not exist. | Correct it or remove it, then restart the manager. |
 | `bee_container_not_found` | The deployment's Bee container is not running. | Start the deployment. |
