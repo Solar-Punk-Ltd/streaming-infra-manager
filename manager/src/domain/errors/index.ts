@@ -9,6 +9,8 @@ export { UnknownServiceError } from './UnknownServiceError.js';
 export { ProfileBusyError } from './ProfileBusyError.js';
 export { ProfileInstanceChangedError } from './ProfileInstanceChangedError.js';
 export { EngineSettingsChangedError } from './EngineSettingsChangedError.js';
+export { DeploymentSettingsChangedError } from './DeploymentSettingsChangedError.js';
+export { DeploymentStoppedError } from './DeploymentStoppedError.js';
 export { ProfileExistsError } from './ProfileExistsError.js';
 export { ProfileNotFoundError } from './ProfileNotFoundError.js';
 export { NotesConflictError } from './NotesConflictError.js';

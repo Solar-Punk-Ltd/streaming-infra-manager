@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
@@ -18,10 +18,14 @@ import {
 
 import { Profile, ProfileStatus } from '../types/index.js';
 import {
+  baseEnvPath,
   bootstrapStackDefaults,
   deleteProfileEnv,
   engineEnvPath,
+  managedEnvLines,
   profileEnvPath,
+  type ProfileEnvValues,
+  renderProfileEnv,
   writeProfileEnv,
 } from '../utils/envUtils.js';
 
@@ -35,7 +39,7 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { DeployAttemptRefusedError, ProfileBusyError, ProfileInstanceChangedError, ProfileNotFoundError, ProfileConfigError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
+import { DeployAttemptRefusedError, ProfileBusyError, ProfileInstanceChangedError, ProfileNotFoundError, ProfileConfigError, ReservationInventoryPendingError, StackSettingsNotReadyError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
@@ -44,7 +48,7 @@ import { portTableForEngine } from './versions/enginePortTable.js';
 import { isLocalTarget, targetAlias, type DeployTargets } from './ports/DeployTargets.js';
 import { stackDeclaredKeys } from './scriptEnv.js';
 import { effectiveEnvOf } from './settings/effectiveEnv.js';
-import { operatorSettingsOf } from './settings/settingOwners.js';
+import { operatorSettingsOf, type SettingOwnerContext } from './settings/settingOwners.js';
 import {
   type AttemptOutcome,
   type DeployAttempt,
@@ -79,6 +83,7 @@ import {
   stackPaths,
   type StackPaths,
   stackPathsForRoot,
+  stackRootOf,
 } from './versions/stackPaths.js';
 import type { ExecutionRoots, PreparedExecution } from './versions/ExecutionRootService.js';
 import { missingStackSecrets, type StackSecrets } from './versions/stackSecrets.js';
@@ -123,6 +128,19 @@ async function removeStaleEngineConfigs(
 
 function readIfPresent(path: string): string {
   return existsSync(path) ? readFileSync(path, 'utf8') : '';
+}
+
+/** What decides, for this deployment, which of its keys a control of its own owns. */
+function settingOwnerContextFor(
+  profile: Profile,
+  version: DeployVersionSnapshot | null,
+  host: string | null | undefined,
+): SettingOwnerContext {
+  const contract = version?.contract;
+  return {
+    ports: [...portTableOf(contract), ...(contract?.portAliases ?? [])],
+    isLocalTarget: isLocalTarget(targetAlias(host ?? profile.host)),
+  };
 }
 
 function withoutKeys<T extends Record<string, string>>(record: T, keys: readonly string[]): T {
@@ -372,6 +390,16 @@ export interface UploaderGate {
  * every event. Each is read from its own column at the one moment it is
  * needed, and the deploy is the only thing here that holds them.
  */
+/** What `nextEnvFor` answers: the environment, and what it was worked out from. */
+export interface NextDeployEnv {
+  env: Record<string, string>;
+  /** Keys whose value is a secret the manager generated for this deployment. */
+  generatedKeys: string[];
+  /** The build tree the next deploy copies. */
+  root: string;
+  version: StackVersionRecord;
+}
+
 interface DeploySecrets {
   streamKey: string | null;
   srtPassphrase: string | null;
@@ -601,6 +629,27 @@ export class DeploymentOrchestrator {
   }
 
   /**
+   * The required secrets already stored against this deployment, which is
+   * what `stackSecretsFor` writes once it has generated the missing ones. A
+   * key the version answers and nothing stored is left to the version, as the
+   * deploy leaves it.
+   */
+  private async storedStackSecretsFor(
+    profile: Profile,
+    version: DeployVersionSnapshot | null,
+  ): Promise<StackSecrets> {
+    const required = version?.contract?.requiredSecrets ?? [];
+    if (required.length === 0) return {};
+    const stored = await this.profiles.stackSecretsOf(profile.name);
+    const secrets: StackSecrets = {};
+    for (const key of required) {
+      const value = stored[key];
+      if (value) secrets[key] = value;
+    }
+    return secrets;
+  }
+
+  /**
    * The values the operator stored for this deployment that its env file
    * takes. A stored key that one of the deployment's own controls decides is
    * left out and named in the log: the manager's line would win over it
@@ -612,13 +661,9 @@ export class DeploymentOrchestrator {
     version: DeployVersionSnapshot | null,
     host: string | null | undefined,
   ): Promise<Record<string, string>> {
-    const contract = version?.contract;
     const { values, ownedElsewhere } = operatorSettingsOf(
       await this.profiles.stackSettingsForDeploy(profile.name),
-      {
-        ports: [...portTableOf(contract), ...(contract?.portAliases ?? [])],
-        isLocalTarget: isLocalTarget(targetAlias(host ?? profile.host)),
-      },
+      settingOwnerContextFor(profile, version, host),
     );
     if (ownedElsewhere.length > 0) {
       logger.warn(
@@ -626,6 +671,83 @@ export class DeploymentOrchestrator {
       );
     }
     return values;
+  }
+
+  /**
+   * What the deployment's env file is written from, given what the caller read
+   * on its own: the secrets, the generated ones, the engine config file and the
+   * operator's stored values.
+   */
+  private profileEnvValuesOf(
+    profile: Profile,
+    version: DeployVersionSnapshot | null,
+    engine: EngineName,
+    read: { secrets: DeploySecrets; stackSecrets: StackSecrets; engineConfigFile: string | null; stored: Record<string, string> },
+  ): ProfileEnvValues {
+    return {
+      engine,
+      stampId: profile.stamp_id,
+      beePublishers: profile.bee_publishers,
+      beeUrl: profile.bee_url,
+      rpcEndpoint: read.secrets.rpcEndpoint,
+      rpcEndpointSource: profile.rpc_endpoint_source,
+      managerRpcEndpoint: this.managerRpcEndpoint ?? null,
+      // From the profile's own components and its stored mode, as
+      // localBeeUploader is: this is the one place a mode becomes keys in a
+      // file.
+      gatewayMode: gatewayNodeMode(profile),
+      srtPassphrase: read.secrets.srtPassphrase,
+      streamKey: read.secrets.streamKey,
+      engineSettings: profile.engine_settings,
+      // A generated secret the operator stored a value for is written as that
+      // value instead. The generated one stays stored for when it is reset.
+      stackSecrets: withoutKeys(read.stackSecrets, Object.keys(read.stored)),
+      stackEngineDefaults: version?.contract?.engineDefaults,
+      engineConfigFile: read.engineConfigFile,
+      // From the profile's own components, deliberately not from the reserved
+      // services: a held-back uploader is deployed on its own, and deploy.sh
+      // must still resolve the local Bee address for it.
+      localBeeUploader: ownsBeeNode(profile),
+      ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
+    };
+  }
+
+  /**
+   * The environment this deployment's next deploy would give its containers,
+   * worked out the way a deploy works it out, and writing nothing: a secret
+   * the deploy would generate is left out rather than made, and the engine
+   * config file is named rather than written.
+   */
+  async nextEnvFor(profile: Profile): Promise<NextDeployEnv> {
+    const version = await this.versionForDeploy(profile);
+    const problem = deployRootProblem(version);
+    if (problem) throw new StackSettingsNotReadyError(version.name, problem);
+    const root = stackRootOf(version);
+    const engine = engineForComponents(profile.components);
+    const baseText = readIfPresent(baseEnvPath(root));
+    const { values: stored } = operatorSettingsOf(
+      await this.profiles.stackSettingsForDeploy(profile.name),
+      settingOwnerContextFor(profile, version, profile.host),
+    );
+    const stackSecrets = await this.storedStackSecretsFor(profile, version);
+    const values = this.profileEnvValuesOf(profile, version, engine, {
+      secrets: {
+        streamKey: await this.profiles.privateKeyOf(profile.name),
+        srtPassphrase: await this.profiles.srtPassphraseOf(profile.name),
+        rpcEndpoint: (await this.profiles.rpcEndpointOf(profile.name))?.rpcEndpoint ?? null,
+      },
+      stackSecrets,
+      engineConfigFile: await this.engineConfigPathFor(profile, engine, version),
+      stored,
+    });
+    const env = effectiveEnvOf({
+      profile,
+      contract: version.contract,
+      target: targetAlias(profile.host),
+      rootEnvText: renderProfileEnv(baseText, managedEnvLines(values, baseText), stored),
+      engineEnvText: readIfPresent(engineEnvPath(root, engine)),
+    });
+    return { env, generatedKeys: Object.keys(withoutKeys(stackSecrets, Object.keys(stored))), root, version };
   }
 
   /**
@@ -640,17 +762,33 @@ export class DeploymentOrchestrator {
     engine: EngineName,
     version: DeployVersionSnapshot | null,
   ): Promise<string | null> {
+    const file = await this.engineConfigOfDeployment(profile, engine, version);
+    if (file === null) return null;
+    await mkdir(dirname(file.path), { recursive: true });
+    await writeFile(file.path, file.config, 'utf8');
+    return file.path;
+  }
+
+  /** Where the deployment's own engine config would be written, without writing it, or null when the template runs. */
+  private async engineConfigPathFor(
+    profile: Profile,
+    engine: EngineName,
+    version: DeployVersionSnapshot | null,
+  ): Promise<string | null> {
+    return (await this.engineConfigOfDeployment(profile, engine, version))?.path ?? null;
+  }
+
+  private async engineConfigOfDeployment(
+    profile: Profile,
+    engine: EngineName,
+    version: DeployVersionSnapshot | null,
+  ): Promise<{ path: string; config: string } | null> {
     const supported = version?.contract?.engineConfig[engine] ?? false;
     const config = supported
       ? await this.profiles.engineConfigOf(profile.name)
       : null;
     if (config === null) return null;
-
-    const dir = engineConfigDirFor(profile.name);
-    const path = join(dir, engineConfigFileName(engine, config));
-    await mkdir(dir, { recursive: true });
-    await writeFile(path, config, 'utf8');
-    return path;
+    return { path: join(engineConfigDirFor(profile.name), engineConfigFileName(engine, config)), config };
   }
 
   /** The checkout root this deployment's env file is built from. */
@@ -1084,35 +1222,12 @@ export class DeploymentOrchestrator {
         rpcEndpoint: rpcEndpoint.rpcEndpoint,
       };
       const stored = await this.operatorSettingsFor(profile, version, reservation.host);
-      const written = writeProfileEnv(paths.root, profile.name, {
-        engine,
-        stampId: profile.stamp_id,
-        beePublishers: profile.bee_publishers,
-        beeUrl: profile.bee_url,
-        rpcEndpoint: secrets.rpcEndpoint,
-        rpcEndpointSource: profile.rpc_endpoint_source,
-        managerRpcEndpoint: this.managerRpcEndpoint ?? null,
-        // From the profile's own components and its stored mode, as
-        // localBeeUploader is: this is the one place a mode becomes keys in a
-        // file.
-        gatewayMode: gatewayNodeMode(profile),
-        srtPassphrase: secrets.srtPassphrase,
-        streamKey: secrets.streamKey,
-        engineSettings: profile.engine_settings,
-        // A generated secret the operator stored a value for is written as that
-        // value instead. The generated one stays stored for when it is reset.
-        stackSecrets: withoutKeys(
-          await this.stackSecretsFor(profile, version, paths.root, engine),
-          Object.keys(stored),
-        ),
-        stackEngineDefaults: version?.contract?.engineDefaults,
+      const written = writeProfileEnv(paths.root, profile.name, this.profileEnvValuesOf(profile, version, engine, {
+        secrets,
+        stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
         engineConfigFile,
-        // From the profile's own components, deliberately not from the reserved
-        // services: a held-back uploader is deployed on its own, and deploy.sh
-        // must still resolve the local Bee address for it.
-        localBeeUploader: ownsBeeNode(profile),
-        ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
-      }, stored);
+        stored,
+      }), stored);
       logger.info(
         `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
       );

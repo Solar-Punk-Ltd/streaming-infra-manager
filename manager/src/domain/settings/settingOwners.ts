@@ -4,36 +4,9 @@ import {
   OME_SETTINGS,
   SRS_SERVICE,
   SRS_SETTINGS,
+  type SettingOwner,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
-
-/**
- * Who decides a key of a deployment's env file when the operator does not.
- *
- * Every key a deployment's build declares is the operator's to set per
- * deployment, with these exceptions. Each is decided by a control of its own,
- * because typing over it would break what the manager keeps track of: the port
- * slots, the node pool, the stamp a deployment pays with. The page shows such a
- * key with its value and points at the control that changes it.
- */
-export type SettingOwner =
-  /** Which services the deployment runs, and with them its engine. */
-  | 'components'
-  | 'stamp'
-  | 'node-pool'
-  | 'chain-endpoint'
-  /** Whether the deployment's gateway runs on the chain. */
-  | 'node-mode'
-  | 'bee-url'
-  | 'srt-passphrase'
-  /** The key the deployment signs its feed with. */
-  | 'feed-key'
-  | 'feed-owner'
-  | 'feed-topic'
-  | 'engine-config'
-  | 'engine-settings'
-  | 'port-slot'
-  | 'data-dir';
 
 /**
  * Keys written from one of the deployment's own fields, by `managedEnvLines` or

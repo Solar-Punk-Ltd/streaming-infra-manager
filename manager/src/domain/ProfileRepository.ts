@@ -55,6 +55,21 @@ export interface EngineSettingsWriteOwner extends ExpectedDeployOwner {
   jobReferenceId: number;
 }
 
+/** A deployment's own settings as its page may know them: no secret value, only which secrets are stored. */
+export interface StoredStackSettings {
+  plain: Record<string, string>;
+  secretKeys: string[];
+  revision: number;
+}
+
+/** One save's change to a deployment's own settings, already split by whether each key is a secret. */
+export interface StackSettingsChange {
+  plain: Record<string, string>;
+  secret: Record<string, string>;
+  /** Keys that go back to what the version sets, taken out of whichever column holds them. */
+  remove: string[];
+}
+
 /** Where a new deployment goes: which stack version it runs, and how high its port slot may be. */
 export interface NewProfilePlacement {
   stackVersionId: number;
@@ -478,6 +493,47 @@ export class ProfileRepository {
       [name],
     );
     return result.rows[0]?.settings ?? {};
+  }
+
+  /**
+   * What the deployment stores, as its settings page may know it: the plain
+   * values, the names of the secret ones and never their values, and the
+   * revision a save names. Null for a deployment that does not exist.
+   */
+  async stackSettingsOf(name: string): Promise<StoredStackSettings | null> {
+    const result = await this.pool.query<{ plain: Record<string, string>; secret_keys: string[]; revision: number }>(
+      `SELECT stack_settings AS plain,
+              ARRAY(SELECT jsonb_object_keys(stack_settings_secret) ORDER BY 1) AS secret_keys,
+              settings_revision AS revision
+         FROM profiles WHERE name = $1`,
+      [name],
+    );
+    const row = result.rows[0];
+    return row ? { plain: row.plain, secretKeys: row.secret_keys, revision: row.revision } : null;
+  }
+
+  /**
+   * One save of the deployment's settings: sets and removes keys in both
+   * columns and moves the revision, only while the row is the instance the
+   * page read and still at the revision it read. Answers the new revision, or
+   * null when either had moved and nothing was stored.
+   */
+  async updateStackSettings(
+    name: string,
+    change: StackSettingsChange,
+    guard: { instanceId: string; expectedRevision: number },
+  ): Promise<number | null> {
+    const result = await this.pool.query<{ settings_revision: number }>(
+      `UPDATE profiles
+          SET stack_settings = (stack_settings - $4::text[]) || $5::jsonb,
+              stack_settings_secret = (stack_settings_secret - $4::text[]) || $6::jsonb,
+              settings_revision = settings_revision + 1,
+              updated_at = NOW()
+        WHERE name = $1 AND instance_id = $2 AND settings_revision = $3
+        RETURNING settings_revision`,
+      [name, guard.instanceId, guard.expectedRevision, change.remove, JSON.stringify(change.plain), JSON.stringify(change.secret)],
+    );
+    return result.rows[0]?.settings_revision ?? null;
   }
 
   /** Adds to what is stored. A key already held keeps its value. */

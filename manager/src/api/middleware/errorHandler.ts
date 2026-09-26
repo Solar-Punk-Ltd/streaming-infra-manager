@@ -34,6 +34,8 @@ import {
   ProfileBusyError,
   ProfileInstanceChangedError,
   EngineSettingsChangedError,
+  DeploymentSettingsChangedError,
+  DeploymentStoppedError,
   GroupExistsError,
   GroupNotFoundError,
   GroupBusyError,
@@ -236,6 +238,14 @@ export function errorHandler(
   }
   if (err instanceof EngineSettingsChangedError) {
     res.status(409).json({ error: 'engine_settings_changed', name: err.profileName, message: err.message });
+    return;
+  }
+  if (err instanceof DeploymentSettingsChangedError) {
+    res.status(409).json({ error: 'deployment_settings_changed', name: err.profileName, message: err.message });
+    return;
+  }
+  if (err instanceof DeploymentStoppedError) {
+    res.status(409).json({ error: 'profile_stopped', name: err.profileName, message: err.message });
     return;
   }
   if (err instanceof ProfileConfigError) {

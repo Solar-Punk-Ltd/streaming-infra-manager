@@ -75,6 +75,83 @@ export function sampleSettingsOf(text: string): SampleSetting[] {
 }
 
 /**
+ * A section rule with a title, such as `=== Stream Uploader ===`, `--- Logging
+ * -----` or `=== Required, and the stamp purchase defaults ===`, as the comment
+ * text of its line. A rule with no title, the banner at the top of a sample,
+ * opens no section.
+ */
+const SECTION_TITLE_RE = /^[-=]{3,}\s+(.*?)\s*[-=]*$/;
+const HAS_LETTER_RE = /[A-Za-z]/;
+
+/** One key of a sample as a deployment's settings page lists it. */
+export interface SampleCatalogEntry {
+  key: string;
+  /** The title of the section rule above the key, or an empty string before the first one. */
+  section: string;
+  description: string;
+  /** What the sample assigns, or null for a key it only shows commented out. */
+  value: string | null;
+  /** The value a commented-out example of the key shows, such as `false` for `# LOCAL_BEE_UPLOADER=false`, or null. */
+  example: string | null;
+}
+
+/**
+ * Every key a sample declares, assigned or shown commented out, in the order
+ * each first appears, under the section it first appears in. A key that is
+ * both keeps the assignment's value and description and the example beside it.
+ */
+export function sampleCatalogOf(text: string): SampleCatalogEntry[] {
+  const lines = text.split('\n');
+  const entries = new Map<string, SampleCatalogEntry>();
+  let section = '';
+  lines.forEach((line, index) => {
+    if (COMMENT_RE.test(line)) {
+      const comment = commentTextIn(line);
+      const title = sectionTitleOf(comment);
+      if (title !== null) {
+        section = title;
+        return;
+      }
+      const example = COMMENTED_ASSIGNMENT_RE.exec(comment);
+      if (example) addExample(entries, example[1]!, comment.slice(example[1]!.length + 1), section, descriptionAbove(lines, index, example[1]!));
+      return;
+    }
+    const key = envKeyIn(line);
+    if (key === null) return;
+    const existing = entries.get(key);
+    if (existing && existing.value !== null) return;
+    entries.set(key, {
+      key,
+      section: existing?.section ?? section,
+      description: descriptionAbove(lines, index, key) || (existing?.description ?? ''),
+      value: envValueIn(line) ?? '',
+      example: existing?.example ?? null,
+    });
+  });
+  return [...entries.values()];
+}
+
+function addExample(
+  entries: Map<string, SampleCatalogEntry>,
+  key: string,
+  value: string,
+  section: string,
+  description: string,
+): void {
+  const existing = entries.get(key);
+  if (existing) {
+    if (existing.example === null) entries.set(key, { ...existing, example: value });
+    return;
+  }
+  entries.set(key, { key, section, description, value: null, example: value });
+}
+
+function sectionTitleOf(comment: string): string | null {
+  const title = SECTION_TITLE_RE.exec(comment)?.[1] ?? null;
+  return title !== null && HAS_LETTER_RE.test(title) ? title : null;
+}
+
+/**
  * The comment lines directly above a key, joined.
  *
  * Three things end or thin the run, all of them shapes upstream writes. A blank
