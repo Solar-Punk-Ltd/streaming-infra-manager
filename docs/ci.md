@@ -298,7 +298,7 @@ build the stack a deployment runs, and says nothing about the host's Docker.
 Why it exists: every other job runs the code from `pnpm install` on the
 runner, and so does the Docker-backed workflow's integration job, so until
 2026-09-25 nothing built these two images before a deploy did. That day `v2.2`
-passed every check and its deploy to 157.90.34.105 stopped at the web image,
+passed every check and its deploy stopped at the web image,
 `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`: `frontend/Dockerfile` installed pnpm 9,
 which never reads the overrides #46 put in `pnpm-workspace.yaml`. #53 fixed the
 Dockerfile, and `manager/test/unit/imagePnpm.test.ts` names that one cause in
