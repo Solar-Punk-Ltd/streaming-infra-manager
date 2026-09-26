@@ -1,6 +1,6 @@
 # Group Deployment
 
-Status, 2026-09-16: built and merged to `main-v2`. The page opens with the prototype scope it was
+Status, 2026-09-16: built, and on `main`. The page opens with the prototype scope it was
 written for, and the paragraph after it records what has been built since. Corrected 2026-09-23
 against the code at `87673c99`: "Shared fields", which left out five fields every member is
 given and the port slot each member takes for itself.
