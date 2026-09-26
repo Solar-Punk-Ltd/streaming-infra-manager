@@ -104,10 +104,10 @@ have done these"), and they were taken as recommended:
 
 1. Common and manager half, one Opus lane, tests first, on main-v2. Landed.
 2. Frontend half, a second Opus lane after the common rules landed, tests first.
-3. Stack half on its branch off main-v3, pushed, box at standard depth, merged fast-forward on Levi's word and
+3. Stack half on its branch off main-v3, pushed, a full check passed, merged fast-forward on Levi's word and
    pinned here, because the manager writes two keys nothing reads until then. A light gateway created before
    that pin starts ultra-light in practice.
-4. Correctness and security reviews of each half, then the box deep on the session branch, then Levi's push of
+4. Correctness and security reviews of each half, then a deeper check on the session branch, then Levi's push of
    main-v2 and deploy.
 
 ## Acceptance, as the row states it

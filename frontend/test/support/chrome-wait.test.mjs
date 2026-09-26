@@ -42,7 +42,7 @@ test('a described wait answers with the value it accepted', async () => {
 /**
  * What a wait that ran out is allowed to leave behind.
  *
- * On the verification box seven browser files each ended on a wait that printed
+ * In a container run seven browser files each ended on a wait that printed
  * its description and nothing else, so the log said which condition was never
  * met and never what the page had actually said instead. All seven pass on a
  * laptop, which is the case where the difference between "the page never
