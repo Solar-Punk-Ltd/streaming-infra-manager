@@ -3,11 +3,13 @@
 -- on 2026-09-25 that every setting a deployment reads is editable per
 -- deployment, with the version's value as the default.
 --
--- Two columns, split by the rule the settings page masks by, because a row's
--- ordinary columns reach every signed-in page and every event (PROFILE_COLUMNS
--- in profileSql.ts), and a secret must not. `stack_settings_secret` is read on
--- its own, by the deploy, the way `stack_secrets` is. A key held in neither is
--- a key the deployment takes from its version. A key held with an empty string
+-- Two columns, split by the rule the settings page masks by, so a query can
+-- read the plain values and only the names of the secret keys, which is what
+-- the settings page lists as stored. The secret values are read on their own,
+-- for the deploy and for what the next deploy would write, the way
+-- `stack_secrets` is. Neither column is in PROFILE_COLUMNS (profileSql.ts), the
+-- row every signed-in page and every event carries. A key held in neither is a
+-- key the deployment takes from its version. A key held with an empty string
 -- is an explicit `KEY=` line.
 --
 -- `settings_revision` moves on every change to either column, and a save names
