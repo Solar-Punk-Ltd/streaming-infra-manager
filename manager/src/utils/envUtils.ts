@@ -141,6 +141,14 @@ export async function bootstrapStackDefaults(root: string): Promise<string[]> {
 
 const LINE_BREAK_RE = /[\r\n]/;
 
+function refuseLineBreak(key: string, value: string): void {
+  if (LINE_BREAK_RE.test(value)) {
+    throw new Error(
+      `refusing to write ${key} to the env file: a value with a line break becomes a second line, and a second line is a second key`,
+    );
+  }
+}
+
 /**
  * Writes one `KEY=value` line, and refuses a value that would write two.
  *
@@ -153,11 +161,7 @@ const LINE_BREAK_RE = /[\r\n]/;
  * to cover it.
  */
 function upsertEnvLine(text: string, key: string, value: string): string {
-  if (LINE_BREAK_RE.test(value)) {
-    throw new Error(
-      `refusing to write ${key} to the env file: a value with a line break becomes a second line, and a second line is a second key`,
-    );
-  }
+  refuseLineBreak(key, value);
   const line = `${key}=${value}`;
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`^${escapedKey}=.*$`, 'm');
@@ -301,31 +305,33 @@ function resolveRpcEndpoint(
   return address;
 }
 
-// deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
-// compose's --env-file, so this must be a full copy of base .env with the
-// per-profile keys upserted, not just the overridden lines.
-export function writeProfileEnv(
-  root: string,
-  name: string,
-  values: ProfileEnvValues,
-): string {
-  const basePath = baseEnvPath(root);
-  const baseContents = existsSync(basePath)
-    ? readFileSync(basePath, 'utf8')
-    : '';
-  let contents = baseContents;
+/** The keys the manager computes for one deployment, each with its value, in the order they are written. */
+export type ManagedEnvLines = Record<string, string>;
 
-  contents = upsertEnvLine(contents, 'ENGINE', values.engine);
+/**
+ * The keys the manager computes for one deployment and the value each gets.
+ *
+ * Every refusal the deployment's env file has always had happens here, before
+ * anything is written. `baseText` is the version's base `.env` that file is a
+ * copy of, which decides the engine defaults the settings are checked against.
+ */
+export function managedEnvLines(
+  values: ProfileEnvValues,
+  baseText: string,
+): ManagedEnvLines {
+  const lines: ManagedEnvLines = {};
+  const set = (key: string, value: string): void => {
+    refuseLineBreak(key, value);
+    lines[key] = value;
+  };
+
+  set('ENGINE', values.engine);
 
   // Stated explicitly both ways rather than only when false: this file is a
   // fresh copy of the base .env each deploy, and leaving the key absent would
   // let a base-env value decide it.
   if (values.localBeeUploader !== undefined) {
-    contents = upsertEnvLine(
-      contents,
-      'LOCAL_BEE_UPLOADER',
-      values.localBeeUploader ? 'true' : 'false',
-    );
+    set('LOCAL_BEE_UPLOADER', values.localBeeUploader ? 'true' : 'false');
   }
 
   const stamp = values.stampId?.replace(/^0x/, '').trim();
@@ -333,7 +339,7 @@ export function writeProfileEnv(
     if (!/^[0-9a-fA-F]+$/.test(stamp)) {
       throw new Error('refusing to write a non-hex STAMP to the env file');
     }
-    contents = upsertEnvLine(contents, 'STAMP', stamp);
+    set('STAMP', stamp);
   }
 
   // A pool-backed uploader publishes to the ABR node pool's nodes rather than to
@@ -358,9 +364,9 @@ export function writeProfileEnv(
         'BEE_PUBLISHERS requires the srs engine — the ABR ladder is SRS-only',
       );
     }
-    contents = upsertEnvLine(contents, 'BEE_PUBLISHERS', publishers);
-    contents = upsertEnvLine(contents, 'ABR_ENABLED', 'true');
-    contents = upsertEnvLine(contents, 'ABR_LADDER', abrLadderEnvValue());
+    set('BEE_PUBLISHERS', publishers);
+    set('ABR_ENABLED', 'true');
+    set('ABR_LADDER', abrLadderEnvValue());
     // STAMP is deliberately left alone, tempting though it is to clear: a
     // pool-backed uploader owns no batch, and .env.<profile> is a full copy of
     // the base .env, so whatever STAMP was configured there rides along and
@@ -395,7 +401,7 @@ export function writeProfileEnv(
         `refusing to write RPC_ENDPOINT to the env file: ${problem}`,
       );
     }
-    contents = upsertEnvLine(contents, 'RPC_ENDPOINT', rpcEndpoint);
+    set('RPC_ENDPOINT', rpcEndpoint);
   }
 
   // The stack starts its gateway with an empty endpoint and SWAP off, which is
@@ -414,11 +420,11 @@ export function writeProfileEnv(
         'refusing to write BEE_GATEWAY_RPC_ENDPOINT to the env file: a light gateway needs a chain endpoint and this deployment takes the stack’s, which for a gateway is none',
       );
     }
-    contents = upsertEnvLine(contents, 'BEE_GATEWAY_RPC_ENDPOINT', rpcEndpoint);
-    contents = upsertEnvLine(contents, 'BEE_GATEWAY_SWAP_ENABLE', 'true');
+    set('BEE_GATEWAY_RPC_ENDPOINT', rpcEndpoint);
+    set('BEE_GATEWAY_SWAP_ENABLE', 'true');
   } else if (values.gatewayMode === 'ultra-light') {
-    contents = upsertEnvLine(contents, 'BEE_GATEWAY_RPC_ENDPOINT', '');
-    contents = upsertEnvLine(contents, 'BEE_GATEWAY_SWAP_ENABLE', 'false');
+    set('BEE_GATEWAY_RPC_ENDPOINT', '');
+    set('BEE_GATEWAY_SWAP_ENABLE', 'false');
   }
 
   const beeUrl = values.beeUrl?.trim();
@@ -427,7 +433,7 @@ export function writeProfileEnv(
     if (problem) {
       throw new Error(`refusing to write BEE_URL to the env file: ${problem}`);
     }
-    contents = upsertEnvLine(contents, 'BEE_URL', beeUrl);
+    set('BEE_URL', beeUrl);
   }
 
   // A deployment that runs no Bee node and names no address has nowhere to
@@ -440,7 +446,7 @@ export function writeProfileEnv(
   // into that message. A pool-backed uploader is left alone: BEE_PUBLISHERS is
   // what it reads and BEE_URL never applies to it.
   if (values.localBeeUploader === false && !beeUrl && !publishers) {
-    contents = upsertEnvLine(contents, 'BEE_URL', '');
+    set('BEE_URL', '');
   }
 
   // `engines/srs/entrypoint.sh` splices this into srs.conf through a sed s///
@@ -456,7 +462,7 @@ export function writeProfileEnv(
         `refusing to write SRT_PASSPHRASE: ${SRT_PASSPHRASE_MESSAGE}`,
       );
     }
-    contents = upsertEnvLine(contents, 'SRT_PASSPHRASE', passphrase);
+    set('SRT_PASSPHRASE', passphrase);
   }
 
   // The request schema already refuses anything but 0x + 64 hex. Checked again
@@ -469,7 +475,7 @@ export function writeProfileEnv(
         'refusing to write STREAM_KEY: expected 0x followed by 64 hex characters',
       );
     }
-    contents = upsertEnvLine(contents, 'STREAM_KEY', streamKey);
+    set('STREAM_KEY', streamKey);
   }
 
   // Validated here as well as in the settings route, because this is the last
@@ -495,7 +501,7 @@ export function writeProfileEnv(
   // is the one unset key written below, which the same answer says.
   const defaults = effectiveEngineDefaults(
     values.engine,
-    parseEnvText(baseContents),
+    parseEnvText(baseText),
     values.stackEngineDefaults ?? {},
   );
   const settingsProblem = engineSettingsProblem(values.engine, engineSettings, {
@@ -510,7 +516,7 @@ export function writeProfileEnv(
   for (const [key, value] of Object.entries(
     engineSettingsEnv(values.engine, engineSettings, { abr, defaults }),
   )) {
-    contents = upsertEnvLine(contents, key, value);
+    set(key, value);
   }
 
   // Generated by the manager and checked against the shape it generates, so
@@ -522,23 +528,15 @@ export function writeProfileEnv(
         `refusing to write ${key} to the env file: not a secret this manager generated`,
       );
     }
-    contents = upsertEnvLine(contents, key, value);
+    set(key, value);
   }
 
   if (values.engine === OME_SERVICE) {
     if (values.omeSrtPort) {
-      contents = upsertEnvLine(
-        contents,
-        'OME_SRT_PORT',
-        String(values.omeSrtPort),
-      );
+      set('OME_SRT_PORT', String(values.omeSrtPort));
     }
     if (values.omeHlsPort) {
-      contents = upsertEnvLine(
-        contents,
-        'OME_HLS_PORT',
-        String(values.omeHlsPort),
-      );
+      set('OME_HLS_PORT', String(values.omeHlsPort));
     }
   }
 
@@ -552,12 +550,40 @@ export function writeProfileEnv(
         `refusing to write ${ENGINE_CONFIG_ENV_KEYS[values.engine]}: ${configFile} is not a plain absolute path`,
       );
     }
-    contents = upsertEnvLine(
-      contents,
-      ENGINE_CONFIG_ENV_KEYS[values.engine],
-      configFile,
-    );
+    set(ENGINE_CONFIG_ENV_KEYS[values.engine], configFile);
   }
+
+  return lines;
+}
+
+/** The deployment's env file: the version's base `.env` with every managed line upserted. */
+export function renderProfileEnv(
+  baseText: string,
+  managed: ManagedEnvLines,
+): string {
+  let contents = baseText;
+  for (const [key, value] of Object.entries(managed)) {
+    contents = upsertEnvLine(contents, key, value);
+  }
+  return contents;
+}
+
+// deploy.sh switches ENV_FILE to .env.<profile> when present and uses it as
+// compose's --env-file, so this must be a full copy of base .env with the
+// per-profile keys upserted, not just the overridden lines.
+export function writeProfileEnv(
+  root: string,
+  name: string,
+  values: ProfileEnvValues,
+): string {
+  const basePath = baseEnvPath(root);
+  const baseContents = existsSync(basePath)
+    ? readFileSync(basePath, 'utf8')
+    : '';
+  const contents = renderProfileEnv(
+    baseContents,
+    managedEnvLines(values, baseContents),
+  );
 
   const path = profileEnvPath(root, name);
   writeFileSync(path, contents, { encoding: 'utf8', mode: ENV_FILE_MODE });
