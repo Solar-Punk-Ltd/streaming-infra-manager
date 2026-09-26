@@ -136,7 +136,7 @@ function DeploymentBody({
   const { snapshot, stale, staleSeconds } = useMetrics();
   // The Engine card and the SRT ingest card lead to a setting in the Stack
   // settings card rather than editing it themselves: one list of settings for
-  // the whole deployment (Levi, 2026-09-26).
+  // the whole deployment.
   const [settingsReveal, setSettingsReveal] = useState<SettingReveal | null>(null);
   const revealSetting = useCallback(
     (key: string) => setSettingsReveal((current) => ({ key, seq: (current?.seq ?? 0) + 1 })),
