@@ -78,13 +78,13 @@ retransmitted and dropped over the last minute, are read out of the SRS containe
 shown on a card of their own, because SRS's HTTP API does not expose them. That is not the live
 status of PR 2, which is still not built. See [srt-ingest-health.md](srt-ingest-health.md).
 
-Update 2026-09-26, on `feat/deployment-settings-engine`: the Engine card's settings drawer is gone.
-Levi ruled that day that a deployment has one list of settings, so its engine settings are edited
-in the deployment's **Stack settings** card, in an **Engine settings** section of their own at the
-top of its list, with the fields, defaults, help and rules the drawer had. A save there stores and
-recreates nothing, and Apply recreates the containers that read what changed: the engine for an
-engine setting, the engine and the uploader for the segment length, and the uploader alone for the
-OvenMediaEngine poll interval, which only the uploader reads.
+Update 2026-09-26, on `feat/deployment-settings-engine` up to `02f699d4`: the Engine card's
+settings drawer is gone. Levi ruled that day that a deployment has one list of settings, so its
+engine settings are edited in the deployment's **Stack settings** card, in an **Engine settings**
+section of their own at the top of its list, with the fields, defaults, help and rules the drawer
+had. A save there stores and recreates nothing, and Apply recreates the containers that read what
+changed: the engine for an engine setting, the engine and the uploader for the segment length, and
+the uploader alone for the OvenMediaEngine poll interval, which only the uploader reads.
 [deployment-settings.md](deployment-settings.md) describes the card. The Engine card keeps its list
 of what the engine runs with and where each value came from, and its config file dialog, and its
 **Settings** button brings that section into view with its first setting focused. The engine

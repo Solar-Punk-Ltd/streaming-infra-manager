@@ -2,8 +2,8 @@
 
 Status: the store, the record of what each container got, the API, the page that edits them, the
 new-deployment wizard that creates a deployment with them already set, and the engine settings in
-the same list in place of the Engine card's drawer, as of 2026-09-26 on
-`feat/deployment-settings-engine`.
+the same list in place of the Engine card's drawer, as of 2026-09-26, built on
+`feat/deployment-settings-engine` up to `02f699d4`.
 
 ## What this is
 
