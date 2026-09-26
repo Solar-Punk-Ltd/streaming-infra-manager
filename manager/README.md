@@ -427,11 +427,11 @@ itself does.
   it is used. Receipt polling and recovery reuse it. They read the container
   again when the manager does not know it, after a restart, and whenever the
   remembered endpoint fails in any way, and what they read replaces the
-  remembered one only after it verified. A deployment whose chain endpoint a signed-in user saved makes the manager
-  itself send its chain reads to that address, from the manager's own network.
-  An endpoint only the node's host can reach, such as `host.docker.internal` on
-  a remote host, does not answer the manager, and needs
-  `CHEQUEBOOK_RPC_ENDPOINTS`.
+  remembered one only after it verified. A deployment whose chain endpoint a
+  signed-in user saved makes the manager itself send its chain reads to that
+  address, from the manager's own network. An endpoint only the node's host can
+  reach, such as `host.docker.internal` on a remote host, does not answer the
+  manager, and needs `CHEQUEBOOK_RPC_ENDPOINTS`.
 
 **The automatic check.** A transfer talks to Bee's private API through a small
 bash script it runs inside the node's own container, so the manager checks a
@@ -446,11 +446,12 @@ image id, engine version, platform and bridge script it is about, what was
 found, a digest of that, the revision of the check, the host it was first seen
 on and the time. A pass qualifies exactly that image, engine, platform and
 bridge script, so every later transfer through them skips the check, and the
-transfer's own connection must find the stored pass before it runs the bridge. A failure is stored with the check that
-failed, refuses the transfer with that check named, and is checked again on the
-next attempt. The image checked by hand on 2026-09-14, `ethersphere/bee:2.8.2` on
-Docker 29.1.3 as `157.90.34.105` runs it, stays in the code as the seed and needs
-no check. `manager/scripts/qualify-bee-bridge.mjs` runs the same check by hand.
+transfer's own connection must find the stored pass before it runs the bridge.
+A failure is stored with the check that failed, refuses the transfer with that
+check named, and is checked again on the next attempt. The image checked by
+hand on 2026-09-14, `ethersphere/bee:2.8.2` on Docker 29.1.3 as `157.90.34.105`
+runs it, stays in the code as the seed and needs no check.
+`manager/scripts/qualify-bee-bridge.mjs` runs the same check by hand.
 To read the record:
 
 ```sql
