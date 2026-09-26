@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 import { DockerBeeAcquisitionError } from '../domain/errors/DockerBeeAcquisitionError.js';
-import { sshDockerForwardCommand, type SshDockerForwardCommand, type TrustedSshDockerLocator } from '../domain/chequebook/sshDockerForwardCommand.js';
+import { sshDockerForwardCommand, type SshDockerForwardCommand, type SshDockerLocator } from '../domain/chequebook/sshDockerForwardCommand.js';
 import type { ForwardPathIdentity, SshForwardCleanup, OwnedForwardPath } from './sshForwardResources.js';
 export type { OwnedForwardPath } from './sshForwardResources.js';
 
@@ -8,7 +8,7 @@ export type { OwnedForwardPath } from './sshForwardResources.js';
 export interface ForwardStart {
   readonly type: 'start';
   readonly leaseId: string;
-  readonly locator: TrustedSshDockerLocator;
+  readonly locator: SshDockerLocator;
   readonly directory: OwnedForwardPath;
   readonly socketPath: string;
   readonly acquisitionDeadlineNs: string;
@@ -57,7 +57,7 @@ export function validateForwardStart(input: unknown, now: bigint, uid: number): 
     if (typeof directory.path !== 'string' || directory.path === '/' || !posix.isAbsolute(directory.path) || posix.normalize(directory.path) !== directory.path ||
         value.socketPath !== `${directory.path}/docker.sock`) throw new DockerBeeAcquisitionError();
     const identity = privateForwardIdentity(directory.identity, 'directory', uid);
-    const locator = value.locator as TrustedSshDockerLocator;
+    const locator = value.locator as SshDockerLocator;
     const command = sshDockerForwardCommand(locator?.alias, locator, { localSocketPath: value.socketPath, acquisitionTimeoutMs: Number((acquisitionDeadline - now + NS_PER_MS - 1n) / NS_PER_MS) });
     const start: ForwardStart = Object.freeze({ type: 'start', leaseId: value.leaseId, locator: command.target,
       directory: Object.freeze({ path: directory.path, identity }), socketPath: value.socketPath as string,

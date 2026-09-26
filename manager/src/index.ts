@@ -281,6 +281,7 @@ async function main(): Promise<void> {
   chequebookOperations = createChequebookOperationsService(database.pool, {
     rpcEndpoints: process.env.CHEQUEBOOK_RPC_ENDPOINTS,
     dockerTransports: process.env.CHEQUEBOOK_DOCKER_TRANSPORTS,
+    dockerHost: process.env.DOCKER_HOST,
   });
   chequebookOperations.start();
   // The project guard and the daemon lock: every deploy attempt holds its

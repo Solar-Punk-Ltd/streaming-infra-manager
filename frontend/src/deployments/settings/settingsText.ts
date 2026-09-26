@@ -14,9 +14,12 @@ import {
 import { LIVE_PUBLISHER_DISCONNECTED } from '../engineText';
 
 /**
- * Everything the deployment settings editor says in words. The editor reads
- * these rather than writing sentences inline, so each one is pinned by a test
- * and a change of wording is a change here.
+ * The sentences the deployment settings editor says. The editor reads these
+ * rather than writing them inline, so each one is pinned by a test and a
+ * change of wording is a change here. Its short labels, placeholders and field
+ * captions, the empty list's line in `SettingsList` and the two hooks' read
+ * failures are written where they are used, and the sentence about a live
+ * publisher is `engineText.ts`'s, shared with the config file confirmations.
  */
 
 /**

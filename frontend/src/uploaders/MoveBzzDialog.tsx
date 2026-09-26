@@ -5,7 +5,7 @@ import { useSession } from '../app/useSession';
 import { BZZ_DECIMALS, formatTokenBalance } from '../format';
 import { TransferEvidencePanel, TransferValue } from '../transfers/TransferEvidencePanel';
 import { permitsNewTransfer } from '../transfers/transferEvidence';
-import { TRANSFER_MESSAGES } from '../transfers/transferMessages';
+import { transferIssueMessage } from '../transfers/transferMessages';
 import { useTransferController } from '../transfers/useTransferController';
 
 export type MoveDirection = 'fill' | 'withdraw';
@@ -45,7 +45,8 @@ export function MoveBzzDialog({ open, direction, profileName, profileInstanceId,
   const signedIn = accountId !== null && state.phase !== 'signed_out';
   const canEdit = signedIn && editingNew && !busy && state.issue !== 'storage_unavailable';
   const canNew = state.intent !== null && state.detail !== null && permitsNewTransfer(state.detail) && !busy;
-  const canRetry = state.intent !== null && state.issue === 'lookup_missing' && !busy && state.blockingReason !== 'identity_conflict' &&
+  const retryable = state.issue === 'lookup_missing' || state.issue === 'preparation_refused';
+  const canRetry = state.intent !== null && retryable && !busy && state.blockingReason !== 'identity_conflict' &&
     state.intent.accountId === accountId && state.intent.profileName === profileName && state.intent.profileInstanceId === profileInstanceId;
   const intent = state.intent;
   const blockingContext = state.blockingReason === 'identity_conflict' ? 'identity_conflict' : state.issue === 'busy' ? 'busy' : 'previous_busy';
@@ -65,7 +66,7 @@ export function MoveBzzDialog({ open, direction, profileName, profileInstanceId,
     <DialogContent>
       <Stack spacing={2} sx={{ pt: 0.5 }}>
         {!signedIn ? <Alert severity="warning">Sign in to continue. Any saved transfer stays in this browser.</Alert> : <>
-          {state.issue && <Alert severity={state.issue === 'link_unavailable' ? 'info' : 'warning'}>{TRANSFER_MESSAGES[state.issue]}</Alert>}
+          {state.issue && <Alert severity={state.issue === 'link_unavailable' ? 'info' : 'warning'}>{transferIssueMessage(state.issue, state.refusal)}</Alert>}
           {busy && <Stack direction="row" spacing={1} alignItems="center" role="status">
             <CircularProgress size={18} /><Typography variant="body2">{state.phase === 'sending' ? 'Sending the saved request' : 'Reading saved transfer status'}</Typography>
           </Stack>}
@@ -75,7 +76,8 @@ export function MoveBzzDialog({ open, direction, profileName, profileInstanceId,
             <TransferValue label="Saved deployment" value={intent.profileName} />
             <TransferValue label="Request ID" value={intent.requestId} copy />
             {state.detail ? <TransferEvidencePanel detail={state.detail} /> : <Typography variant="body2" color="text.secondary">
-              The manager has not returned a verified record for this request. Its transaction outcome is unknown.
+              {state.issue === 'preparation_refused' ? 'The manager refused this request before recording it, so no transaction was made for it.'
+                : 'The manager has not returned a verified record for this request. Its transaction outcome is unknown.'}
             </Typography>}
             {state.blocking && <TransferEvidencePanel detail={state.blocking} context={blockingContext} />}
             {step === 'retry' && <Alert severity="warning">Send the same request again only to recover this exact saved intent. It keeps the same request ID and amount. The manager decides whether the request was already recorded.</Alert>}

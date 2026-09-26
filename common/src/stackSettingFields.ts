@@ -11,10 +11,11 @@ import type { StackSettingField } from './deploymentSettings.js';
  * starts, as it does every stack setting. So a key belongs here only when its
  * rule is certain: a wrong bound refuses a value the stack takes. The two log
  * keys refuse values the uploader would take, and are here because it takes
- * them by ignoring them, so a typo there would change nothing and say nothing.
- * The web2 admin address refuses a user name and a # part the uploader would
- * take, because it builds every request by adding a path after the address,
- * and either one then sends the request somewhere else.
+ * them by ignoring them: a mistyped level falls back to the default with one
+ * line in the uploader's log, and a mistyped format falls back to text
+ * without a word. The web2 admin address refuses a user name and a # part the
+ * uploader would take, because it builds every request by adding a path after
+ * the address, and either one then sends the request somewhere else.
  */
 export const STACK_SETTING_FIELDS: Readonly<Record<string, StackSettingField>> = {
   UPLOADER_START_GATES: { kind: 'choice', choices: ['chequebook-warn', 'warn', 'refuse'] },

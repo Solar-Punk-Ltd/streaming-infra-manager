@@ -27,7 +27,7 @@ D02 of 2026-09-07 said the manager refuses a new uploader start when its node do
 
 Branch `fix/uploader-start-gates-warn` of Solar-Punk-Ltd/swarm-hls-stream, 32 commits on
 7e2de6f7, merged fast-forward into main-v3 at 55b22bf1 on Levi's word ("so the hls is okay? if
-yes merge to main-v3") after the verification box passed that head at standard depth, and pinned
+yes merge to main-v3") after a full check passed on that head, and pinned
 here in 7b2312f. What it does:
 
 - The uploader's API listens first. A node that does not answer is waited for, one second

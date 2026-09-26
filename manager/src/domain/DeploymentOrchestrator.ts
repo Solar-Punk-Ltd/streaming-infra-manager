@@ -385,12 +385,6 @@ export interface UploaderGate {
   assertCanStart(profile: Profile): Promise<void>;
 }
 
-/**
- * The values a deploy writes into the containers' environment that the profile
- * row does not carry, because a row is answered to every page and published on
- * every event. Each is read from its own column at the one moment it is
- * needed, and the deploy is the only thing here that holds them.
- */
 /** What `nextEnvFor` answers: the environment, and what it was worked out from. */
 export interface NextDeployEnv {
   env: Record<string, string>;
@@ -403,6 +397,12 @@ export interface NextDeployEnv {
   engineSettingsProblem: string | null;
 }
 
+/**
+ * The values a deploy writes into the containers' environment that the profile
+ * row does not carry, because a row is answered to every page and published on
+ * every event. Each is read from its own column at the one moment it is
+ * needed, by a deploy and by `nextEnvFor`, and nothing here keeps them.
+ */
 interface DeploySecrets {
   streamKey: string | null;
   srtPassphrase: string | null;

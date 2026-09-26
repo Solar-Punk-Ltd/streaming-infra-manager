@@ -2,9 +2,9 @@
 
 Status: the store, the record of what each container got, the API, the page that edits them, the
 new-deployment wizard that creates a deployment with them already set, and the engine settings in
-the same list in place of the Engine card's drawer, as of 2026-09-26 on
-`feat/deployment-settings-engine`. The web2 admin keys became typed fields with a rule of their
-own, and got a group of their own in the wizard and Test connection on the card, on
+the same list in place of the Engine card's drawer, as of 2026-09-26, built on
+`feat/deployment-settings-engine` up to `02f699d4`. The web2 admin keys became typed fields with a
+rule of their own, and got a group of their own in the wizard and Test connection on the card, on
 `feat/admin-link-out-of-the-box` the same day.
 
 ## What this is
@@ -57,9 +57,10 @@ unit, help, kind, bounds and choices from it, so the answer carries none of them
 - **A key the config the engine runs no longer reads**, because the deployment's own config file
   dropped its placeholder or the version's template never takes it, says on its row that a value
   there has no effect.
-- **An engine setting the deployment does not read** is listed out of reach with the reason: a rung
-  setting on a deployment that does not encode the ABR ladder, and a setting of the engine it does
-  not run. A value stored for one before is listed so it can be reset.
+- **An engine setting the deployment does not read** is listed out of reach with the reason wherever
+  a sample the list reads declares it: a rung setting on a deployment that does not encode the ABR
+  ladder, and a setting of the engine it does not run. A value stored for one before is listed so it
+  can be reset.
 
 A save puts an engine key in `profiles.engine_settings` and never in the stack columns. Each value is
 held to its field, refused by key in the engine's own words. What the engine settings will be once the
@@ -102,6 +103,16 @@ A secret, anything the settings page masks, is never answered, only whether one 
 endpoint is answered by its host alone, because its path or user info can carry a provider's key.
 The log names the keys a save changed and never a value.
 
+## Where they are kept
+
+On the deployment's row: plain values in `profiles.stack_settings`, secret ones in
+`profiles.stack_settings_secret` and the revision a save names in `profiles.settings_revision`, all
+three from migration 037, and the engine settings in `profiles.engine_settings`, migration 009, as
+before. Neither stack column is among the profile columns every page and event carries. A container
+record keeps its salt and digests in `containers.env_salt` and `containers.env_digests`, from
+migration 038, and migration 036 took the stream key and the SRT passphrase out of the records
+written before.
+
 ## Behind, and Apply
 
 Every successful deploy records, per container it started, a salted digest of every key that
@@ -113,7 +124,8 @@ write, so it can say which settings the running containers are behind on:
 - **differs:** it got another one.
 - **unknown:** no record can tell, which is the case until a deployment's first deploy after this
   feature.
-- **not-running:** the deployment is stopped.
+- **not-running:** the deployment is stopped, or is deploying, stopping or being removed, so no
+  container is compared.
 
 Apply redeploys only the containers that are behind. When a changed key reaches the deploy scripts
 alone, it redeploys everything. A stopped deployment's Start uses the stored values anyway, so Apply
@@ -128,10 +140,11 @@ against an older one is refused. So two operators editing at once cannot overwri
 Every value answers to the rules of the version settings page, which keep out a value the stack's
 loader and the manager's parser would read differently. For the keys whose accepted values are
 certain, such as the start gate mode, the chequebook floor and re-check interval, the stamp limits,
-the log level and format, the switches, and the two web2 admin keys, the value is also held to the
-stream uploader's own bounds, in `common/src/stackSettingFields.ts`. `ADMIN_API_URL` takes an http or
-https address with a host and no user name, password or `#` part, and `ADMIN_API_TOKEN` at least 32
-characters. Any other key is plain text, checked by its container when it starts.
+the log level and format, the switches, and the two web2 admin keys, the value is also held to what
+the stack takes, in `common/src/stackSettingFields.ts`: a number to the stream uploader's own
+bounds, a choice or a switch to the values the stack's samples name, `ADMIN_API_URL` to an http or
+https address with a host and no user name, password or `#` part, and `ADMIN_API_TOKEN` to at least
+32 characters. Any other key is plain text, checked by its container when it starts.
 
 The two web2 admin keys also answer to a rule together, because the uploader turns admin mode on
 from the address alone and then refuses to start without a token: a save that names either key and
@@ -211,10 +224,10 @@ for its Start, and field-unit has no records to compare with.
 
 ## In the new-deployment wizard
 
-Plan item C.5: a deployment is created with its settings already set. The wizard's settings step
-ends with an **Advanced settings** fold, folded until opened, because most deployments keep every
-version value. Its line says what it holds, and once values are typed, how many the create sends or
-which value it cannot send.
+A deployment is created with its settings already set. The wizard's settings step ends with an
+**Advanced settings** fold, folded until opened, because most deployments keep every version
+value. Its line says what it holds, and once values are typed, how many the create sends or which
+value it cannot send.
 
 Opened, it shows the same list, rows and fields as the deployment's page, read from `GET
 /versions/:id/settings-catalog` for the version, the services and the host the create body will
@@ -228,10 +241,11 @@ settings step on, and again whenever the version, the engine, the services or th
   and a typed one replaces that.
 - **A key a control decides** shows no field and names the control. `HLS_FRAGMENT`, which the engine
   settings decide, shows the segment length typed above it, so the two never read differently. The
-  engine settings are asked for in the wizard's own steps, so its list keeps every one of them out
-  of reach, where the deployment's page, once it exists, lists them as its own. For a deployment
-  that runs a stream uploader, `ADMIN_API_URL` and `ADMIN_API_TOKEN` point at the step's Web2 admin
-  group the same way, the address shown while the link is on, so neither is set twice.
+  wizard asks for the segment length alone and leaves the other engine settings to the deployment's
+  page, so its list keeps every engine setting out of reach, where the deployment's page, once it
+  exists, lists them as its own. For a deployment that runs a stream uploader, `ADMIN_API_URL` and
+  `ADMIN_API_TOKEN` point at the step's Web2 admin group the same way, the address shown while the
+  link is on, so neither is set twice.
 - **A value the manager would refuse** is named under its field, by the same shared rules, and stops
   Continue and Deploy, the footer naming the key and never the value. Values typed before the list
   for the current choices was read wait for it.

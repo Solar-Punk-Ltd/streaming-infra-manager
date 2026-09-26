@@ -78,13 +78,13 @@ retransmitted and dropped over the last minute, are read out of the SRS containe
 shown on a card of their own, because SRS's HTTP API does not expose them. That is not the live
 status of PR 2, which is still not built. See [srt-ingest-health.md](srt-ingest-health.md).
 
-Update 2026-09-26, on `feat/deployment-settings-engine`: the Engine card's settings drawer is gone.
-Levi ruled that day that a deployment has one list of settings, so its engine settings are edited
-in the deployment's **Stack settings** card, in an **Engine settings** section of their own at the
-top of its list, with the fields, defaults, help and rules the drawer had. A save there stores and
-recreates nothing, and Apply recreates the containers that read what changed: the engine for an
-engine setting, the engine and the uploader for the segment length, and the uploader alone for the
-OvenMediaEngine poll interval, which only the uploader reads.
+Update 2026-09-26, on `feat/deployment-settings-engine` up to `02f699d4`: the Engine card's
+settings drawer is gone. Levi ruled that day that a deployment has one list of settings, so its
+engine settings are edited in the deployment's **Stack settings** card, in an **Engine settings**
+section of their own at the top of its list, with the fields, defaults, help and rules the drawer
+had. A save there stores and recreates nothing, and Apply recreates the containers that read what
+changed: the engine for an engine setting, the engine and the uploader for the segment length, and
+the uploader alone for the OvenMediaEngine poll interval, which only the uploader reads.
 [deployment-settings.md](deployment-settings.md) describes the card. The Engine card keeps its list
 of what the engine runs with and where each value came from, and its config file dialog, and its
 **Settings** button brings that section into view with its first setting focused. The engine
@@ -161,13 +161,14 @@ and Storage:
   the node pool. For OME: **Segment duration** and **Segment count** (`HLS_SEGMENT_DURATION`,
   `HLS_SEGMENT_COUNT`), **Poll interval** (`OME_HLS_POLL_INTERVAL_MS`). Each field is named by its
   label with the key beside it, shows its unit, the default an unset one falls back to on this
-  host, and a one line explanation from the stack's sample files. The card validates what the
-  entrypoint validates: positive numbers, integers where required, a ceiling at or over the
-  segment length, and for ABR `frame rate × segment length` must be a whole number or the engine
-  refuses to start. A pair it would refuse is named once above Save, which stays off. A save
-  stores and recreates nothing, and the card's Apply recreates the engine, and the uploader with
-  it for a key the uploader reads too. Until 2026-09-26 the drawer's Save, **Apply and recreate
-  engine**, stored and recreated in one step.
+  host, and its help, a one line explanation copied from the stack's sample files into the field
+  list. The card validates what the entrypoint validates: positive numbers, integers where
+  required, a ceiling at or over the segment length, and for ABR `frame rate × segment length`
+  must be a whole number or the engine refuses to start. A pair it would refuse is named once
+  above Save, which stays off. A save stores and recreates nothing, and the card's Apply
+  recreates the containers that read what changed: the engine, the uploader with it for the
+  segment length, and the uploader alone for the poll interval. Until 2026-09-26 the drawer's
+  Save, **Apply and recreate engine**, stored and recreated in one step.
 - **Restart** asks first: `Restart SRS for stream1? The publisher (if any) is disconnected for a
   few seconds. Settings are not changed.` With live status available the dialog says whether a
   publisher is connected right now.
@@ -205,12 +206,15 @@ stack version, and validation lives in code:
   such field.
 - `writeProfileEnv` writes those pairs (every value goes through the same character check the
   passphrase gets, because it lands inside a `sed` expression in the entrypoint).
-- `buildEffectiveEnv` and `containerKeysSpec` include the keys, so the container snapshot shows
-  what the engine was started with. Both call `engineSettingsEnv` with the same defaults since
-  2026-09-23, so the snapshot names the manager's SRT latency exactly when the file carries it.
+- `effectiveEnvOf` reads the keys back from the env file the deploy wrote, and `containerKeysSpec`
+  records them against each container, so the container snapshot shows what the engine was
+  started with. The file's engine lines come from `engineSettingsEnv` with the host's defaults
+  since 2026-09-23, so the snapshot names the manager's SRT latency exactly when the file carries
+  it.
 - `ProfileService.updateEngineSettings(name, settings)`: refuses while the profile is
-  transitional, stores, then `orchestrator.startDeploy(profile, [engine])` for the engine service
-  only. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry
+  transitional, claims a deploy of the engine service, and of the uploader as well when a key the
+  uploader also reads changed (`servicesToRecreate`), then stores the settings and runs that
+  deploy. The profile goes `DEPLOYING` and back like any deploy, and the existing SSE events carry
   it to the UI. Since 2026-09-26 it reads the stored settings with their settings revision first,
   moves that revision with its write, and refuses with `engine_settings_changed` when a save from
   the Stack settings card moved it in between.
@@ -319,8 +323,8 @@ settings, restart, logs and effective config for OME regardless.
 
 - Engine settings are edited in the deployment's Stack settings card (a drawer of their own until
   2026-09-26) with this host's defaults and the stack's help, validated the way the entrypoint
-  validates, applied by recreating only the engine, and the uploader for a key it reads too, and
-  visible in the container snapshot afterwards.
+  validates, applied by recreating the containers that read what changed, and visible in the
+  container snapshot afterwards.
 - Restart, logs and effective config work for srs, stream-uploader and bee-uploader on a running
   deployment, and answer plainly when the container is not running.
 - PR 2: a running stream shows publisher, codec, resolution, bitrate and uptime, refreshed while

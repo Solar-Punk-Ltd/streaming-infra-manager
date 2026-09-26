@@ -34,7 +34,7 @@ export type SettingOwner =
   | 'feed-owner'
   | 'feed-topic'
   | 'engine-config'
-  /** The engine settings of a deployment not created yet, which the new-deployment wizard asks for in a step of its own. */
+  /** The engine settings of a deployment not created yet: the new-deployment wizard asks for the segment length in a field of its own, and its page sets the rest. */
   | 'engine-settings'
   /** The web2 admin link of a deployment not created yet, which the new-deployment wizard asks for in a group of its own. */
   | 'admin-link'
@@ -80,7 +80,7 @@ export type SettingRunningState =
   | 'differs'
   /** No container that reads it has a record that can tell, which a deploy before this feature leaves. */
   | 'unknown'
-  /** The deployment is stopped, so nothing runs with any value. */
+  /** The deployment is stopped, or is deploying, stopping or being removed, so no container is compared. */
   | 'not-running';
 
 /** A `url` is an http or https address with a host, and nothing a path added after it would break. */

@@ -594,7 +594,6 @@ export function managedEnvLines(
   return lines;
 }
 
-/** The deployment's env file: the version's base `.env` with every managed line upserted. */
 /**
  * The deployment's env file: the version's base `.env`, then the values the
  * operator stored for this deployment, then every managed line.

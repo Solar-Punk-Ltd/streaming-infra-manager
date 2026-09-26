@@ -43,8 +43,8 @@ export const PLACEHOLDER_DATABASE_URL = 'postgres://unused@localhost/unused';
  * src/domain/localHost.ts answers host.docker.internal when /.dockerenv is
  * there, which is what the manager needs inside its own container and what
  * makes a unit file's expectation depend on where the suite runs: the Bee
- * target locator's own test passed on a laptop and failed on the verification
- * box, whose jobs are containers. This is the override that module already
+ * target locator's own test passed on a laptop and failed inside a
+ * container. This is the override that module already
  * documents, so the suite states the answer it was written against.
  */
 export const LOCAL_HOST_VARIABLE = 'BEE_LOCAL_HOST';

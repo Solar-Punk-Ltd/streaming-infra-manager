@@ -81,6 +81,10 @@ run any of it on a laptop: [docs/ci.md](docs/ci.md).
     restart, logs and the effective config from the UI.
   - [engine-config.md](docs/features/engine-config.md): a deployment's own SRS
     or OvenMediaEngine configuration file.
+  - [deployment-settings.md](docs/features/deployment-settings.md): every key a
+    deployment's version declares and its engine settings, set for one
+    deployment on its page or in the new-deployment wizard, and Apply for the
+    containers behind on them.
   - [srt-ingest-health.md](docs/features/srt-ingest-health.md): how the SRT
     link from the broadcaster held up over the last minute, from SRS's own
     statistics, and what to change when it drops packets.

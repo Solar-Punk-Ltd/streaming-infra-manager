@@ -93,7 +93,7 @@ function managerTokenProblem(settings: readonly NewDeploymentSetting[], entries:
  * deployment of this shape, and split the way the two columns hold them. That
  * includes the web2 admin rule, judged on what the version gives the two keys
  * and what the create sets for them, the manager's stored token counted when
- * the create asks for it. Refused whole, each key named and no value
+ * the create asks for it. Refused whole, each key named and no secret
  * repeated. A create that names none and asks for nothing reads nothing, so
  * it is never refused over a version's files.
  *

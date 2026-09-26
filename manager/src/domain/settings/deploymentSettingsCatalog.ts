@@ -140,7 +140,8 @@ export function deploymentSettingsCatalogOf(input: CatalogInput): DeploymentSett
  * as the wizard that creates it lists them. Its first deploy writes the
  * version's value for a key the operator decides. A key one of its controls
  * decides has no value yet, because the manager works that out at the deploy.
- * Its engine settings are the wizard's engine step's, so none is offered here.
+ * The wizard asks for its segment length in a field of its own and leaves the
+ * other engine settings to its page, so none is offered here.
  */
 export function newDeploymentSettingsCatalogOf(input: NewDeploymentCatalogInput): NewDeploymentSettingsCatalog {
   const ownerContext = ownerContextOf(input.contract, input.isLocalTarget, undefined);
