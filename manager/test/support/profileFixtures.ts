@@ -431,9 +431,12 @@ export class InMemoryProfiles {
     owner: EngineSettingsWriteOwner,
   ): Promise<Profile | null> {
     const profile = this.rows.get(name);
+    const revision = this.settingsRevisions.get(name) ?? 0;
     if (!profile || profile.instance_id !== owner.instanceId || profile.intent_revision !== owner.intentRevision ||
         profile.engine_config_revision !== owner.configRevision || profile.stack_version_id !== owner.stackVersionId ||
-        profile.status !== 'DEPLOYING' || this.activeDeployJobs.get(name) !== owner.jobReferenceId) return null;
+        profile.status !== 'DEPLOYING' || this.activeDeployJobs.get(name) !== owner.jobReferenceId ||
+        revision !== owner.settingsRevision) return null;
+    this.settingsRevisions.set(name, revision + 1);
     return this.write(name, { engine_settings: settings });
   }
 
@@ -498,14 +501,20 @@ export class InMemoryProfiles {
   }
 
   async stackSettingsOf(name: string): Promise<StoredStackSettings | null> {
-    if (!this.rows.has(name)) return null;
+    const row = this.rows.get(name);
+    if (!row) return null;
     const plain: Record<string, string> = {};
     const secretKeys: string[] = [];
     for (const [key, value] of Object.entries(this.stackSettings.get(name) ?? {})) {
       if (isSecretSettingKey(key)) secretKeys.push(key);
       else plain[key] = value;
     }
-    return { plain, secretKeys: secretKeys.sort(), revision: this.settingsRevisions.get(name) ?? 0 };
+    return {
+      plain,
+      secretKeys: secretKeys.sort(),
+      engine: { ...row.engine_settings },
+      revision: this.settingsRevisions.get(name) ?? 0,
+    };
   }
 
   async updateStackSettings(

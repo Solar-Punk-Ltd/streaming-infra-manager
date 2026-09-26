@@ -53,12 +53,23 @@ export interface EngineOverviewSnapshot {
 
 export interface EngineSettingsWriteOwner extends ExpectedDeployOwner {
   jobReferenceId: number;
+  /**
+   * The settings revision read before the settings the write replaces, which
+   * a save from the deployment's settings page moves. A page save that landed
+   * since is refused over rather than written over.
+   */
+  settingsRevision: number;
 }
 
-/** A deployment's own settings as its page may know them: no secret value, only which secrets are stored. */
+/**
+ * A deployment's own settings as its page may know them, read in one
+ * statement: no secret value, only which secrets are stored, and the engine
+ * settings beside the stack settings under the one revision both move.
+ */
 export interface StoredStackSettings {
   plain: Record<string, string>;
   secretKeys: string[];
+  engine: EngineSettings;
   revision: number;
 }
 
@@ -346,13 +357,18 @@ export class ProfileRepository {
   }
 
   /**
-   * Replaces the whole engine settings object.
+   * Replaces the whole engine settings object, for the engine settings route
+   * scripts save and recreate through.
    *
    * Deliberately not part of `ProfileWriteData`, which `updateEditable` writes
    * from a full-replace PUT body: a body that has never heard of engine
    * settings would clear them, and every existing caller of that path is such
    * a body. The settings have their own route and their own write, the way the
    * stamp id does.
+   *
+   * It moves the settings revision a deployment's settings page saves under,
+   * and writes nothing once that revision has moved past the one the caller
+   * read, so neither save can replace the other unseen.
    */
   async updateEngineSettings(
     name: string,
@@ -362,13 +378,15 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET engine_settings = $2::jsonb,
+             settings_revision = settings_revision + 1,
              updated_at = NOW()
        WHERE name = $1 AND instance_id = $3 AND intent_revision = $4
          AND engine_config_revision = $5 AND stack_version_id = $6
          AND status = 'DEPLOYING' AND deploy_job_reference_id = $7
+         AND settings_revision = $8
        RETURNING ${PROFILE_COLUMNS}`,
       [name, JSON.stringify(settings), owner.instanceId, owner.intentRevision,
-        owner.configRevision, owner.stackVersionId, owner.jobReferenceId],
+        owner.configRevision, owner.stackVersionId, owner.jobReferenceId, owner.settingsRevision],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
@@ -516,19 +534,26 @@ export class ProfileRepository {
 
   /**
    * What the deployment stores, as its settings page may know it: the plain
-   * values, the names of the secret ones and never their values, and the
-   * revision a save names. Null for a deployment that does not exist.
+   * values, the names of the secret ones and never their values, its engine
+   * settings, and the revision a save names. Null for a deployment that does
+   * not exist.
    */
   async stackSettingsOf(name: string): Promise<StoredStackSettings | null> {
-    const result = await this.pool.query<{ plain: Record<string, string>; secret_keys: string[]; revision: number }>(
+    const result = await this.pool.query<{
+      plain: Record<string, string>;
+      secret_keys: string[];
+      engine: EngineSettings;
+      revision: number;
+    }>(
       `SELECT stack_settings AS plain,
               ARRAY(SELECT jsonb_object_keys(stack_settings_secret) ORDER BY 1) AS secret_keys,
+              engine_settings AS engine,
               settings_revision AS revision
          FROM profiles WHERE name = $1`,
       [name],
     );
     const row = result.rows[0];
-    return row ? { plain: row.plain, secretKeys: row.secret_keys, revision: row.revision } : null;
+    return row ? { plain: row.plain, secretKeys: row.secret_keys, engine: row.engine, revision: row.revision } : null;
   }
 
   /**

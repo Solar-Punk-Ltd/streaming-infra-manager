@@ -76,7 +76,7 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
 
     assert.equal(revision, 1);
     const read = await profiles.stackSettingsOf('stage');
-    assert.deepEqual(read, { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secretKeys: ['ADMIN_API_TOKEN'], revision: 1 });
+    assert.deepEqual(read, { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secretKeys: ['ADMIN_API_TOKEN'], engine: {}, revision: 1 });
     assert.doesNotMatch(JSON.stringify(read), new RegExp(SECRET));
     assert.deepEqual(await profiles.stackSettingsForDeploy('stage'), { LOG_LEVEL: 'info', ADMIN_API_URL: '', ADMIN_API_TOKEN: SECRET });
   });
@@ -87,7 +87,7 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
     const revision = await profiles.updateStackSettings('stage', { ...NOTHING, remove: ['LOG_LEVEL', 'ADMIN_API_TOKEN'] }, { instanceId, expectedRevision: 1 });
 
     assert.equal(revision, 2);
-    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], revision: 2 });
+    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], engine: {}, revision: 2 });
   });
 
   it('stores nothing for a save made against an older revision', async () => {
@@ -106,7 +106,7 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
     });
 
     assert.equal(other, null);
-    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], revision: 0 });
+    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], engine: {}, revision: 0 });
   });
 
   it('lets exactly one of two saves at the same revision through', async () => {
@@ -117,6 +117,12 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
 
     assert.deepEqual([first, second].filter((revision) => revision !== null), [1]);
     assert.equal((await profiles.stackSettingsOf('stage'))?.revision, 1);
+  });
+
+  it('answers the engine settings beside the stack settings, under the one revision', async () => {
+    await pool.query(`UPDATE profiles SET engine_settings = '{"HLS_WINDOW":"20"}' WHERE name = 'stage'`);
+
+    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], engine: { HLS_WINDOW: '20' }, revision: 0 });
   });
 
   it('answers nothing for a deployment that does not exist', async () => {

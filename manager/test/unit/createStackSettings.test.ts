@@ -88,6 +88,7 @@ describe('POST /profiles with stack settings', () => {
       assert.deepEqual(await harness.profiles.stackSettingsOf('stage'), {
         plain: { LOG_LEVEL: 'debug', ADMIN_API_URL: 'http://admin.internal' },
         secretKeys: ['ADMIN_API_TOKEN'],
+        engine: {},
         revision: 0,
       });
       assert.deepEqual(await harness.profiles.stackSettingsForDeploy('stage'), {
@@ -277,6 +278,7 @@ describe('POST /groups/:id/members', () => {
       assert.deepEqual(await harness.profiles.stackSettingsOf('fleet-profile-2'), {
         plain: { LOG_LEVEL: 'debug' },
         secretKeys: ['ADMIN_API_TOKEN'],
+        engine: {},
         revision: 0,
       });
       assert.deepEqual(await harness.profiles.stackSettingsForDeploy('fleet-profile-2'), { LOG_LEVEL: 'debug', ADMIN_API_TOKEN: TOKEN });

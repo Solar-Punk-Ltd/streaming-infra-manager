@@ -835,7 +835,8 @@ export class ProfileService {
   }
 
   /**
-   * Stores the engine settings and recreates the containers that read them.
+   * Stores the engine settings and recreates the containers that read them,
+   * for the engine settings route that scripts save and recreate through.
    *
    * Almost always that is the engine alone, and the Bee node and the uploader
    * are left running because taking them down would interrupt an upload that
@@ -844,12 +845,20 @@ export class ProfileService {
    * environment alone, and `HLS_FRAGMENT`, which both containers read. A change
    * to either recreates the uploader as well, or the new value never reaches
    * the process that reads it.
+   *
+   * The stored settings are read first, with the revision a deployment's
+   * settings page saves under, and the write is refused once a page save has
+   * moved that revision. The settings replace what is stored whole, so without
+   * that a page save landing between this read and the write would be undone
+   * with nobody told.
    */
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
     expectedInstanceId?: string,
   ): Promise<ProfileWithContainers> {
+    const stored = await this.repo.stackSettingsOf(name);
+    if (!stored) throw new ProfileNotFoundError(name);
     const existing = await this.getByName(name);
     if (expectedInstanceId !== undefined && existing.instance_id !== expectedInstanceId) {
       throw new ProfileInstanceChangedError(name);
@@ -876,7 +885,7 @@ export class ProfileService {
 
     const services = servicesToRecreate(
       engine,
-      existing.engine_settings,
+      stored.engine,
       settings,
     );
 
@@ -895,7 +904,7 @@ export class ProfileService {
       const referenceId = reservation.build?.referenceId;
       if (!claimed || referenceId == null) throw new Error('An engine settings save has no claimed job.');
       const written = await this.repo.updateEngineSettings(name, settings, {
-        ...deployOwnerOf(claimed), jobReferenceId: referenceId,
+        ...deployOwnerOf(claimed), jobReferenceId: referenceId, settingsRevision: stored.revision,
       });
       if (!written) {
         const current = await this.repo.findByName(name);
