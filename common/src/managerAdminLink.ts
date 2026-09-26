@@ -27,6 +27,22 @@ export interface ManagerAdminLinkSave {
   token?: string | null;
 }
 
+/** Why this key cannot hold this value as a deployment's settings would take it, or null. Never repeats the value. */
+function keyValueProblem(key: string, value: string): string | null {
+  const envProblem = settingValueProblem(key, value);
+  return envProblem ? `${key} ${envProblem}` : stackSettingFieldProblem(key, value);
+}
+
+/** Why a new deployment's `ADMIN_API_URL` could not be this address, or null. */
+export function adminUrlProblem(url: string): string | null {
+  return keyValueProblem(ADMIN_API_URL_KEY, url);
+}
+
+/** Why a new deployment's `ADMIN_API_TOKEN` could not be this token, or null. */
+export function adminTokenProblem(token: string): string | null {
+  return keyValueProblem(ADMIN_API_TOKEN_KEY, token);
+}
+
 /**
  * Why a save of the manager's link would be refused, one sentence each, or
  * none. The address and the token answer to the rules a deployment's own
@@ -35,21 +51,16 @@ export interface ManagerAdminLinkSave {
  */
 export function managerAdminLinkProblems({ url, token }: ManagerAdminLinkSave): string[] {
   const problems: string[] = [];
-  if (url !== '') {
-    const envProblem = settingValueProblem(ADMIN_API_URL_KEY, url);
-    const problem = envProblem ? `${ADMIN_API_URL_KEY} ${envProblem}` : stackSettingFieldProblem(ADMIN_API_URL_KEY, url);
-    if (problem) problems.push(problem);
-  }
+  const urlProblem = url === '' ? null : adminUrlProblem(url);
+  if (urlProblem) problems.push(urlProblem);
   if (typeof token === 'string') {
-    if (url === '') {
-      problems.push("A token needs the admin's address. Give the address, or leave the token out.");
-    } else if (token === '') {
-      problems.push('The token cannot be empty. Leave it out to keep the stored one, or clear it.');
-    } else {
-      const envProblem = settingValueProblem(ADMIN_API_TOKEN_KEY, token);
-      const problem = envProblem ? `${ADMIN_API_TOKEN_KEY} ${envProblem}` : stackSettingFieldProblem(ADMIN_API_TOKEN_KEY, token);
-      if (problem) problems.push(problem);
-    }
+    const tokenProblem =
+      url === ''
+        ? "A token needs the admin's address. Give the address, or leave the token out."
+        : token === ''
+          ? 'The token cannot be empty. Leave it out to keep the stored one, or clear it.'
+          : adminTokenProblem(token);
+    if (tokenProblem) problems.push(tokenProblem);
   }
   return problems;
 }

@@ -17,6 +17,7 @@ import {
   adminLinkEditProblem,
   adminLinkProblem,
 } from './adminLink.js';
+import { ADMIN_LINK_TEST_OUTCOMES, adminLinkTestProblems } from './adminLinkTest.js';
 import { managerAdminLinkProblems } from './managerAdminLink.js';
 
 const ADMIN_URL = 'https://admin.example.com';
@@ -116,6 +117,33 @@ describe("a save of the manager's own web2 admin link", () => {
     ]);
     assert.deepEqual(managerAdminLinkProblems({ expectedRevision: 0, url: ADMIN_URL, token: '' }), [
       'The token cannot be empty. Leave it out to keep the stored one, or clear it.',
+    ]);
+  });
+});
+
+describe('a request to test a web2 admin link typed on a page', () => {
+  const TOKEN = 'synthetic-admin-token-0123456789abcdef';
+
+  it('takes an address with a typed token or the stored one', () => {
+    assert.deepEqual(adminLinkTestProblems({ url: ADMIN_URL, token: { source: 'typed', value: TOKEN } }), []);
+    assert.deepEqual(adminLinkTestProblems({ url: ADMIN_URL, token: { source: 'stored' } }), []);
+  });
+
+  it('asks for an address, and for a typed token that the uploader would take, repeating neither', () => {
+    assert.deepEqual(adminLinkTestProblems({ url: '', token: { source: 'typed', value: '' } }), [
+      'Type the address of the web2 admin to test.',
+      'Type a token to test with, or test with the stored one.',
+    ]);
+    assert.deepEqual(adminLinkTestProblems({ url: 'ftp://admin.example.com', token: { source: 'typed', value: 'synthetic-short-token' } }), [
+      'ADMIN_API_URL must be an http or https address, such as https://admin.example.com.',
+      'ADMIN_API_TOKEN must be at least 32 characters.',
+    ]);
+  });
+
+  it('knows every outcome the page has a sentence for', () => {
+    assert.deepEqual([...ADMIN_LINK_TEST_OUTCOMES].sort(), [
+      'invalid-address', 'linked', 'no-token', 'not-admin', 'not-linked', 'owner-mismatch',
+      'owner-unconfirmed', 'redirected', 'token-accepted', 'token-refused', 'unreachable',
     ]);
   });
 });
