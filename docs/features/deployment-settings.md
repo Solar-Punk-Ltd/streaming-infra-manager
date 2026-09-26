@@ -126,9 +126,10 @@ against an older one is refused. So two operators editing at once cannot overwri
 Every value answers to the rules of the version settings page, which keep out a value the stack's
 loader and the manager's parser would read differently. For the keys whose accepted values are
 certain, such as the start gate mode, the chequebook floor and re-check interval, the stamp limits,
-the log level and format, and the switches, the value is also held to the stream uploader's own
-bounds, in `common/src/stackSettingFields.ts`. Any other key is plain text, checked by its container
-when it starts.
+the log level and format, and the switches, the value is also held to what the stack takes, in
+`common/src/stackSettingFields.ts`: a number to the stream uploader's own bounds, and a choice or a
+switch to the values the stack's samples name. Any other key is plain text, checked by its
+container when it starts.
 
 ## API
 
