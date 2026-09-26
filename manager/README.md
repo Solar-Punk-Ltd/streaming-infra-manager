@@ -683,18 +683,18 @@ are stored on the deployment, plain ones in `profiles.stack_settings` and
 secret ones in `profiles.stack_settings_secret`, which no page and no event
 carries. A deploy writes them into `.env.<name>` over the version's base
 `.env`, and the lines the manager computes are written after them, so a stored
-value never takes the place of one: the stamp, the node pool, the chain
-endpoint and the gateway's mode, the Bee URL, the SRT passphrase and stream
-key, the feed, the engine config file, the engine settings, every slotted port
-and, on the manager's own host, the data directories. A stored value for one of
-those is left out of the file and named in the log. A generated secret is the
-exception: a value stored for it replaces the generated one, which stays kept
-for when the value is reset. The API that lists, saves and applies them is
-under "A deployment's own settings" above, the deployment page edits them
-in its Stack settings card (2026-09-26, `feat/deployment-settings-page`), and
-the new-deployment wizard sets them before the deployment exists (2026-09-26,
-`feat/deployment-settings-wizard`), which `docs/features/deployment-settings.md`
-describes.
+value never takes the place of one: the services it runs, the stamp, the node
+pool, the chain endpoint and the gateway's mode, the Bee URL, the SRT
+passphrase and stream key, the feed, the engine config file, the engine
+settings, every slotted port and, on the manager's own host, the data
+directories. A stored value for one of those is left out of the file and named
+in the log. A generated secret is the exception: a value stored for it replaces
+the generated one, which stays kept for when the value is reset. The API that
+lists, saves and applies them is under "A deployment's own settings" above, the
+deployment page edits them in its Stack settings card (2026-09-26,
+`feat/deployment-settings-page`), and the new-deployment wizard sets them
+before the deployment exists (2026-09-26, `feat/deployment-settings-wizard`),
+which `docs/features/deployment-settings.md` describes.
 
 Every successful deploy records, per container it started, what that container
 got: the keys its compose block reads and the keys the version declares that
