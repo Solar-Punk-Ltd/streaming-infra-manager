@@ -152,10 +152,10 @@ no automatic checking sentence for it.
 Check uses the recorded identity and reads the chain through the endpoint that
 "Where a transfer reaches the node and the chain" below describes, the
 configured one or the node's own. It first examines the known hash when
-available. Receipt verification checks
-identity, canonical block ancestry and finality. Missing receipts remain
-pending. Unavailable RPC, incomplete history, contradictory evidence and reorgs
-remain unresolved. Checks are bounded and persist progress where supported.
+available. Receipt verification checks identity, canonical block ancestry and
+finality. Missing receipts remain pending. Unavailable RPC, incomplete history,
+contradictory evidence and reorgs remain unresolved. Checks are bounded and
+persist progress where supported.
 
 If the hash was lost, recovery inspects matching pending transactions and then
 performs a bounded block scan. An already-started scan must finish its recorded
@@ -294,8 +294,8 @@ suites cover the poller, the receipt check, the receipt inspector, the routes,
 the schemas, submission, recovery, the qualification catalog, the automatic
 image check, the default Docker routes, the node's own chain endpoint and the
 answer for every refusal cause. All of them pass on a laptop, and all of them
-are in the jobs the checks workflow declares for a pull request. The last full run recorded on the branch, taken at
-`e857994`, is in
+are in the jobs the checks workflow declares for a pull request. The last full
+run recorded on the branch, taken at `e857994`, is in
 [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). No job
 of that workflow had run on a GitHub runner when this page was written.
 
