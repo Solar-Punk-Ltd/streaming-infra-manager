@@ -167,7 +167,7 @@ broadcast. It reads SRT only, so a publisher on RTMP has no card numbers.
 
 ## Limits
 
-These are P3 by the estate's scale: rare, with no damage path, recorded once.
+These are P3: rare, with no damage path, recorded once.
 
 - **A crafted stream id can put fake numbers on the card.** A publisher chooses
   its SRT stream id and SRS quotes it into its log. An id carrying a newline and
