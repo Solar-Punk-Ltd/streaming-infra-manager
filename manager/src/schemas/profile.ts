@@ -251,11 +251,12 @@ const stackVersionIdField = () =>
  * take the value a moment later: a profile is DEPLOYING from the instant create
  * returns, and that route refuses a busy deployment.
  *
- * `noUnknown` strips a key neither engine reads, as the settings route does.
- * The bounds, the choices and the cross-field rules are not here either, for
- * the same reason: `engineSettingsProblem` owns them, and ProfileService calls
- * it with the version's own defaults so the pair is judged against the host
- * this deployment will run on.
+ * A key neither engine reads is dropped here, where the engine settings route
+ * refuses it by name, because that route's body replaces a set already stored.
+ * The bounds, the choices and the cross-field rules are not here, for the
+ * reason the route gives: `engineSettingsProblem` owns them, and
+ * ProfileService calls it with the version's own defaults so the pair is
+ * judged against the host this deployment will run on.
  */
 const engineSettingsField = () =>
   object(ENGINE_SETTING_VALUE_FIELDS)

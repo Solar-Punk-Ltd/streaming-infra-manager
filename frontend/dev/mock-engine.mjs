@@ -237,7 +237,8 @@ export function engineRoutes({ readBody, withProfile, findProfile, deploy, publi
 
         let input;
         try {
-          input = await engineSettingsSchema.validate(await readBody(req), { abortEarly: false, stripUnknown: true });
+          // A key no engine reads is refused by name, as the manager's route refuses it, because the body replaces the whole set.
+          input = await engineSettingsSchema.validate(await readBody(req), { abortEarly: false, stripUnknown: false });
         } catch (error) {
           return send(res, 400, { error: 'validation_error', errors: error.errors ?? ['Invalid engine settings.'] });
         }

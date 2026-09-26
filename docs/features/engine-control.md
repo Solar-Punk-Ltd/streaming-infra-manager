@@ -216,7 +216,9 @@ stack version, and validation lives in code:
   the Stack settings card moved it in between.
 - Route `PUT /profiles/:name/engine-settings` with a yup schema built from the field list. Since
   2026-09-26 it is the way scripts save and recreate in one call. The page saves through the
-  deployment's settings routes instead.
+  deployment's settings routes instead. Its body replaces the whole set, so a key neither engine
+  reads is refused by name, its value never repeated, rather than dropped into a reset of the
+  setting it meant.
 
 ### Restart, logs, effective config
 
@@ -243,7 +245,7 @@ Routes, `manager/src/api/routes/engine.ts`:
 | Method | Path | Answer |
 |---|---|---|
 | GET | `/profiles/:name/engine` | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason }`, where `live` is null in PR 1 and `liveUnavailableReason` says why |
-| PUT | `/profiles/:name/engine-settings` | 202, the profile. For scripts since 2026-09-26 |
+| PUT | `/profiles/:name/engine-settings` | 202, the profile. For scripts since 2026-09-26. 400 `validation_error` naming a key neither engine reads |
 | POST | `/profiles/:name/containers/:service/restart` | 202 |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | `text/plain` |
 | GET | `/profiles/:name/engine/config` | `text/plain`, no-store |

@@ -16,7 +16,7 @@ import { profileNameSchema } from '../../schemas/profile.js';
 import { TRANSITIONAL_STATUSES } from '../../types/index.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { signedInUser } from '../middleware/requireSession.js';
-import { validateBody, validateParams } from '../middleware/validate.js';
+import { validateBodyRefusingUnknown, validateParams } from '../middleware/validate.js';
 
 const logger = Logger.getInstance();
 
@@ -55,7 +55,7 @@ export function createEngineRouter(
   router.put(
     '/profiles/:name/engine-settings',
     validateParams(profileNameSchema),
-    validateBody(engineSettingsSchema),
+    validateBodyRefusingUnknown(engineSettingsSchema),
     asyncHandler(async (req: Request, res: Response) => {
       const { expectedInstanceId, ...settings } = req.body as EngineSettingsBody;
       const profile = await profileService.updateEngineSettings(

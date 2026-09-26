@@ -133,6 +133,25 @@ describe('stored config observations over authenticated mock HTTP', { concurrenc
     assert.deepEqual(await request(`/profiles/${profile.name}`), before);
   });
 
+  it('refuses a key no engine reads, naming it and never its value, and keeps what is stored', async () => {
+    const profile = await profileFor('srs');
+    const before = await profile.settled();
+    const typed = 'typed-value-4711';
+    const result = await fetch(`${base}/profiles/${profile.name}/engine-settings`, {
+      method: 'PUT', headers: { cookie, [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE, 'content-type': 'application/json' },
+      body: JSON.stringify({ HLS_FRAGMNT: typed, expectedInstanceId: before.instance_id }), signal: AbortSignal.timeout(2000),
+    });
+    const refusal = await result.json();
+    assert.equal(result.status, 400);
+    assert.deepEqual(refusal.errors, [
+      'Not an engine setting either engine reads: HLS_FRAGMNT. Nothing was stored. This route replaces every engine setting ' +
+        'with the body, so a misspelled key would have put the setting it meant back to its default. ' +
+        'GET /profiles/:name/engine lists the settings this deployment reads.',
+    ]);
+    assert.equal(JSON.stringify(refusal).includes(typed), false);
+    assert.deepEqual((await request(`/profiles/${profile.name}`)).engine_settings, before.engine_settings);
+  });
+
   it('reads OME literal values from the same config returned by the editor', async () => {
     const profile = await profileFor('ome');
     const config = omeLiteral(profile.template);

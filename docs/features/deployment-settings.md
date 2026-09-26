@@ -89,7 +89,10 @@ recreate in one call. It always recreates the engine, and the uploader as well w
 uploader reads changed, so for the poll interval it recreates both. It moves the same revision, and
 it reads the stored settings with that revision before it writes, so it is refused with
 `engine_settings_changed` when a save from the page landed in between, and a page that read before it
-is refused with `deployment_settings_changed`. Neither save writes over the other unseen.
+is refused with `deployment_settings_changed`. Neither save writes over the other unseen. Its body
+replaces the whole set, so a key neither engine reads is refused with `validation_error`, named and
+its value never repeated, and nothing is stored. Dropped, a misspelled key would have put the
+setting it meant back to its default. An empty body still puts every setting back to its default.
 
 ## What is never shown
 

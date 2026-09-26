@@ -17,12 +17,28 @@ export function validateBody(
   schema: AnySchema,
   context?: () => object,
 ): RequestHandler {
+  return bodyValidator(schema, { stripUnknown: true, context });
+}
+
+/**
+ * `validateBody` for a body that replaces a whole set, where a key the schema
+ * does not declare is refused by the schema's own `noUnknown` rather than
+ * dropped. Dropped, it reads as a request to reset whatever it meant.
+ */
+export function validateBodyRefusingUnknown(schema: AnySchema): RequestHandler {
+  return bodyValidator(schema, { stripUnknown: false });
+}
+
+function bodyValidator(
+  schema: AnySchema,
+  options: { stripUnknown: boolean; context?: () => object },
+): RequestHandler {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
       req.body = await schema.validate(req.body ?? {}, {
         abortEarly: false,
-        stripUnknown: true,
-        context: context?.(),
+        stripUnknown: options.stripUnknown,
+        context: options.context?.(),
       });
       next();
     } catch (err) {
