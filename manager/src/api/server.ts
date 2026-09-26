@@ -10,6 +10,7 @@ import { ContainerControl } from '../domain/ContainerControl.js';
 import { Database } from '../domain/Database.js';
 import { DeployService } from '../domain/DeployService.js';
 import { EngineConfigService } from '../domain/engineConfig/EngineConfigService.js';
+import type { DeploymentSettingsService } from '../domain/settings/DeploymentSettingsService.js';
 import { EventBus } from '../domain/EventBus.js';
 import { Logger } from '../domain/Logger.js';
 import { MetricsCollector } from '../domain/MetricsCollector.js';
@@ -32,6 +33,7 @@ import { createActionsRouter } from './routes/actions.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createChequebookRouter } from './routes/chequebook.js';
 import { createConfigRouter } from './routes/config.js';
+import { createDeploymentSettingsRouter } from './routes/deploymentSettings.js';
 import { createEngineRouter } from './routes/engine.js';
 import { createEngineConfigRouter } from './routes/engineConfig.js';
 import { createEventsRouter } from './routes/events.js';
@@ -65,6 +67,7 @@ export interface ApiDeps {
   srtIngestHealthService: SrtIngestHealthService;
   containerControl: ContainerControl;
   engineConfigService: EngineConfigService;
+  deploymentSettingsService: DeploymentSettingsService;
   stackVersionService: StackVersionService;
   /** For the deploy attempts that hold a project or the daemon, and their release. */
   orchestrator: DeploymentOrchestrator;
@@ -134,6 +137,7 @@ export function startApiServer(
   app.use('/', createChequebookRouter(deps.chequebookService, deps.chequebookOperations));
   app.use('/', createEngineRouter(deps.profileService, deps.containerControl, deps.beeRpcEndpoint));
   app.use('/', createEngineConfigRouter(deps.engineConfigService));
+  app.use('/', createDeploymentSettingsRouter(deps.deploymentSettingsService));
 
   app.use(notFound);
   app.use(errorHandler);

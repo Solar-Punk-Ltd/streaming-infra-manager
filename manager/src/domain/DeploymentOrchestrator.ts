@@ -39,7 +39,7 @@ import {
   profileDataRoot,
 } from './dataDirs.js';
 import { DeploymentGroupRepository } from './DeploymentGroupRepository.js';
-import { DeployAttemptRefusedError, ProfileBusyError, ProfileInstanceChangedError, ProfileNotFoundError, ProfileConfigError, ReservationInventoryPendingError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
+import { DeployAttemptRefusedError, ProfileBusyError, ProfileInstanceChangedError, ProfileNotFoundError, ProfileConfigError, ReservationInventoryPendingError, StackSettingsNotReadyError, StampRequiredError, TargetNotVerifiedError } from './errors/index.js';
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
@@ -720,6 +720,8 @@ export class DeploymentOrchestrator {
    */
   async nextEnvFor(profile: Profile): Promise<NextDeployEnv> {
     const version = await this.versionForDeploy(profile);
+    const problem = deployRootProblem(version);
+    if (problem) throw new StackSettingsNotReadyError(version.name, problem);
     const root = stackRootOf(version);
     const engine = engineForComponents(profile.components);
     const baseText = readIfPresent(baseEnvPath(root));

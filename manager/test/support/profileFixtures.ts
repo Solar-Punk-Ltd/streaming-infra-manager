@@ -3,13 +3,14 @@ import {
   DEFAULT_RPC_ENDPOINT_SOURCE,
   type EngineSettings,
   isPendingStamp,
+  isSecretSettingKey,
 } from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import type { ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.js';
-import { ContainerRepository } from '../../src/domain/ContainerRepository.js';
+import { ContainerRepository, type ContainerRow } from '../../src/domain/ContainerRepository.js';
 import {
   EngineOverviewSnapshot,
   EngineSettingsWriteOwner,
@@ -17,6 +18,8 @@ import {
   ProfileRepository,
   type ProfileRemovalClaim,
   ProfileWriteData,
+  type StackSettingsChange,
+  type StoredStackSettings,
 } from '../../src/domain/ProfileRepository.js';
 import {
   ApiContainer,
@@ -124,6 +127,9 @@ export class InMemoryProfiles {
 
   /** The `stack_settings` and `stack_settings_secret` columns together, as the deploy reads them. */
   readonly stackSettings = new Map<string, Record<string, string>>();
+
+  /** Each deployment's `settings_revision`, 0 until its first save. */
+  readonly settingsRevisions = new Map<string, number>();
 
   onDeleted?: (name: string) => void;
 
@@ -481,6 +487,32 @@ export class InMemoryProfiles {
     return { ...(this.stackSettings.get(name) ?? {}) };
   }
 
+  async stackSettingsOf(name: string): Promise<StoredStackSettings | null> {
+    if (!this.rows.has(name)) return null;
+    const plain: Record<string, string> = {};
+    const secretKeys: string[] = [];
+    for (const [key, value] of Object.entries(this.stackSettings.get(name) ?? {})) {
+      if (isSecretSettingKey(key)) secretKeys.push(key);
+      else plain[key] = value;
+    }
+    return { plain, secretKeys: secretKeys.sort(), revision: this.settingsRevisions.get(name) ?? 0 };
+  }
+
+  async updateStackSettings(
+    name: string,
+    change: StackSettingsChange,
+    guard: { instanceId: string; expectedRevision: number },
+  ): Promise<number | null> {
+    const row = this.rows.get(name);
+    const revision = this.settingsRevisions.get(name) ?? 0;
+    if (!row || row.instance_id !== guard.instanceId || revision !== guard.expectedRevision) return null;
+    const next = { ...(this.stackSettings.get(name) ?? {}) };
+    for (const key of change.remove) delete next[key];
+    this.stackSettings.set(name, { ...next, ...change.plain, ...change.secret });
+    this.settingsRevisions.set(name, revision + 1);
+    return revision + 1;
+  }
+
   async storeStackSecrets(name: string, secrets: StackSecrets): Promise<void> {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
@@ -549,6 +581,26 @@ export class FakeContainers {
 
   async listApiContainers(): Promise<ApiContainer[]> {
     return [];
+  }
+
+  /** The latest record of each service of a deployment, the way the table keeps one row per service. */
+  async listForProfile(profileName: string): Promise<ContainerRow[]> {
+    const latest = new Map<string, ContainerRow>();
+    for (const snapshot of this.snapshots.filter((recorded) => recorded.profileName === profileName)) {
+      latest.set(snapshot.service, {
+        profile_name: profileName,
+        service: snapshot.service,
+        ports: snapshot.ports,
+        env: snapshot.env,
+        env_salt: snapshot.envSalt,
+        env_digests: snapshot.envDigests,
+        build_id: null,
+        build_commit: null,
+        created_at: new Date(0),
+        updated_at: new Date(0),
+      });
+    }
+    return [...latest.values()].sort((left, right) => left.service.localeCompare(right.service));
   }
 
   async withContainers(profile: Profile): Promise<ProfileWithContainers> {
