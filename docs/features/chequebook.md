@@ -248,9 +248,11 @@ chain it names. For any other chain a transfer being prepared reads the chain
 through the `--blockchain-rpc-endpoint` of the node's container, parsed from the
 inspect the acquisition fetches, held to the configured endpoints' shape rules,
 and used only after it answered the node's chain id. It is remembered for that
-node's saved transfers. Receipt polling and recovery for a node the registry does
-not know, after a restart, open the node's owned connection only to read that
-endpoint again, and close the bridge unused.
+node's saved transfers. When the registry does not know it, after a restart, and
+whenever the remembered one fails in any way, receipt polling and recovery open
+the node's owned connection only to read that endpoint again, and close the
+bridge unused. The fresh endpoint replaces the remembered one only after it
+verified.
 
 History and exact replay do not require current transport configuration.
 Pending Bee reads require the saved deployment instance and matching node

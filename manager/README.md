@@ -424,9 +424,10 @@ itself does.
   `--blockchain-rpc-endpoint`, read from the node's own container on the Docker
   connection the transfer owns. It is held to the same shape rules as a
   configured endpoint and must answer the chain the node's wallet is on before
-  it is used. Receipt polling and recovery reuse it, and a manager restarted
-  while a transfer was still being checked reads the container again to learn
-  it. A deployment whose chain endpoint a signed-in user saved makes the manager
+  it is used. Receipt polling and recovery reuse it. They read the container
+  again when the manager does not know it, after a restart, and whenever the
+  remembered endpoint fails in any way, and what they read replaces the
+  remembered one only after it verified. A deployment whose chain endpoint a signed-in user saved makes the manager
   itself send its chain reads to that address, from the manager's own network.
   An endpoint only the node's host can reach, such as `host.docker.internal` on
   a remote host, does not answer the manager, and needs
