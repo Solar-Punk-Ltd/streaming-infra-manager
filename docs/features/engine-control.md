@@ -165,9 +165,10 @@ and Storage:
   entrypoint validates: positive numbers, integers where required, a ceiling at or over the
   segment length, and for ABR `frame rate × segment length` must be a whole number or the engine
   refuses to start. A pair it would refuse is named once above Save, which stays off. A save
-  stores and recreates nothing, and the card's Apply recreates the engine, and the uploader with
-  it for a key the uploader reads too. Until 2026-09-26 the drawer's Save, **Apply and recreate
-  engine**, stored and recreated in one step.
+  stores and recreates nothing, and the card's Apply recreates the containers that read what
+  changed: the engine, the uploader with it for the segment length, and the uploader alone for
+  the poll interval. Until 2026-09-26 the drawer's Save, **Apply and recreate engine**, stored
+  and recreated in one step.
 - **Restart** asks first: `Restart SRS for stream1? The publisher (if any) is disconnected for a
   few seconds. Settings are not changed.` With live status available the dialog says whether a
   publisher is connected right now.
@@ -319,8 +320,8 @@ settings, restart, logs and effective config for OME regardless.
 
 - Engine settings are edited in the deployment's Stack settings card (a drawer of their own until
   2026-09-26) with this host's defaults and the stack's help, validated the way the entrypoint
-  validates, applied by recreating only the engine, and the uploader for a key it reads too, and
-  visible in the container snapshot afterwards.
+  validates, applied by recreating the containers that read what changed, and visible in the
+  container snapshot afterwards.
 - Restart, logs and effective config work for srs, stream-uploader and bee-uploader on a running
   deployment, and answer plainly when the container is not running.
 - PR 2: a running stream shows publisher, codec, resolution, bitrate and uptime, refreshed while

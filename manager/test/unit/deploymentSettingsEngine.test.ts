@@ -10,8 +10,9 @@
  * the engine settings and never in the stack settings, holds it to the
  * engine's own rules with this host's defaults for the half of a pair nothing
  * stores, and moves one revision for the whole save. It recreates nothing.
- * Apply then recreates what the containers are behind on: the engine for an
- * engine key, and the uploader with it for the one the uploader reads too.
+ * Apply then recreates what the containers are behind on: the engine for the
+ * SRT latency, the engine and the uploader for the segment length, and the
+ * uploader alone for the OvenMediaEngine poll interval.
  */
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
