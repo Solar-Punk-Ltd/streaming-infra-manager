@@ -4,12 +4,12 @@ import {
   type AdminLinkTestAnswer,
   type AdminLinkTestOutcome,
   type AdminLinkTestRequest,
+  addressOfStreamKey,
   adminLinkTestProblems,
   adminUrlProblem,
   sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
-import type { Profile } from '../../types/index.js';
 import type { DeploymentOrchestrator } from '../DeploymentOrchestrator.js';
 import { AdminLinkInputError, ProfileNotFoundError } from '../errors/index.js';
 import { Logger } from '../Logger.js';
@@ -19,16 +19,6 @@ import { type AdminLinkProbe, type AdminLinkProbeTarget, probeAdminLink } from '
 import type { ManagerAdminLinkStore } from './ManagerAdminLinkRepository.js';
 
 const logger = Logger.getInstance();
-
-/**
- * The address a deployment's uploader signs its feeds as, where the manager
- * holds it: the stream address of the deployment's own key. A deployment that
- * has none signs with its version's key, whose address the manager does not
- * know, so there is nothing to compare.
- */
-function streamAddressOf(profile: Profile): string | null {
-  return profile.has_private_key ? (profile.public_key ?? null) : null;
-}
 
 /**
  * Test connection, from a page: an address typed there with a typed token or
@@ -67,7 +57,9 @@ export class AdminLinkTester {
   /**
    * Tests what the deployment's next deploy would give its uploader. A token
    * the deployment stores is presented only to the origin it was stored for,
-   * which is what the deploy holds it to as well.
+   * which is what the deploy holds it to as well. The feed owner compared is
+   * the address of the stream key the deploy gives, whether the deployment
+   * stores it or its version's base .env sets it.
    */
   async testDeployment(name: string, username: string): Promise<AdminLinkTestAnswer> {
     const profile = await this.profiles.findByName(name);
@@ -77,7 +69,7 @@ export class AdminLinkTester {
     const storedWith = (await this.profiles.stackSettingsOf(name))?.adminTokenOrigin ?? null;
     const outcome = storedWith !== null && url !== '' && !sameAdminOrigin(url, storedWith)
       ? 'stored-token-elsewhere'
-      : await this.outcomeFor({ url, token: env[ADMIN_API_TOKEN_KEY] ?? '', feedOwner: streamAddressOf(profile) });
+      : await this.outcomeFor({ url, token: env[ADMIN_API_TOKEN_KEY] ?? '', feedOwner: addressOfStreamKey(env.STREAM_KEY ?? '') });
     logger.info(`[AdminLink] ${username} tested the web2 admin link of ${name}: ${outcome}`);
     return { outcome };
   }

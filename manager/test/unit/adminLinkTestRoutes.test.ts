@@ -25,6 +25,7 @@ import {
   SESSION_COOKIE_NAME,
 } from '@streaming-infra-manager/common';
 
+import type { AdminLinkProbe } from '../../src/domain/adminLink/adminLinkProbe.js';
 import type { AuthService } from '../../src/domain/auth/AuthService.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import { throwawayRoot } from '../support/throwawayRoot.js';
@@ -41,11 +42,15 @@ const { createRequireSession } = await import('../../src/api/middleware/requireS
 const { requireSameSite } = await import('../../src/api/middleware/requireSameSite.js');
 const { createAdminLinkTestRouter } = await import('../../src/api/routes/adminLinkTest.js');
 const { AdminLinkTester } = await import('../../src/domain/adminLink/AdminLinkTester.js');
+const { probeAdminLink } = await import('../../src/domain/adminLink/adminLinkProbe.js');
 
 const ADMIN_URL = 'https://admin.example.com';
 const TOKEN = 'synthetic-admin-token-0123456789abcdef';
 const STORED_TOKEN = 'synthetic-stored-admin-token-fedcba9876543210';
 const OWNER = `0x${'ab'.repeat(20)}`;
+/** Private key 1, which no one signs with, and the address it derives. */
+const FAKE_STREAM_KEY = `0x${'0'.repeat(63)}1`;
+const FAKE_STREAM_ADDRESS = '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf';
 
 const session = {
   async sessionFor(token: string) {
@@ -61,8 +66,18 @@ interface Probed {
   feedOwner: string | null;
 }
 
-async function testApi(options: { outcome?: AdminLinkTestOutcome; storedToken?: string | null; deployment?: Parameters<typeof makeProfile>[0] } = {}) {
-  writeFileSync(join(root, '.env'), 'ENGINE=srs\nLOG_LEVEL=info\n', 'utf8');
+interface TestApiOptions {
+  outcome?: AdminLinkTestOutcome;
+  storedToken?: string | null;
+  deployment?: Parameters<typeof makeProfile>[0];
+  /** Lines the version's base .env carries besides its own two. */
+  baseEnv?: string;
+  /** The real probe, where a test asks a fake admin rather than recording the target. */
+  probe?: AdminLinkProbe;
+}
+
+async function testApi(options: TestApiOptions = {}) {
+  writeFileSync(join(root, '.env'), `ENGINE=srs\nLOG_LEVEL=info\n${options.baseEnv ?? ''}`, 'utf8');
   writeFileSync(join(root, '.env.sample'), '# === Admin mode ===\nADMIN_API_URL=\nADMIN_API_TOKEN=\n', 'utf8');
   const store = new InMemoryManagerAdminLink();
   if (options.storedToken) {
@@ -73,7 +88,7 @@ async function testApi(options: { outcome?: AdminLinkTestOutcome; storedToken?: 
   const probed: Probed[] = [];
   const tester = new AdminLinkTester(store, harness.profiles.asRepository(), harness.orchestrator, async (target) => {
     probed.push(target);
-    return options.outcome ?? 'linked';
+    return options.probe ? options.probe(target) : (options.outcome ?? 'linked');
   });
 
   const app = express();
@@ -118,6 +133,31 @@ function capturedLogs(t: TestContext): string[] {
     t.mock.method(console, level, (...args: unknown[]) => lines.push(args.map(String).join(' ')));
   }
   return lines;
+}
+
+/** A web2 admin on loopback that takes `token` and names `owner` in its public config. */
+async function fakeAdmin(t: TestContext, token: string, owner: string): Promise<string> {
+  const server = http.createServer((request, response) => {
+    const path = request.url ?? '';
+    const reply = (status: number, body: unknown) => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(body));
+    };
+    if (path.startsWith('/api/internal/')) {
+      if (request.headers.authorization !== `Bearer ${token}`) return reply(401, { error: 'unauthenticated' });
+      return reply(404, { error: 'stream_not_found' });
+    }
+    if (path === '/api/config') return reply(200, { feed: { owner, topic: 'catalog' }, viewerBaseUrl: null });
+    return reply(404, { error: 'not_found' });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise<void>((resolve) => {
+    server.closeAllConnections();
+    server.close(() => resolve());
+  }));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  return `http://127.0.0.1:${address.port}`;
 }
 
 function refusalOf(answer: { status: number; body: unknown }): string[] {
@@ -233,22 +273,44 @@ describe('POST /manager-settings/admin-link/test', () => {
 });
 
 describe('POST /profiles/:name/settings/admin-link/test', () => {
-  it("tests what the next deploy gives the uploader, with the deployment's stream address", async () => {
-    const api = await testApi({ deployment: { has_private_key: true, public_key: OWNER } });
+  it("tests what the next deploy gives the uploader, with the address the deployment's own stream key derives", async () => {
+    const api = await testApi({ deployment: { has_private_key: true, public_key: FAKE_STREAM_ADDRESS } });
     try {
+      api.harness.profiles.privateKeys.set('stage', FAKE_STREAM_KEY);
       api.harness.profiles.stackSettings.set('stage', { ADMIN_API_URL: ADMIN_URL, ADMIN_API_TOKEN: TOKEN });
       const answer = await api.testDeployment();
 
       assert.equal(answer.status, 200, answer.text);
       assert.deepEqual(answer.body, { outcome: 'linked' });
-      assert.deepEqual(api.probed, [{ url: ADMIN_URL, token: TOKEN, feedOwner: OWNER }]);
+      assert.deepEqual(api.probed, [{ url: ADMIN_URL, token: TOKEN, feedOwner: FAKE_STREAM_ADDRESS }]);
       assert.equal(answer.text.includes(TOKEN), false);
     } finally {
       await api.close();
     }
   });
 
-  it('compares no owner for a deployment that signs with its version key, whose address the manager does not hold', async () => {
+  it("compares the admin's feed owner with the address of a stream key the version's base .env sets", async (t) => {
+    const logs = capturedLogs(t);
+    for (const [owner, outcome] of [[OWNER, 'owner-mismatch'], [FAKE_STREAM_ADDRESS, 'linked']] as const) {
+      const adminUrl = await fakeAdmin(t, TOKEN, owner);
+      const api = await testApi({ baseEnv: `STREAM_KEY=${FAKE_STREAM_KEY}\n`, probe: probeAdminLink });
+      try {
+        api.harness.profiles.stackSettings.set('stage', { ADMIN_API_URL: adminUrl, ADMIN_API_TOKEN: TOKEN });
+        const answer = await api.testDeployment();
+
+        assert.equal(answer.status, 200, answer.text);
+        assert.deepEqual(answer.body, { outcome });
+        assert.equal(api.probed[0]?.feedOwner, FAKE_STREAM_ADDRESS);
+        assert.equal(answer.text.toLowerCase().includes(FAKE_STREAM_KEY.slice(2)), false);
+      } finally {
+        await api.close();
+      }
+    }
+    assert.ok(logs.length > 0);
+    assert.equal(logs.some((line) => line.toLowerCase().includes(FAKE_STREAM_KEY.slice(2))), false);
+  });
+
+  it('compares no owner when neither the deployment nor its version sets a stream key', async () => {
     const api = await testApi();
     try {
       api.harness.profiles.stackSettings.set('stage', { ADMIN_API_URL: ADMIN_URL, ADMIN_API_TOKEN: TOKEN });

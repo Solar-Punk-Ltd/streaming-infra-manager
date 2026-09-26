@@ -15,6 +15,10 @@ importers:
   .: {}
 
   common:
+    dependencies:
+      viem:
+        specifier: ^2.48.11
+        version: 2.49.3(typescript@5.6.3)
     devDependencies:
       '@types/node':
         specifier: 22.9.0
@@ -95,6 +99,9 @@ importers:
       saxes:
         specifier: 6.0.0
         version: 6.0.0
+      viem:
+        specifier: ^2.48.11
+        version: 2.49.3(typescript@5.6.3)
       yup:
         specifier: 1.7.0
         version: 1.7.0
