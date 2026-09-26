@@ -81,7 +81,8 @@ export function NewDeploymentWizard({
   const projected = useMemo(() => overlayCreatedPool(groups.filter(group => !unavailablePoolIds.has(group.id)),
     (profiles ?? []).filter(profile => profile.group_id == null || !unavailablePoolIds.has(profile.group_id)), createdPool), [groups, profiles, createdPool, unavailablePoolIds]);
   const poolResults = usePoolResults(projected.groups, projected.profiles);
-  const { link: managerAdminLink } = useManagerAdminLink();
+  const { link: managerAdminLink, error: managerAdminLinkError, reload: reloadManagerAdminLink } = useManagerAdminLink();
+  const managerAdminLinkStatus = managerAdminLink ? 'read' : managerAdminLinkError ? 'failed' : 'reading';
   const toast = useToast();
 
   const managerContext = useMemo<WizardContext>(
@@ -94,8 +95,10 @@ export function NewDeploymentWizard({
       poolResults,
       versions: versions ?? [],
       managerAdminLink,
+      managerAdminLinkStatus,
+      reloadManagerAdminLink: () => void reloadManagerAdminLink(),
     }),
-    [projected, serverHost, hostPassphrase, beeRpcEndpoint, poolResults, versions, managerAdminLink],
+    [projected, serverHost, hostPassphrase, beeRpcEndpoint, poolResults, versions, managerAdminLink, managerAdminLinkStatus, reloadManagerAdminLink],
   );
 
   const [state, setState] = useState<WizardState>(() =>

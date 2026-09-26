@@ -8,6 +8,8 @@ import { AdminLinkTest } from '../../../adminLink/AdminLinkTest';
 import {
   ADMIN_LINK_ABSENT,
   ADMIN_LINK_GROUP_LEAD,
+  ADMIN_LINK_MANAGER_READING,
+  ADMIN_LINK_MANAGER_UNREAD,
   ADMIN_LINK_OFF_NOTE,
   ADMIN_LINK_SWITCH_LABEL,
   ADMIN_LINK_UNREAD,
@@ -23,6 +25,7 @@ import {
   adminLinkTestOf,
   asksAdminLink,
   chosenAdminLink,
+  managerLinkPending,
   storedTokenElsewhere,
 } from '../adminLinkChoice';
 import type { WizardStepProps } from '../wizardState';
@@ -47,6 +50,7 @@ export function AdminLinkGroup({ state, context, update }: WizardStepProps) {
   const tokenProblem = choice.token === '' ? null : adminTokenProblem(choice.token);
   const testRequest = adminLinkTestOf(state, context);
   const elsewhere = storedTokenElsewhere(state, context);
+  const pending = managerLinkPending(state, context);
   const typeTokenHere = () => {
     set({ tokenSource: 'typed' });
     requestAnimationFrame(() => tokenField.current?.focus());
@@ -67,7 +71,28 @@ export function AdminLinkGroup({ state, context, update }: WizardStepProps) {
         </Typography>
       ) : (
         <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+          {pending === 'reading' && (
+            <Typography variant="caption" color="text.secondary" role="status">
+              {ADMIN_LINK_MANAGER_READING}
+            </Typography>
+          )}
+          {pending === 'failed' && (
+            <Alert
+              severity="warning"
+              sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}
+              action={
+                context.reloadManagerAdminLink && (
+                  <Button color="inherit" size="small" onClick={context.reloadManagerAdminLink}>
+                    Try again
+                  </Button>
+                )
+              }
+            >
+              {ADMIN_LINK_MANAGER_UNREAD}
+            </Alert>
+          )}
           <FormControlLabel
+            disabled={pending === 'reading'}
             control={<Switch size="small" checked={choice.on} onChange={(event) => set({ on: event.target.checked })} />}
             label={<Typography variant="body2">{ADMIN_LINK_SWITCH_LABEL}</Typography>}
           />
@@ -137,11 +162,11 @@ export function AdminLinkGroup({ state, context, update }: WizardStepProps) {
                 resetKey={JSON.stringify([choice.url, choice.tokenSource, choice.token, testRequest?.feedOwner ?? null])}
               />
             </>
-          ) : (
+          ) : pending === null ? (
             <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
               {ADMIN_LINK_OFF_NOTE}
             </Typography>
-          )}
+          ) : null}
         </Stack>
       )}
     </Box>

@@ -146,6 +146,10 @@ export interface WizardContext {
    * not be, which starts the group off.
    */
   managerAdminLink?: ManagerAdminLink | null;
+  /** Whether that link is still being read, or could not be. Absent is read. */
+  managerAdminLinkStatus?: 'reading' | 'read' | 'failed';
+  /** Reads that link again, after a read that failed. */
+  reloadManagerAdminLink?: () => void;
 }
 
 /** The versions a deployment can be made on: the ones that finished building. */

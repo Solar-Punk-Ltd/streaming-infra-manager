@@ -59,6 +59,13 @@ export const ADMIN_LINK_OFF_NOTE =
 /** Said in place of the group for a version whose settings declare no web2 admin link. */
 export const ADMIN_LINK_ABSENT = 'This version takes no web2 admin link, so the uploader runs standalone.';
 
+/** Said in the group and on the review when the manager's own link could not be read and the operator left the group alone. */
+export const ADMIN_LINK_MANAGER_UNREAD =
+  "The manager's link could not be read here, so the manager links this deployment itself where it has a link.";
+
+/** Said in the group while the manager's own link is read. */
+export const ADMIN_LINK_MANAGER_READING = "Reading the manager's link.";
+
 /** Said in place of the group when the version's settings could not be read. */
 export const ADMIN_LINK_UNREAD =
   "This version's settings could not be read, so the deployment starts with the manager's link where its version takes one, and otherwise keeps what its version sets.";

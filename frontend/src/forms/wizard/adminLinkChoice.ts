@@ -11,7 +11,7 @@ import {
   sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
-import { ADMIN_LINK_ABSENT, ADMIN_LINK_UNREAD } from '../../adminLink/adminLinkText';
+import { ADMIN_LINK_ABSENT, ADMIN_LINK_MANAGER_UNREAD, ADMIN_LINK_UNREAD } from '../../adminLink/adminLinkText';
 import { addressForKey } from '../validation';
 import { chosenKey, needsStreamKey, type WizardContext, type WizardState } from './wizardState';
 
@@ -49,6 +49,18 @@ function defaultChoiceOf(link: ManagerAdminLink | null | undefined): AdminLinkCh
 /** The choice on screen: the operator's once they touched the group, the manager's own link until then. */
 export function chosenAdminLink(state: WizardState, context: WizardContext): AdminLinkChoice {
   return state.adminLink ?? defaultChoiceOf(context.managerAdminLink);
+}
+
+/**
+ * Whether the group still waits for the manager's own link, or could not
+ * read it, while the operator has not touched it. A read that failed leaves
+ * the link to the manager, which adds its own to a create that names neither
+ * key, so the create does not store an empty address in its place.
+ */
+export function managerLinkPending(state: WizardState, context: WizardContext): 'reading' | 'failed' | null {
+  if (state.adminLink) return null;
+  const status = context.managerAdminLinkStatus ?? 'read';
+  return status === 'read' ? null : status;
 }
 
 /**
@@ -112,6 +124,9 @@ export function adminLinkError(state: WizardState, context: WizardContext): stri
   const availability = adminLinkAvailability(context);
   if (availability === 'reading') return `${PREFIX}reading this version's settings`;
   if (availability !== 'available') return null;
+  const pending = managerLinkPending(state, context);
+  if (pending === 'reading') return `${PREFIX}reading the manager's link`;
+  if (pending === 'failed') return null;
   const choice = chosenAdminLink(state, context);
   if (!choice.on) return null;
   const urlProblem = urlProblemOf(choice);
@@ -132,10 +147,13 @@ const NOTHING: AdminLinkBody = { settings: [], useManagerToken: false };
  * The link as the create sends it. Off is an explicit empty address, which
  * the deployment stores, so its uploader runs standalone even when its
  * version turns admin mode on. Nothing is sent for a deployment that runs no
- * uploader or a version that takes no link, which keep what the version sets.
+ * uploader, for a version whose list takes no link or could not be read, and
+ * for a group left alone while the manager's link could not be read. The
+ * manager then adds its own link where the version takes one.
  */
 export function adminLinkBody(state: WizardState, context: WizardContext): AdminLinkBody {
   if (!asksAdminLink(state) || adminLinkAvailability(context) !== 'available') return NOTHING;
+  if (managerLinkPending(state, context) !== null) return NOTHING;
   const choice = chosenAdminLink(state, context);
   if (!choice.on) return { settings: [{ key: ADMIN_API_URL_KEY, value: '' }], useManagerToken: false };
   const url = { key: ADMIN_API_URL_KEY, value: choice.url };
@@ -164,6 +182,7 @@ export function adminLinkSummary(state: WizardState, context: WizardContext): st
   if (availability === 'absent') return ADMIN_LINK_ABSENT;
   if (availability === 'unread') return ADMIN_LINK_UNREAD;
   if (availability === 'reading') return "Reading this version's settings.";
+  if (managerLinkPending(state, context) === 'failed') return ADMIN_LINK_MANAGER_UNREAD;
   const choice = chosenAdminLink(state, context);
   if (!choice.on) return 'Not linked. The uploader runs standalone.';
   const token = choice.tokenSource === 'stored' ? "the manager's stored token" : 'a token typed here';

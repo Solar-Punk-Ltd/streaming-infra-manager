@@ -221,6 +221,30 @@ describe('the rows of Advanced settings the group takes over', () => {
   });
 });
 
+describe("while the manager's own link is read, and when it could not be", () => {
+  const reading = { ...contextWith(null), managerAdminLinkStatus: 'reading' as const };
+  const failed = { ...contextWith(null), managerAdminLinkStatus: 'failed' as const };
+
+  it('waits for the read before Continue, rather than starting switched off', () => {
+    assert.equal(adminLinkError(stateFor('stream'), reading), "Web2 admin: reading the manager's link");
+  });
+
+  it("leaves the link to the manager when the read failed, so the create sends neither key and the manager adds its own", () => {
+    assert.equal(adminLinkError(stateFor('stream'), failed), null);
+    assert.deepEqual(adminLinkBody(stateFor('stream'), failed), { settings: [], useManagerToken: false });
+    assert.equal(
+      adminLinkSummary(stateFor('stream'), failed),
+      "The manager's link could not be read here, so the manager links this deployment itself where it has a link.",
+    );
+  });
+
+  it("takes the operator's own choice once they touched the group, read or not", () => {
+    const own = { on: false, url: '', tokenSource: 'typed' as const, token: '' };
+    assert.equal(adminLinkError(stateFor('stream', { adminLink: own }), reading), null);
+    assert.deepEqual(adminLinkBody(stateFor('stream', { adminLink: own }), failed), { settings: [{ key: 'ADMIN_API_URL', value: '' }], useManagerToken: false });
+  });
+});
+
 describe('what the create sends when the group was switched or moved to the stored token', () => {
   it('drops a typed token once the link is switched off, and once the stored token is chosen again', () => {
     const typedThenOff = { on: false, url: ADMIN_URL, tokenSource: 'typed' as const, token: TOKEN };
