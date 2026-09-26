@@ -201,7 +201,7 @@ describe('owned SSH forward lifecycle with fake resources', { timeout: 5000 }, (
     const h = fakeForwardHarness(); const late = deferred<Awaited<ReturnType<typeof h.dependencies.acquire>>>();
     h.dependencies.acquire = () => late.promise; const { handle } = start(h); await tick(); handle.dispose(); await assert.rejects(handle.result);
     await h.clock.advance(20); const outcome = await handle.cleanup; assert.equal(outcome.state, 'unverified');
-    late.resolve({ stream: h.decoded, binding: {} as never }); await tick(); assert.equal(h.decoded.destroyed, true); assert.equal(await handle.cleanup, outcome);
+    late.resolve({ stream: h.decoded, binding: {} as never, chainEndpoint: null }); await tick(); assert.equal(h.decoded.destroyed, true); assert.equal(await handle.cleanup, outcome);
   });
 
   it('keeps TERM and KILL bounded, then cleans files only after confirmed child exit', async () => {

@@ -321,7 +321,7 @@ export function beginSshDockerBeeAcquisition(expected: FrozenChequebookTarget, r
     lease = new ForwardLease(acquired.stream, () => !closing && childState === 'running' && clock.now() < operationalDeadline, close);
     active(true);
     published = true; cancelAcquisition?.();
-    resolveResult(Object.freeze({ stream: lease, binding }));
+    resolveResult(Object.freeze({ stream: lease, binding, chainEndpoint: typeof acquired.chainEndpoint === 'string' ? acquired.chainEndpoint : null }));
   }
 
   try {

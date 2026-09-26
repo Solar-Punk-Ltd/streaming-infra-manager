@@ -163,8 +163,14 @@ describe('a refused transfer names its cause in the answer', { timeout: 20_000 }
     assertRefused(await refusedDeposit(t, { runtime: { rpcEndpoints: '{broken' } }), 'chain_setting_invalid');
   });
 
-  it('chain endpoint missing: nothing names an endpoint for the node\'s chain', async t => {
-    assertRefused(await refusedDeposit(t, { runtime: { rpcEndpoints: '{"1":"https://rpc.example.invalid"}' } }), 'chain_endpoint_missing');
+  it('chain endpoint missing: nothing is configured for the node\'s chain and the node was started without one', async t => {
+    assertRefused(await refusedDeposit(t, { runtime: { rpcEndpoints: '{"1":"https://rpc.example.invalid"}' },
+      docker: inspectWith(inspect => { inspect.Config.Cmd = ['start', '--full-node=false']; }) }), 'chain_endpoint_missing');
+  });
+
+  it('wrong chain: the endpoint the node was started with answers for another chain', async t => {
+    assertRefused(await refusedDeposit(t, { runtime: { rpcEndpoints: undefined },
+      dependencies: () => ({ createChainReader: () => chainReader({ async chainId() { return 1; } }) }) }), 'wrong_chain');
   });
 
   it('chain unreachable: the endpoint does not answer', async t => {

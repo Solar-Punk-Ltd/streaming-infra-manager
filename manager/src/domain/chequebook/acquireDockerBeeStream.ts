@@ -5,7 +5,7 @@ import { DockerBeeAcquisitionError } from '../errors/DockerBeeAcquisitionError.j
 import type { FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { OwnedHttpStream } from './OwnedHttpStream.js';
 import { createDockerExecDuplex } from './createDockerExecDuplex.js';
-import { dockerObject, fullDockerId, listedBeeContainer, observedBeeContainer, type ObservedBeeContainer } from './DockerBeeBinding.js';
+import { dockerObject, fullDockerId, listedBeeContainer, nodeChainEndpoint, observedBeeContainer, type ObservedBeeContainer } from './DockerBeeBinding.js';
 import { dockerBeeBridgeCommand } from './dockerBeeBridge.js';
 import { DOCKER_BEE_STREAM_BOUNDS, dockerEngineVersion, observedBeeBridgeExecution, type QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
 
@@ -18,6 +18,8 @@ export interface DockerBeeAcquisitionOptions {
 export interface AcquiredDockerBeeStream {
   readonly stream: Duplex;
   readonly binding: ObservedBeeContainer;
+  /** What the node's container was started with for --blockchain-rpc-endpoint, or null. Never logged or answered. */
+  readonly chainEndpoint: string | null;
 }
 /** Trusted qualification of the exact immutable image, never a request field or an operator assertion. */
 export type { QualifiedBeeBridgeExecution } from './beeBridgeQualification.js';
@@ -174,7 +176,9 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     const engineVersion = dockerEngineVersion(info);
     const filters = encodeURIComponent(JSON.stringify({ label: [`com.docker.compose.project=${target.profile.name}`, 'com.docker.compose.service=bee-uploader'] }));
     const containerId = listedBeeContainer(await handshake.json('GET', `/containers/json?all=0&filters=${filters}`, 200), target);
-    const binding = observedBeeContainer(await handshake.json('GET', `/containers/${containerId}/json`, 200), containerId, target);
+    const inspect = await handshake.json('GET', `/containers/${containerId}/json`, 200);
+    const binding = observedBeeContainer(inspect, containerId, target);
+    const chainEndpoint = nodeChainEndpoint(inspect);
     const image = await handshake.json('GET', `/images/${binding.imageId}/json`, 200);
     const execution = observedBeeBridgeExecution(engineVersion, image, binding.imageId, bridgeLifetimeMs, limits.cleanupGraceMs);
     if (typeof qualifyImage !== 'function' || qualifyImage(execution) !== true) throw new DockerBeeAcquisitionError('bridge_not_qualified');
@@ -187,7 +191,7 @@ export async function acquireDockerBeeStream(transport: Duplex, expected: Frozen
     stream = createDockerExecDuplex(owned, { ...DOCKER_BEE_STREAM_BOUNDS, totalTimeoutMs: Math.max(1, Math.ceil(totalDeadline - performance.now())) }, signal);
     stream.on('error', ignoreLateError);
     handshake.release();
-    return Object.freeze({ stream, binding });
+    return Object.freeze({ stream, binding, chainEndpoint });
   } catch (error) {
     stream?.destroy();
     handshake?.destroy();

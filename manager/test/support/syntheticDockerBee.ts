@@ -17,8 +17,12 @@ export const syntheticContainerId = 'a'.repeat(64);
 const containerId = syntheticContainerId;
 const execId = 'c'.repeat(64);
 const labels = { 'com.docker.compose.project': syntheticTarget.profile.name, 'com.docker.compose.service': 'bee-uploader' };
+/** The chain endpoint the synthetic Bee container was started with, as the stack's compose file passes it. */
+export const syntheticNodeChainEndpoint = 'https://node-rpc.example.invalid/synthetic-node-key';
 /** What the fixture answers for the Bee container's inspect, for a test that changes one field of it. */
-export const syntheticContainerInspect = () => ({ Id: containerId, Image: syntheticImageId, Config: { Labels: { ...labels } },
+export const syntheticContainerInspect = () => ({ Id: containerId, Image: syntheticImageId,
+  Config: { Labels: { ...labels }, Cmd: ['start', '--api-addr=:1633', '--p2p-addr=:1634', `--blockchain-rpc-endpoint=${syntheticNodeChainEndpoint}`,
+    '--full-node=false', '--swap-enable=true'] },
   State: { Running: true, Paused: false, Restarting: false, Dead: false }, HostConfig: { NetworkMode: 'test-deployment_default' },
   NetworkSettings: { Ports: { '1633/tcp': [{ HostIp: '0.0.0.0', HostPort: '11633' }] } } });
 export type SyntheticBeeHandler = (request: http.IncomingMessage, response: http.ServerResponse) => boolean;
@@ -89,4 +93,20 @@ export function syntheticDockerBee(t: TestContext, intercept?: SyntheticBeeHandl
   docker.emit('connection', peer);
   t.after(() => { transport.destroy(); peer.destroy(); docker.close(); bee.close(); t.mock.restoreAll(); syncBuiltinESMExports(); });
   return { transport, peer, dockerRequests, beeRequests, counts: () => ({ networkCalls, closes, posts: beeRequests.filter(request => request.method === 'POST').length }) };
+}
+
+/** A Docker socket that answers any number of connections, each served by a fresh synthetic Docker and Bee. */
+export function syntheticDockerHost(t: TestContext, intercept?: SyntheticBeeHandler, answer?: SyntheticDockerAnswer) {
+  const fixtures: ReturnType<typeof syntheticDockerBee>[] = [];
+  return {
+    fixtures,
+    connect: () => {
+      const fixture = syntheticDockerBee(t, intercept, false, answer);
+      fixtures.push(fixture);
+      return { stream: fixture.transport as Duplex, connected: Promise.resolve() };
+    },
+    posts: () => fixtures.reduce((total, fixture) => total + fixture.counts().posts, 0),
+    dockerRequests: () => fixtures.flatMap(fixture => fixture.dockerRequests),
+    beeRequests: () => fixtures.flatMap(fixture => fixture.beeRequests),
+  };
 }

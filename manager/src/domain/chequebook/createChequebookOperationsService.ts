@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { ChequebookChainRegistry, type ChequebookChainReader } from './ChequebookChainRegistry.js';
-import { ChequebookTransferPreparation, type CaptureTransferTarget, type OwnedTransferPreparationOptions } from './ChequebookTransferPreparation.js';
+import type { ChequebookOperation } from '@streaming-infra-manager/common';
+import { ChequebookTransferPreparation, ownedAcquisitionBudgets, type CaptureTransferTarget, type OwnedTransferPreparationOptions } from './ChequebookTransferPreparation.js';
 import { ChequebookPendingHashes } from './ChequebookPendingHashes.js';
 import { ChequebookReceiptInspector } from './ChequebookReceiptInspector.js';
 import { ChequebookReceiptCheck } from './ChequebookReceiptCheck.js';
@@ -27,24 +28,36 @@ export interface ChequebookServiceDependencies extends ChequebookTransportDepend
 }
 
 /** Runtime strings route already qualified transports. Test dependencies are trusted code, never API or profile fields. */
+/** A saved transfer's node, which the chain registry reads again when it does not know that node's endpoint. */
+type SavedChainNode = Pick<ChequebookOperation, 'chainId' | 'nodeAddress'> & { readonly profileName?: string; readonly profileInstanceId?: string | null };
+
 export function createChequebookOperationsService(pool: Pool,
   runtime: { rpcEndpoints: string | undefined; dockerTransports: string | undefined }, dependencies: ChequebookServiceDependencies = {}): ChequebookOperationsService {
-  const rpcEndpoints = runtime.rpcEndpoints;
   let chainRegistry: ChequebookChainRegistry | undefined;
-  const chains = { forChain(chainId: number, signal?: AbortSignal) {
-    chainRegistry ??= new ChequebookChainRegistry(rpcEndpoints, dependencies.createChainReader);
-    return chainRegistry.forChain(chainId, signal);
-  } };
+  const registry = () => chainRegistry ??= new ChequebookChainRegistry(runtime.rpcEndpoints, dependencies.createChainReader);
   const ownership = new PostgresChequebookTargetOwnership(pool);
   const captureTarget = dependencies.captureTarget ?? ownership.capture.bind(ownership);
   const transports = new OwnedChequebookTransports(new ChequebookDockerTransports(runtime.dockerTransports, dependencies.qualificationCatalog), dependencies);
   const acquire = transports.acquire.bind(transports);
+  const budgets = ownedAcquisitionBudgets(structuredClone(dependencies.preparation ?? {}));
+  /** Opens the node's owned connection only to read the endpoint its container runs with. The bridge it opens is closed unused. */
+  const readNodeEndpoint = (node: SavedChainNode) => async (signal?: AbortSignal) => {
+    if (!node.profileName || !node.profileInstanceId) return null;
+    const acquired = await acquire(await captureTarget(node.profileName, node.profileInstanceId), budgets, signal ?? new AbortController().signal);
+    acquired.stream.destroy();
+    return acquired.chainEndpoint;
+  };
+  const chains = {
+    forPreparedNode: (chainId: number, nodeAddress: string, nodeEndpoint: string | null, signal?: AbortSignal) =>
+      registry().forPreparedNode(chainId, nodeAddress, nodeEndpoint, signal),
+    forSavedNode: (node: SavedChainNode, signal?: AbortSignal) => registry().forSavedNode(node.chainId, node.nodeAddress, readNodeEndpoint(node), signal),
+  };
   const preparation = ChequebookTransferPreparation.fromOwnedTarget(captureTarget, acquire, chains, dependencies.preparation);
   const pending = ChequebookPendingHashes.fromOwnedTarget(captureTarget, acquire, dependencies.preparation);
   const repository = dependencies.repository ?? new PostgresChequebookOperationRepository(pool);
-  const receiptInspector = new ChequebookReceiptInspector((operation, signal) => chains.forChain(operation.chainId, signal));
+  const receiptInspector = new ChequebookReceiptInspector((operation, signal) => chains.forSavedNode(operation, signal));
   const receipts = new ChequebookReceiptCheck(repository, receiptInspector.inspect.bind(receiptInspector));
-  const recoveryInspector = new ChequebookRecoveryInspector((operation, signal) => chains.forChain(operation.chainId, signal), pending.read.bind(pending));
+  const recoveryInspector = new ChequebookRecoveryInspector((operation, signal) => chains.forSavedNode(operation, signal), pending.read.bind(pending));
   const poller = new ChequebookReceiptPoller(
     { listAwaitingReceipt: repository.listAwaitingReceipt.bind(repository) },
     { check: receipts.check.bind(receipts) },

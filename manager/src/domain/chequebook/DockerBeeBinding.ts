@@ -58,6 +58,33 @@ function port(input: string): number {
   return Number(input);
 }
 
+const CHAIN_ENDPOINT_FLAG = '--blockchain-rpc-endpoint';
+
+/**
+ * The chain endpoint a Bee container was started with, from the command in its
+ * inspect, or null when it names none. Bee's flag parser takes the flag as one
+ * word with `=` or as two words, and the last occurrence wins, so this does
+ * the same. The value is not checked here: the chain registry holds it to the
+ * shape rules of a configured endpoint, and it is never logged or answered.
+ */
+export function nodeChainEndpoint(inspect: unknown): string | null {
+  const config = inspect && typeof inspect === 'object' ? (inspect as Record<string, unknown>).Config : undefined;
+  const command = config && typeof config === 'object' ? (config as Record<string, unknown>).Cmd : undefined;
+  if (!Array.isArray(command)) return null;
+  let endpoint: string | null = null;
+  for (let index = 0; index < command.length; index++) {
+    const word = command[index];
+    if (typeof word !== 'string') continue;
+    if (word.startsWith(`${CHAIN_ENDPOINT_FLAG}=`)) endpoint = word.slice(CHAIN_ENDPOINT_FLAG.length + 1);
+    else if (word === CHAIN_ENDPOINT_FLAG) {
+      const next = command[index + 1];
+      endpoint = typeof next === 'string' ? next : null;
+      index++;
+    }
+  }
+  return endpoint || null;
+}
+
 /** Drops unneeded inspect fields, including environment values, before returning immutable evidence. */
 export function observedBeeContainer(input: unknown, containerId: string, expected: FrozenChequebookTarget): ObservedBeeContainer {
   const inspect = dockerObject(input);
