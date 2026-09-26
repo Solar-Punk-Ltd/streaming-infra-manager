@@ -25,11 +25,13 @@ Out of scope (deferred):
 - Per-member overrides of shared parameters.
 
 Built since this page was written, and no longer deferred: editing a group's shared
-settings in one write (`PATCH /groups/:id/config`, the **Edit group** drawer), adding
-members to an existing group (`POST /groups/:id/members`) and removing a group once it
-has no members left (`DELETE /groups/:id`). An ABR node pool refuses the first two,
-because a bulk `stamp_id` would hand every rung the same batch and a new member would
-not carry a rung name. See [abr-ladder.md](abr-ladder.md).
+settings in one write (`PATCH /groups/:id/config`, the **Edit shared settings** button on a
+group's page), adding members to an existing group (`POST /groups/:id/members`) and removing
+a group once it has no members left (`DELETE /groups/:id`). A group's page also has
+**Start all**, **Stop all** and **Remove group** buttons, which act on every member one by
+one. An ABR node pool refuses a `stamp_id` in the first, because one batch would then pay
+for every rung, and refuses the second, because a new member would not carry a rung name.
+See [abr-ladder.md](abr-ladder.md).
 
 ## Data model
 
@@ -160,6 +162,6 @@ behaviour lives now.
 ## Open questions / future work
 
 - Per-member secret generation (private keys, stamp ids) for genuine streamer fan-out.
-- Group-level bulk destroy and redeploy. Editing shared parameters was built, and
-  so was adding members, both listed under Scope above.
+- Group-level bulk redeploy. Editing shared parameters, adding members and bulk start,
+  stop and removal were built, all listed under Scope above.
 - Multi-host distribution.
