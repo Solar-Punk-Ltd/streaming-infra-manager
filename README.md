@@ -4,8 +4,9 @@ Deployment and orchestration tooling for testing the Swarm HLS live-streaming
 stack. Targets two dedicated servers:
 
 - **Streamer**: Bee light node, `stream-uploader` service, SRS.
-- **Watcher**: N lightweight Docker containers running a Bee ultra-light node
-  and the React streaming client, plus a small interface to start and stop them.
+- **Watcher**: N lightweight Docker containers running a Bee node, ultra-light
+  unless it is created light, and the React streaming client, plus a small
+  interface to start and stop them.
 
 It also deploys the two halves of an ABR stage, which normally run on this one
 host under this manager:
