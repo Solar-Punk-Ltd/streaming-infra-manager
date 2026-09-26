@@ -1041,9 +1041,9 @@ Levi asked for an end to end pass over everything the manager offers, through a 
 
 ## The first deploy and migration on the live host, 2026-09-11
 
-Levi authorised the deploy, the one-way migration and a full pass on 157.90.34.105 while he was at the keyboard. The runbook is `../consensus/FIRST-DEPLOY-SESSION.md` and this is what happened against it.
+Levi authorised the deploy, the one-way migration and a full pass on the live host while he was at the keyboard. The runbook is `../consensus/FIRST-DEPLOY-SESSION.md` and this is what happened against it.
 
-**The migration.** `bash deploy/deploy.sh 157.90.34.105` from the branch. Migrations 013 to 031 applied in one run, nineteen of them, one way as D08 decided. The five deployments already there kept running untouched throughout and were all still RUNNING with their containers at the end. The bundled version moved from the flat tree to immutable builds: the host fetched and built the pinned commit 9f1255b itself in twenty nine seconds, and the versions root gained `bundled.repo`, `bundled.builds/9f1255b` and `.executions` beside the existing `main-v3`. The Versions page then said, correctly, that bundled was not tested since that update, and repeated it on the wizard's version picker.
+**The migration.** `bash deploy/deploy.sh <host>` from the branch. Migrations 013 to 031 applied in one run, nineteen of them, one way as D08 decided. The five deployments already there kept running untouched throughout and were all still RUNNING with their containers at the end. The bundled version moved from the flat tree to immutable builds: the host fetched and built the pinned commit 9f1255b itself in twenty nine seconds, and the versions root gained `bundled.repo`, `bundled.builds/9f1255b` and `.executions` beside the existing `main-v3`. The Versions page then said, correctly, that bundled was not tested since that update, and repeated it on the wizard's version picker.
 
 **The version settings page ran for the first time anywhere.** Revision 3 on build 9f1255b, state applied, the host's own carried-over keys present with Remove beside each, the generated secrets masked behind Reveal, `deploy/config.json` and both engine environments below. `main-v3` keeps its Settings disabled because it is still a flat checkout, which is the rule the page states.
 
@@ -1062,7 +1062,7 @@ Levi authorised the deploy, the one-way migration and a full pass on 157.90.34.1
 ## The second live pass, and the first money spent, 2026-09-13
 
 Levi asked for everything to be tried. This pass ran against the manager on its
-own public domain, `streamtestinfra.swarmens.limo`, rather than through an SSH
+own public domain rather than through an SSH
 tunnel, so it exercised the same front door an operator uses. It found four
 defects, two of them in paths no laptop can reach, and it stopped at the one
 gate a session must not open by itself.
@@ -1259,7 +1259,7 @@ about 117 seconds for its execution copy, which hashes all 43,000 files of the
 build twice, once on the source and once on the hard-linked copy, and walks
 their stamps four times, one file at a time, while the same hashing with a C
 tool inside the api container takes 6 seconds. The uploader's deploy was then
-refused: its pool string named every node at `http://157.90.34.105:10015` and
+refused: its pool string named every node at `http://<host>:10015` and
 siblings, composed from `PUBLIC_HOST`, while the T06 bind step puts every local
 Bee API on the Docker bridge address alone, 10.200.0.1 on that host. Nothing
 answered on the public address from the host or from any container, the
