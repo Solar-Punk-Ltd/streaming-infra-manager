@@ -29,7 +29,16 @@ import { fileURLToPath } from 'node:url';
 
 import { createServer } from 'vite';
 
-import { clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, readWhenPresent, waitFor } from './support/chrome.mjs';
+import {
+  clickWhenEnabled,
+  fillWhenPresent,
+  launchChrome,
+  PAGE_TEXT,
+  paintedInView,
+  readWhenPresent,
+  stillWithin,
+  waitFor,
+} from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { endViteServer } from './support/teardown.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
@@ -177,13 +186,16 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
   const openEverySection = () => evaluate(`[...document.querySelectorAll('#stack-settings h4 button')]
     .filter(button => button.getAttribute('aria-expanded') === 'false')
     .forEach(button => button.click())`);
-  // The viewport alone, scrolled to the card. A capture beyond the viewport
-  // lays the page out again at its whole height and paints the open folds
-  // over each other, which reads as a broken card when it is not.
-  const screenshot = async (name, at = card, block = 'start') => {
-    await evaluate(`(${at})?.scrollIntoView({ block: ${JSON.stringify(block)} })`);
+  // The viewport alone. A capture beyond the viewport lays the page out again
+  // at its whole height and paints the open folds over each other, which
+  // reads as a broken card when it is not.
+  const capture = async (name) => {
     const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false });
     await writeFile(join(evidence, name), Buffer.from(data, 'base64'));
+  };
+  const screenshot = async (name, at = card, block = 'start') => {
+    await evaluate(`(${at})?.scrollIntoView({ block: ${JSON.stringify(block)} })`);
+    await capture(name);
   };
   const openDeployment = async (name) => {
     await call('Page.navigate', { url: `${origin}/#/deployments/${name}` });
@@ -510,17 +522,15 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     await clickWhenEnabled(evaluate, buttonIn(engineCard, 'Settings'), "the Engine card's Settings button");
 
     await waitFor(() => evaluate('document.activeElement?.id'), (id) => id === 'deployment-setting-HLS_FRAGMENT', 'the segment length focused');
+    assert.equal(await evaluate(paintedInView(rowOf('HLS_FRAGMENT'))), true, 'the segment length on screen as it is focused');
     assert.equal(await evaluate(ENGINE_DRAWER_OPEN), false, 'no engine settings drawer opened');
     const engineFold = `[...document.querySelectorAll('#stack-settings h4 button')].find(button => button.textContent.startsWith('Engine settings'))`;
     assert.equal(await evaluate(`${engineFold}?.getAttribute('aria-expanded')`), 'true');
     const shown = await evaluate(`[...document.querySelectorAll('#stack-settings li[data-setting]')].map(row => row.dataset.setting)`);
     assert.deepEqual(shown, ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY'], 'the engine settings and nothing else are open');
-    await waitFor(
-      () => evaluate(`(() => { const box = ${rowOf('HLS_FRAGMENT')}.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; })()`),
-      Boolean,
-      'the segment length in view',
-    );
-    await screenshot('engine-settings-from-engine-card-phone.png', rowOf('HLS_FRAGMENT'), 'center');
+    await waitFor(() => evaluate(stillWithin(card)), Boolean, 'the settings card still');
+    assert.equal(await evaluate(paintedInView(rowOf('HLS_FRAGMENT'))), true, 'the segment length still on screen once the card is still');
+    await capture('engine-settings-from-engine-card-phone.png');
   });
 
   await t.test('a stopped deployment is told Start will use the changes, with no Apply', async () => {

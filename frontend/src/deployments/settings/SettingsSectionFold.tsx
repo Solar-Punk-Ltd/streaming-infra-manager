@@ -18,6 +18,7 @@ export function SettingsSectionFold({
   counts,
   target = 'deployment',
   onToggle,
+  onOpened,
   children,
 }: {
   section: SettingsSection;
@@ -25,6 +26,8 @@ export function SettingsSectionFold({
   counts: SectionCounts;
   target?: SettingsEditTarget;
   onToggle: () => void;
+  /** Called once the fold has finished opening, which is when its rows are on screen where they are laid out. */
+  onOpened?: () => void;
   children: ReactNode;
 }) {
   const listId = useId();
@@ -51,7 +54,7 @@ export function SettingsSectionFold({
           </Stack>
         </ButtonBase>
       </Typography>
-      <Collapse in={open} unmountOnExit>
+      <Collapse in={open} unmountOnExit onEntered={onOpened}>
         <Stack component="ul" id={listId} sx={{ m: 0, p: 0, pb: 1, minWidth: 0 }}>
           {children}
         </Stack>

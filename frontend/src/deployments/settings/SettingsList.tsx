@@ -31,6 +31,18 @@ export interface SettingReveal {
   seq: number;
 }
 
+/**
+ * A key a reveal asked for, not yet shown. A fold that is still opening clips
+ * the rows it holds, and scrolling to one of them then scrolls the fold rather
+ * than the page, which leaves the row off screen once the fold has opened. So
+ * a key whose section had to open is shown when that fold has opened.
+ */
+interface PendingReveal {
+  key: string;
+  /** The section whose fold is opening for the key, or null when none had to open. */
+  opening: string | null;
+}
+
 export interface SettingsListProps {
   entries: readonly DeploymentSettingEntry[];
   /** Where each key stands against the edit in progress, by key. A key left out is untouched. */
@@ -71,6 +83,13 @@ function toggled(opened: ReadonlySet<string>, id: string): ReadonlySet<string> {
   return next;
 }
 
+/** Scrolls a key's row to the middle of the page and puts the cursor in its field. */
+function showField(key: string): void {
+  const field = document.getElementById(settingFieldId(key));
+  (field?.closest('li') ?? field)?.scrollIntoView({ block: 'center' });
+  field?.focus({ preventScroll: true });
+}
+
 /**
  * The keys of a settings list with a search over them, folded by the
  * sample's sections, each key with the field that edits it. Whatever renders
@@ -91,29 +110,34 @@ export function SettingsList({
 }: SettingsListProps) {
   const [query, setQuery] = useState('');
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
-  const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingReveal | null>(null);
   const allSections = sectionsOf(entries, engine.fields);
   const sections = filteredSections(allSections, query, engine.fields);
 
   // A search could hide the key and a fold hides every key of its section, so
-  // a request to show one clears the first and opens the second, and the field
-  // is focused once the render that puts it on screen has landed.
+  // a request to show one clears the first and opens the second. A fold that
+  // is still opening for an earlier request is still opening for this one.
   useEffect(() => {
     if (!reveal) return;
     const section = sectionIdHolding(allSections, reveal.key);
+    const opening = section !== null && (pending?.opening === section || !isSectionOpen(section, opened, query));
     setQuery('');
     if (section) setOpened((current) => new Set([...current, section]));
-    setFocusKey(reveal.key);
+    setPending({ key: reveal.key, opening: opening ? section : null });
     // Asked once per request: the sections of the render the request arrived in are the ones it means.
   }, [reveal]);
 
   useEffect(() => {
-    if (focusKey === null) return;
-    const field = document.getElementById(settingFieldId(focusKey));
-    (field?.closest('li') ?? field)?.scrollIntoView({ block: 'center' });
-    field?.focus({ preventScroll: true });
-    setFocusKey(null);
-  }, [focusKey]);
+    if (pending === null || pending.opening !== null) return;
+    showField(pending.key);
+    setPending(null);
+  }, [pending]);
+
+  const showOnceOpened = (id: string) => {
+    if (pending === null || pending.opening !== id) return;
+    showField(pending.key);
+    setPending(null);
+  };
 
   return (
     <>
@@ -147,6 +171,7 @@ export function SettingsList({
               counts={countsOf(section.entries, states)}
               target={target}
               onToggle={() => setOpened((current) => toggled(current, section.id))}
+              onOpened={() => showOnceOpened(section.id)}
             >
               {section.entries.map((entry) => (
                 <DeploymentSettingRow

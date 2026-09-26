@@ -12,7 +12,8 @@ export const DEPLOYMENT_SETTINGS_ANCHOR = 'stack-settings';
  * everything, so moving it to a page or a tab of its own changes this file
  * and the one that mounts it, and nothing else. A request from elsewhere on
  * the page to show one setting brings the card into view at once, and the
- * editor focuses the setting as soon as its list is read.
+ * editor scrolls to the setting and focuses it once its list is read and the
+ * section holding it has opened.
  */
 export function DeploymentSettingsCard({ profile, reveal = null }: { profile: Profile; reveal?: SettingReveal | null }) {
   useEffect(() => {

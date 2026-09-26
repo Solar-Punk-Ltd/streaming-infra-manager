@@ -33,7 +33,15 @@ import {
 } from '@streaming-infra-manager/common';
 
 import { runningCatalog } from './fixtures/deploymentSettings.mjs';
-import { buttonWithText, clickWhenEnabled, launchChrome, PAGE_TEXT, waitFor } from './support/chrome.mjs';
+import {
+  buttonWithText,
+  clickWhenEnabled,
+  launchChrome,
+  PAGE_TEXT,
+  paintedInView,
+  stillWithin,
+  waitFor,
+} from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { endViteServer } from './support/teardown.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
@@ -194,15 +202,11 @@ test('the SRT ingest card says how the link is holding up, and how to fix it', {
     await clickWhenEnabled(evaluate, buttonWithText(RAISE_LATENCY_BUTTON), 'the latency button in the remedy');
 
     await waitFor(() => evaluate('document.activeElement?.id'), (id) => id === `deployment-setting-${SRT_LATENCY_KEY}`, 'the SRT latency focused');
+    const latencyRow = `document.querySelector('li[data-setting="${SRT_LATENCY_KEY}"]')`;
+    assert.equal(await evaluate(paintedInView(latencyRow)), true, 'the SRT latency on screen as it is focused');
     assert.equal(await evaluate(ENGINE_DRAWER_OPEN), false, 'no engine settings drawer opened');
-    await waitFor(
-      () => evaluate(`(() => {
-        const box = document.querySelector('li[data-setting="${SRT_LATENCY_KEY}"]')?.getBoundingClientRect();
-        return Boolean(box) && box.top >= 0 && box.bottom <= innerHeight;
-      })()`),
-      Boolean,
-      'the SRT latency in view',
-    );
+    await waitFor(() => evaluate(stillWithin(`document.getElementById('stack-settings')`)), Boolean, 'the settings card still');
+    assert.equal(await evaluate(paintedInView(latencyRow)), true, 'the SRT latency still on screen once the card is still');
     const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false });
     await writeFile(join(evidence, 'latency-setting.png'), Buffer.from(data, 'base64'));
   });
