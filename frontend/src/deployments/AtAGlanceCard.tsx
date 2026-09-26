@@ -29,6 +29,7 @@ export function AtAGlanceCard({
   version,
   engineOverview,
   engineLoadError,
+  savedNotApplied,
 }: {
   profile: Profile;
   serverHost: string;
@@ -41,6 +42,8 @@ export function AtAGlanceCard({
   engineOverview: EngineOverview | null;
   /** Why it did not arrive, or null. */
   engineLoadError: string | null;
+  /** The keys whose saved value the running containers do not have yet, from the deployment's settings list. */
+  savedNotApplied: readonly string[];
 }) {
   const engine = engineOf(profile);
   const entries: KeyValueEntry[] = [
@@ -56,7 +59,7 @@ export function AtAGlanceCard({
     entries.push({
       key: 'Engine',
       value: engineOverview
-        ? engineSummary(engine, engineOverview.observations)
+        ? engineSummary(engine, engineOverview.observations, savedNotApplied)
         : engineLoadError
           ? `${ENGINE_LABEL[engine]} · settings could not be loaded`
           : ENGINE_LABEL[engine],

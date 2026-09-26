@@ -13,9 +13,10 @@
  * build yet. The deployment's engine settings are in the same list since Levi
  * ruled the Engine card's drawer out on 2026-09-26, so it also drives those as
  * the drawer showed them, a pair the engine would refuse, a saved segment
- * length that Apply recreates the engine and the uploader for, and stored
- * engine settings the next deploy would refuse. All of it at a phone's width,
- * because that is where an operator reads a page during an incident.
+ * length that Apply recreates the engine and the uploader for, the Engine card
+ * marking a saved value the engine does not run yet, and stored engine
+ * settings the next deploy would refuse. All of it at a phone's width, because
+ * that is where an operator reads a page during an incident.
  *
  * A real headless Chrome over a real Vite, with an offline fixture in place of
  * the manager. Runs through `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser`,
@@ -28,6 +29,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { createServer } from 'vite';
+
+import { engineSettingFieldOf } from '@streaming-infra-manager/common';
 
 import {
   clickWhenEnabled,
@@ -55,8 +58,12 @@ import {
   UNRECORDED_INSTANCE,
   unrecordedCatalog,
 } from './fixtures/deploymentSettings.mjs';
+import { srsOverviewOf } from './fixtures/engineOverview.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
+
+/** What the host's base `.env` sets, which the settings list names as the segment length's default. */
+const HOST_ENV = { HLS_FRAGMENT: '2' };
 
 /** Whether the drawer the Engine card used to open is on screen, which it never is since the drawer went. */
 const ENGINE_DRAWER_OPEN = `[...document.querySelectorAll('h2')].some(heading => heading.textContent.startsWith('Engine settings for'))`;
@@ -72,14 +79,14 @@ const REFUSED_ENGINE = 'stuck-stage';
 
 const RUNNING_SRS = [{ service: 'srs', ports: {} }, { service: 'stream-uploader', ports: {} }, { service: 'bee-uploader', ports: {} }];
 
-function profileNamed(name, instanceId, status) {
+function profileNamed(name, instanceId, status, engineSettings = {}) {
   return {
     name, kind: 'streamer', status, port_slot: 1, host: 'localhost',
     instance_id: instanceId, engine_config_revision: 0, intent_revision: 0,
     stack_version_id: 1, engine_config_state: null, engine_config_error: null, has_engine_config: false,
     notes: null, notes_revision: 0, last_error: null, last_error_at: null, has_srt_passphrase: false,
     created_at: '2026-09-26T08:00:00.000Z', updated_at: '2026-09-26T08:00:00.000Z',
-    engine_settings: {}, stamp_id: null, public_key: '1'.repeat(40), pendingStamp: false,
+    engine_settings: engineSettings, stamp_id: null, public_key: '1'.repeat(40), pendingStamp: false,
     containers: status === 'RUNNING' ? RUNNING_SRS : [],
   };
 }
@@ -89,8 +96,24 @@ const PROFILES = [
   profileNamed(STOPPED, STOPPED_INSTANCE, 'STOPPED'),
   profileNamed(NOT_READY, '66666666-6666-4666-8666-666666666666', 'RUNNING'),
   profileNamed(UNRECORDED, UNRECORDED_INSTANCE, 'RUNNING'),
-  profileNamed(REFUSED_ENGINE, REFUSED_ENGINE_INSTANCE, 'RUNNING'),
+  profileNamed(REFUSED_ENGINE, REFUSED_ENGINE_INSTANCE, 'RUNNING', { HLS_FRAGMENT: '3' }),
 ];
+
+/**
+ * The deployment's row after a save of its settings, as the manager keeps it:
+ * each engine key in its engine settings, and the row moved, which is what a
+ * read of the deployments list finds.
+ */
+function storeEngineSettings(name, entries) {
+  const profile = PROFILES.find((row) => row.name === name);
+  if (!profile) return;
+  for (const { key, value } of entries) {
+    if (!engineSettingFieldOf(key)) continue;
+    if (value === null) delete profile.engine_settings[key];
+    else profile.engine_settings[key] = value;
+  }
+  profile.updated_at = new Date().toISOString();
+}
 
 /** The sentence the fixture's manager refuses a staged save with, as `settingEditProblems` words one. */
 const STAGED_REFUSAL = 'ADMIN_API_URL is stored for this deployment, but its version no longer declares it. Reset it rather than set it.';
@@ -160,8 +183,12 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
             }
             const saved = afterSave(catalog, body.entries);
             catalogs.set(name, saved);
+            storeEngineSettings(name, body.entries);
             return json({ revision: saved.revision });
           }
+          const engine = /^\/profiles\/([^/]+)\/engine$/.exec(path);
+          const engineOf = PROFILES.find((row) => row.name === engine?.[1]);
+          if (engineOf) return json(srsOverviewOf(engineOf, { hostEnv: HOST_ENV }));
           // Every other read of a deployment is a node that does not answer,
           // which the rest of the page already knows how to show.
           if (path.startsWith('/profiles/')) return json({ error: 'Node unavailable', code: 'bee_node_unreachable' }, 503);
@@ -181,6 +208,8 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
   const shows = (description, ...texts) => waitFor(body, (text) => texts.every((part) => text.includes(part)), description);
   const card = `document.getElementById('stack-settings')`;
   const cardText = () => evaluate(`${card}?.innerText ?? ''`);
+  const engineCard = `[...document.querySelectorAll('h3')].find(el => el.textContent.trim() === 'SRS 6')?.closest('.MuiPaper-root')`;
+  const engineCardText = () => evaluate(`(${engineCard})?.innerText ?? ''`);
   const rowOf = (key) => `document.querySelector('li[data-setting="${key}"]')`;
   const fieldOf = (key) => `document.querySelector('[aria-label="${key}"]')`;
   const rowText = (key) => readWhenPresent(evaluate, rowOf(key), 'innerText', `the ${key} row`);
@@ -516,11 +545,29 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     await waitFor(cardText, (text) => text.includes('Applied. Recreating srs and stream-uploader with the saved settings.'), 'what Apply recreated');
   });
 
+  await t.test('the Engine card marks a saved value saved, not applied until Apply, before and after a reload', async () => {
+    const marked = /SRT latency\s+4000 milliseconds\s+Deployment override\s+saved, not applied/;
+    const before = writes.length;
+    await typeInto('SRT_LATENCY', '4000');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Save'), 'the Save button');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the latency save');
+    await waitFor(engineCardText, (text) => marked.test(text), 'the saved latency marked on the Engine card');
+
+    await call('Page.reload');
+    await shows('the page read again', 'Stack settings');
+    await waitFor(engineCardText, (text) => marked.test(text), 'the saved latency marked after a reload');
+    await screenshot('engine-card-saved-not-applied-phone.png', engineCard);
+
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Apply'), 'the Apply button');
+    await waitFor(engineCardText, (text) => !text.includes('saved, not applied'), 'the mark gone once applied');
+    assert.match(await engineCardText(), /SRT latency\s+4000 milliseconds\s+Deployment override/);
+  });
+
   await t.test('the card takes the whole width of its column on a wide screen', async () => {
     await call('Emulation.setDeviceMetricsOverride', { width: WIDE, height: 900, deviceScaleFactor: 1, mobile: false });
     await waitFor(() => evaluate('innerWidth'), (width) => width === WIDE, 'the wide viewport');
     const widths = await evaluate(`(() => {
-      const engine = [...document.querySelectorAll('h3')].find(el => el.textContent.trim() === 'SRS 6')?.closest('.MuiPaper-root');
+      const engine = ${engineCard};
       const settings = ${card};
       return { engine: engine?.getBoundingClientRect().width ?? 0, settings: settings?.getBoundingClientRect().width ?? -1 };
     })()`);
@@ -533,7 +580,6 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     await call('Page.reload');
     await shows('the page read again, every section folded', 'Stack settings');
     await evaluate('scrollTo(0, 0)');
-    const engineCard = `[...document.querySelectorAll('h3')].find(el => el.textContent.trim() === 'SRS 6')?.closest('.MuiPaper-root')`;
 
     await clickWhenEnabled(evaluate, buttonIn(engineCard, 'Settings'), "the Engine card's Settings button");
 

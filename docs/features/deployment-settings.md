@@ -145,6 +145,12 @@ keeps its list of what the engine runs with and where each value came from, and 
 button brings this card into view with the engine settings open and the first one focused. The SRT
 ingest card's step to raise the SRT latency brings the card into view at that setting, focused.
 
+The Engine card and the engine line of **At a glance** show the stored engine settings, so between a
+save and Apply they name a value the engine does not run yet. The page reads the list once for this
+card and both of those, and they mark every value whose key the running containers are behind on as
+**saved, not applied**. A save that lands also reads the deployment's row again, because the manager
+announces no change for a save, so both show the value it stored rather than the one before it.
+
 - **Folded by the sample's sections**, in the order they first appear, with the deployment's own
   engine settings in an **Engine settings** section first and the keys the version no longer
   declares in a section of their own at the end. A section opens on a click, and a search by
@@ -248,8 +254,9 @@ create sends, so `pnpm -C frontend dev:mock` shows it with no manager.
 - The wizard checks a typed value against the list it read, and the manager checks it again against
   the version's current build when the create arrives. A build published in between can refuse a
   create the wizard let through, and the refusal names the key.
-- The Engine card reads the stored engine settings, so after a save and before Apply it names a saved
-  value the engine does not run yet. The banner of this card says which settings are behind.
+- Right after a save the list and the deployment's row are read one after the other, so for the
+  moment between the two answers the Engine card can mark the value from before the save. A page
+  that another operator's save changed shows the old value, unmarked, until its row is read again.
 - An engine setting's default is read from the host's base `.env` and the version's own fallback, as
   the Engine card reads it, and not from the engine's own env file, `engines/<engine>/.env`, which
   the version settings page can also set. Where that file sets an engine setting, an unset one

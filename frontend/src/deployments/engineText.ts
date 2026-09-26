@@ -16,6 +16,13 @@ export const ENGINE_LABEL: Record<EngineName, string> = {
 export const LIVE_PUBLISHER_DISCONNECTED = 'A publisher, if one is live, is disconnected for a few seconds.';
 
 /**
+ * Said beside an engine value the running containers are behind on. The
+ * Engine card and the side column read the stored settings, so between a
+ * save and Apply they name a value the engine does not run yet.
+ */
+export const SAVED_NOT_APPLIED = 'saved, not applied';
+
+/**
  * The engine in one line, for the side column: what it is and the two numbers
  * that decide how far behind live a viewer ends up.
  *
@@ -25,11 +32,14 @@ export const LIVE_PUBLISHER_DISCONNECTED = 'A publisher, if one is live, is disc
 export function engineSummary(
   engine: EngineName,
   observations: EngineSettingObservations,
+  /** The keys whose saved value the running containers do not have yet, from the deployment's settings list. */
+  savedNotApplied: readonly string[] = [],
 ): string {
   const setting = (key: string, unit: string): string => {
     const observation = observations[key];
     const { value } = engineObservationText(observation, unit);
-    return observation?.status === 'known' ? value : value.toLowerCase();
+    const shown = observation?.status === 'known' ? value : value.toLowerCase();
+    return savedNotApplied.includes(key) ? `${shown} (${SAVED_NOT_APPLIED})` : shown;
   };
   if (engine === OME_SERVICE) {
     return [

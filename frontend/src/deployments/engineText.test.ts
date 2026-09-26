@@ -45,4 +45,17 @@ describe('the engine in one line', () => {
       status: 'known', source: 'config-file', value: '4', environment: 'none',
     }, HLS_SEGMENT_COUNT: known('8') }), 'OvenMediaEngine · segment 4 s · playlist 8 pieces');
   });
+
+  // The line is built from the stored settings, so between a save and Apply it
+  // names a value the running engine does not have yet.
+  it('marks a value saved and not applied, and leaves the rest as they are', () => {
+    assert.equal(
+      engineSummary('srs', { HLS_FRAGMENT: known('1'), HLS_WINDOW: known('15') }, ['HLS_FRAGMENT', 'SRT_LATENCY']),
+      'SRS · segment 1 s (saved, not applied) · window 15 s',
+    );
+    assert.equal(
+      engineSummary('ome', { HLS_SEGMENT_DURATION: known('2'), HLS_SEGMENT_COUNT: known('5') }, ['HLS_SEGMENT_COUNT']),
+      'OvenMediaEngine · segment 2 s · playlist 5 pieces (saved, not applied)',
+    );
+  });
 });

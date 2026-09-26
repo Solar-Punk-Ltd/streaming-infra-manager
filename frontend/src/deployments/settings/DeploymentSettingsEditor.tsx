@@ -42,7 +42,7 @@ import {
   storedEngineProblemText,
   type LoadFailure,
 } from './settingsText';
-import { useDeploymentSettings } from './useDeploymentSettings';
+import type { DeploymentSettingsLoad } from './useDeploymentSettings';
 
 type Busy = 'saving' | 'applying' | null;
 
@@ -98,17 +98,25 @@ function rowStatesOf(catalog: DeploymentSettingsCatalog, draft: DeploymentSettin
  * deploy would refuse are named there too and keep no save back, so the save
  * that fixes them, or one of other keys, still goes through. The manager
  * refuses Apply while they stand.
+ *
+ * The list is the page's own read, which the Engine card and the side column
+ * share to mark a value the containers are behind on, and a save that lands
+ * says so, because it changed the deployment's row those two read.
  */
 export function DeploymentSettingsEditor({
   profile,
+  load,
+  onSaved,
   reveal = null,
 }: {
   profile: Profile;
+  load: DeploymentSettingsLoad;
+  /** Called once a save has landed. */
+  onSaved: () => void;
   /** The latest request from elsewhere on the page to show one of the settings. */
   reveal?: SettingReveal | null;
 }) {
   const toast = useToast();
-  const load = useDeploymentSettings(profile);
   const [draft, setDraft] = useState<DeploymentSettingsDraft>(EMPTY_DRAFT);
   const [busy, setBusy] = useState<Busy>(null);
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
@@ -152,6 +160,7 @@ export function DeploymentSettingsEditor({
     setSaveProblem(null);
     try {
       await saveDeploymentSettings(profile.name, saveOf(catalog, draft));
+      onSaved();
       setApplyOutcome(null);
       toast(savedText(catalog.running), 'success');
       await load.reload();

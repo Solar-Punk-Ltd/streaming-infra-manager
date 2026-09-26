@@ -23,16 +23,10 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { createServer } from 'vite';
 
-import {
-  assembleEngineSettingObservations,
-  effectiveEngineDefaults,
-  engineOverviewIdentity,
-  engineSettingsFieldsFor,
-  environmentSettingReadings,
-  measuredSrtIngest,
-} from '@streaming-infra-manager/common';
+import { measuredSrtIngest } from '@streaming-infra-manager/common';
 
 import { runningCatalog } from './fixtures/deploymentSettings.mjs';
+import { srsOverviewOf } from './fixtures/engineOverview.mjs';
 import {
   buttonWithText,
   clickWhenEnabled,
@@ -87,15 +81,7 @@ const RAISE_LATENCY_BUTTON = 'Change SRT latency';
  * which is how the card still meets a manager that does not offer it.
  */
 function overviewOf(profile, offersLatency) {
-  const fields = engineSettingsFieldsFor('srs', { abr: false })
-    .filter((field) => offersLatency || field.key !== SRT_LATENCY_KEY);
-  const defaults = effectiveEngineDefaults('srs', {}, {});
-  return {
-    identity: engineOverviewIdentity(profile), engine: 'srs', abr: false, fields,
-    settings: profile.engine_settings, defaults: defaults.values, defaultSources: defaults.sources,
-    ...assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings: environmentSettingReadings(fields) }),
-    live: null, liveUnavailableReason: 'Live engine status is not observed in this offline fixture.',
-  };
+  return srsOverviewOf(profile, { without: offersLatency ? [] : [SRT_LATENCY_KEY] });
 }
 
 async function freePort() {

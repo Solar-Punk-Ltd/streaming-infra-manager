@@ -4,6 +4,7 @@ import { SectionCard } from '../components/SectionCard';
 import type { Profile } from '../types';
 import { DeploymentSettingsEditor } from './settings/DeploymentSettingsEditor';
 import type { SettingReveal } from './settings/SettingsList';
+import type { DeploymentSettingsLoad } from './settings/useDeploymentSettings';
 
 export const DEPLOYMENT_SETTINGS_ANCHOR = 'stack-settings';
 
@@ -15,14 +16,26 @@ export const DEPLOYMENT_SETTINGS_ANCHOR = 'stack-settings';
  * editor scrolls to the setting and focuses it once its list is read and the
  * section holding it has opened.
  */
-export function DeploymentSettingsCard({ profile, reveal = null }: { profile: Profile; reveal?: SettingReveal | null }) {
+export function DeploymentSettingsCard({
+  profile,
+  load,
+  onSaved,
+  reveal = null,
+}: {
+  profile: Profile;
+  /** The page's one read of the settings list, which the Engine card and the side column read too. */
+  load: DeploymentSettingsLoad;
+  /** Called once a save has landed, which changed the deployment's row. */
+  onSaved: () => void;
+  reveal?: SettingReveal | null;
+}) {
   useEffect(() => {
     if (reveal) document.getElementById(DEPLOYMENT_SETTINGS_ANCHOR)?.scrollIntoView({ block: 'start' });
   }, [reveal]);
 
   return (
     <SectionCard id={DEPLOYMENT_SETTINGS_ANCHOR} title="Stack settings" sub="this deployment's own values">
-      <DeploymentSettingsEditor profile={profile} reveal={reveal} />
+      <DeploymentSettingsEditor profile={profile} load={load} onSaved={onSaved} reveal={reveal} />
     </SectionCard>
   );
 }

@@ -28,7 +28,7 @@ import { ReadinessPill } from '../components/ReadinessPill';
 import { SectionCard } from '../components/SectionCard';
 import type { Profile } from '../types';
 import type { EngineOverview } from './engineApi';
-import { ENGINE_LABEL } from './engineText';
+import { ENGINE_LABEL, SAVED_NOT_APPLIED } from './engineText';
 import { engineObservationText } from './engineObservationText';
 import { LogsDialog } from './LogsDialog';
 import { isTransitional } from './shape';
@@ -77,13 +77,16 @@ function whyRolloutActionsAreOff(profile: Profile, busy: boolean): string {
  * is pinned. That is also where the live block's answer will come from once the
  * engine API port is published, which it is not on this one. They are edited in
  * the deployment's Stack settings card, one list of settings for the whole
- * deployment (Levi, 2026-09-26), and Settings here leads there.
+ * deployment (Levi, 2026-09-26), and Settings here leads there. The values are
+ * the stored ones, so one the running containers are behind on is marked as
+ * saved and not applied.
  */
 export function EngineCard({
   profile,
   engine,
   overview,
   loadError,
+  savedNotApplied,
   onShowSettings,
 }: {
   profile: Profile;
@@ -91,6 +94,8 @@ export function EngineCard({
   /** The manager's answer about the engine, loaded once for the page. Null until it arrives. */
   overview: EngineOverview | null;
   loadError: string | null;
+  /** The keys whose saved value the running containers do not have yet, from the deployment's settings list. */
+  savedNotApplied: readonly string[];
   /** Brings the engine settings in the Stack settings card into view, the first one focused. */
   onShowSettings: () => void;
 }) {
@@ -213,6 +218,7 @@ export function EngineCard({
             <SettingsList
               fields={overview.fields.filter((field) => !field.abrOnly)}
               overview={overview}
+              savedNotApplied={savedNotApplied}
             />
             {overview.fields.some((field) => field.abrOnly) && (
               <>
@@ -221,6 +227,7 @@ export function EngineCard({
                 <SettingsList
                   fields={overview.fields.filter((field) => field.abrOnly)}
                   overview={overview}
+                  savedNotApplied={savedNotApplied}
                 />
               </>
             )}
@@ -266,9 +273,11 @@ export function EngineCard({
 function SettingsList({
   fields,
   overview,
+  savedNotApplied,
 }: {
   fields: EngineSettingField[];
   overview: EngineOverview;
+  savedNotApplied: readonly string[];
 }) {
   const entries: KeyValueEntry[] = fields.map((field) => {
     const observation = overview.observations[field.key];
@@ -281,6 +290,9 @@ function SettingsList({
             <Box component="span" sx={{ fontFamily: MONO_STACK }}>{text.value}</Box>
             {observation?.status === 'known' && (
               <Typography variant="caption" color="text.secondary">{text.source}</Typography>
+            )}
+            {savedNotApplied.includes(field.key) && (
+              <Typography variant="caption" color="warning.main">{SAVED_NOT_APPLIED}</Typography>
             )}
           </Stack>
           {text.detail && (
