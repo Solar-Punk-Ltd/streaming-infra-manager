@@ -100,6 +100,16 @@ A secret, anything the settings page masks, is never answered, only whether one 
 endpoint is answered by its host alone, because its path or user info can carry a provider's key.
 The log names the keys a save changed and never a value.
 
+## Where they are kept
+
+On the deployment's row: plain values in `profiles.stack_settings`, secret ones in
+`profiles.stack_settings_secret` and the revision a save names in `profiles.settings_revision`, all
+three from migration 037, and the engine settings in `profiles.engine_settings`, migration 009, as
+before. Neither stack column is among the profile columns every page and event carries. A container
+record keeps its salt and digests in `containers.env_salt` and `containers.env_digests`, from
+migration 038, and migration 036 took the stream key and the SRT passphrase out of the records
+written before.
+
 ## Behind, and Apply
 
 Every successful deploy records, per container it started, a salted digest of every key that
