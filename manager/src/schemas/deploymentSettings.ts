@@ -30,6 +30,8 @@ const withinValueLength = (value: unknown): boolean => typeof value !== 'string'
  */
 const ENTRIES_SHAPE_MESSAGE = 'entries is a list of settings, each a key and a value';
 const ENTRY_SHAPE_MESSAGE = 'each entry of a save is a key and a value';
+const NEW_SETTINGS_SHAPE_MESSAGE = 'stack_settings is a list of settings, each a key and a value';
+const NEW_SETTING_SHAPE_MESSAGE = 'each entry of stack_settings is a key and a value';
 
 /**
  * One key of a save. The value rules are checked by the service against the
@@ -60,7 +62,9 @@ const newDeploymentSettingSchema = object({
     .defined('a settings value is text')
     .test('text', 'a settings value is text', (value) => typeof value === 'string')
     .test('length', VALUE_LENGTH_MESSAGE, withinValueLength),
-}).noUnknown(true);
+})
+  .noUnknown(true)
+  .typeError(NEW_SETTING_SHAPE_MESSAGE);
 
 /**
  * The stack settings a create body carries, in `POST /profiles` and `POST
@@ -72,6 +76,7 @@ const newDeploymentSettingSchema = object({
 export const newDeploymentSettingsField = () =>
   array()
     .of(newDeploymentSettingSchema)
+    .typeError(NEW_SETTINGS_SHAPE_MESSAGE)
     .notRequired()
     .default(undefined)
     .max(MAX_SAVE_ENTRIES);
