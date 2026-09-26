@@ -28,9 +28,14 @@ function usableChainEndpoint(value: unknown): value is string {
  * chain it names. For any other chain the endpoint is the one the node being
  * funded was started with, read from its container's command on the Docker
  * connection the manager owns, and remembered for that node's saved transfers.
- * Neither an operation record nor an API input selects an endpoint, both kinds
- * are held to the same shape rules and must answer the node's chain before use,
- * and no endpoint is ever logged, answered or put in an error.
+ *
+ * So a deployment's saved chain endpoint, which a signed-in user sets through
+ * the API, does choose where the manager itself sends a transfer's chain
+ * reads, from the manager's own network: the node is started with it and the
+ * manager reads it back from the node. A money request, an operation record
+ * and a Bee answer never choose one. Both kinds of endpoint are held to the
+ * same shape rules and must answer the node's chain before use, and no
+ * endpoint is ever logged, answered or put in an error.
  */
 export class ChequebookChainRegistry {
   #endpoints = new Map<number, string>();
