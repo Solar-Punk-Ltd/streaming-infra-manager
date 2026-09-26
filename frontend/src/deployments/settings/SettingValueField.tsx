@@ -17,7 +17,7 @@ const UNSET_CHOICE_LABEL = "not set, the stack's own default";
  * that offers to save a token puts it somewhere nobody rotated it from, and
  * one that fills a field changes a setting nobody typed.
  */
-const PLAIN_TEXT_INPUT = {
+export const PLAIN_TEXT_INPUT = {
   spellCheck: false,
   autoComplete: 'off',
   autoCapitalize: 'off',

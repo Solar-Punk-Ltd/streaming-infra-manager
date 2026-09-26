@@ -37,7 +37,24 @@ function entry(overrides) {
   };
 }
 
-/** The keys of one deployment on a version with an SRS engine, in the sample's order. */
+/**
+ * One of the deployment's own engine settings, as the manager lists it: set
+ * here, its default what an unset one falls back to on the host, and read by
+ * the engine, unless the services say otherwise.
+ */
+function engineEntry(key, defaultValue, { section = '', services = ['srs'], defaultSource = 'stack', notInConfig = false } = {}) {
+  return entry({
+    key,
+    section,
+    versionValue: defaultValue,
+    value: defaultSource === 'manager' ? defaultValue : null,
+    source: defaultSource === 'manager' ? 'manager-default' : 'version',
+    services,
+    engineSetting: { defaultSource, notInConfig },
+  });
+}
+
+/** The keys of one deployment on a version with an SRS engine, in the sample's order, then the engine settings no sample declares. */
 function entries() {
   return [
     entry({
@@ -117,14 +134,19 @@ function entries() {
       running: 'differs',
     }),
     entry({
-      key: 'HLS_FRAGMENT',
-      section: 'SRS Media Server',
-      description: 'Segment length in seconds.',
-      owner: 'engine-settings',
-      source: 'manager',
-      value: '0.5',
+      key: 'ABR_FPS',
+      section: 'ABR ladder',
+      description: 'Frames per second every rung is encoded at.',
+      owner: 'abr-only',
+      source: 'version',
+      versionValue: '30',
+      value: '30',
       services: ['srs'],
     }),
+    engineEntry('HLS_FRAGMENT', '2', { section: 'SRS Media Server', services: ['srs', 'stream-uploader'], defaultSource: 'host' }),
+    engineEntry('HLS_SEGMENT_MAX', '2.5'),
+    engineEntry('HLS_WINDOW', '15', { notInConfig: true }),
+    engineEntry('SRT_LATENCY', '2000', { defaultSource: 'manager' }),
     entry({
       key: 'OLD_UPLOAD_RETRIES',
       section: '',

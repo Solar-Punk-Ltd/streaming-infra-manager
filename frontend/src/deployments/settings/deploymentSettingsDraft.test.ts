@@ -21,6 +21,8 @@ import {
   EMPTY_DRAFT,
   canReset,
   draftProblems,
+  engineDraftProblem,
+  engineSettingsOfDraft,
   pendingEdits,
   saveOf,
   shownValue,
@@ -332,5 +334,96 @@ describe('valueProblem and draftProblems', () => {
 
   it('finds nothing wrong with an empty value, which leaves the key to the stack', () => {
     assert.equal(valueProblem('MAX_QUEUE_SIZE', ''), null);
+  });
+});
+
+/** A deployment's own engine setting, as its list answers it, with the default an unset one falls back to on its host. */
+function engineEntry(key: string, defaultValue: string, overrides: Partial<DeploymentSettingEntry> = {}): DeploymentSettingEntry {
+  return entry({
+    key,
+    section: '',
+    versionValue: defaultValue,
+    value: null,
+    services: ['srs'],
+    engineSetting: { defaultSource: 'stack', notInConfig: false },
+    ...overrides,
+  });
+}
+
+/** An SRS deployment without the ladder whose ceiling is stored above the stack's 2.5. */
+const ENGINE_CATALOG: DeploymentSettingsCatalog = {
+  ...CATALOG,
+  entries: [
+    LOG_LEVEL,
+    engineEntry('HLS_FRAGMENT', '0.5', { services: ['srs', 'stream-uploader'] }),
+    engineEntry('HLS_SEGMENT_MAX', '2.5', { stored: true, storedValue: '4', source: 'deployment' }),
+    engineEntry('HLS_WINDOW', '15'),
+    engineEntry('SRT_LATENCY', '2000', { source: 'manager-default', engineSetting: { defaultSource: 'manager', notInConfig: false } }),
+  ],
+};
+
+describe('the engine settings a draft leaves', () => {
+  it('are what is stored, with each value typed set and each reset taken out', () => {
+    const draft = withReset(withValue(EMPTY_DRAFT, ENGINE_CATALOG, 'HLS_FRAGMENT', '3'), ENGINE_CATALOG, 'HLS_SEGMENT_MAX');
+
+    assert.deepEqual(engineSettingsOfDraft(ENGINE_CATALOG, EMPTY_DRAFT), { HLS_SEGMENT_MAX: '4' });
+    assert.deepEqual(engineSettingsOfDraft(ENGINE_CATALOG, draft), { HLS_FRAGMENT: '3' });
+  });
+
+  it('go to the save beside the other keys, a reset as null', () => {
+    const draft = withReset(withValue(EMPTY_DRAFT, ENGINE_CATALOG, 'LOG_LEVEL', 'warn'), ENGINE_CATALOG, 'HLS_SEGMENT_MAX');
+
+    assert.deepEqual(saveOf(ENGINE_CATALOG, draft).entries, [
+      { key: 'LOG_LEVEL', value: 'warn' },
+      { key: 'HLS_SEGMENT_MAX', value: null },
+    ]);
+  });
+});
+
+describe('engineDraftProblem', () => {
+  it('names a pair the engine would refuse, in the words the manager would', () => {
+    const draft = withReset(withValue(EMPTY_DRAFT, ENGINE_CATALOG, 'HLS_FRAGMENT', '3'), ENGINE_CATALOG, 'HLS_SEGMENT_MAX');
+
+    assert.equal(
+      engineDraftProblem(ENGINE_CATALOG, draft),
+      'The force-close ceiling of 2.5 seconds is below the segment length of 3 seconds, so every piece would be cut before a keyframe could end one and the engine refuses to start. Raise the ceiling to at least the segment length, or lower the segment length.',
+    );
+  });
+
+  it('judges the half of the pair it leaves untouched at what it is stored as, else its default', () => {
+    assert.equal(engineDraftProblem(ENGINE_CATALOG, withValue(EMPTY_DRAFT, ENGINE_CATALOG, 'HLS_FRAGMENT', '3')), null);
+  });
+
+  it('says nothing while the draft touches no engine setting', () => {
+    // A stored pair the engine would refuse, as a host's default moving under it can leave one.
+    const stored = (value: string) => ({ stored: true, storedValue: value, source: 'deployment' as const });
+    const broken: DeploymentSettingsCatalog = {
+      ...ENGINE_CATALOG,
+      entries: ENGINE_CATALOG.entries.map((row) => {
+        if (row.key === 'HLS_SEGMENT_MAX') return { ...row, ...stored('1') };
+        return row.key === 'HLS_FRAGMENT' ? { ...row, ...stored('2') } : row;
+      }),
+    };
+
+    assert.equal(engineDraftProblem(broken, withValue(EMPTY_DRAFT, broken, 'LOG_LEVEL', 'warn')), null);
+    assert.match(engineDraftProblem(broken, withValue(EMPTY_DRAFT, broken, 'HLS_WINDOW', '20')) ?? '', /force-close ceiling of 1 seconds/);
+  });
+
+  it('leaves a value refused on its own field to the field, which says it there', () => {
+    const draft = withValue(EMPTY_DRAFT, ENGINE_CATALOG, 'HLS_FRAGMENT', '0.1');
+
+    assert.equal(engineDraftProblem(ENGINE_CATALOG, draft), null);
+    assert.deepEqual(draftProblems(ENGINE_CATALOG, draft), { HLS_FRAGMENT: 'Segment length must be at least 0.5. Got 0.1.' });
+  });
+});
+
+describe('valueProblem for an engine setting', () => {
+  it("holds it to the engine's own rule for its field", () => {
+    assert.equal(valueProblem('SRT_LATENCY', '20.5'), 'SRT latency must be a whole number. Got "20.5".');
+    assert.equal(valueProblem('SRT_LATENCY', '3000'), null);
+  });
+
+  it('refuses an empty one, which only a reset takes back to its default', () => {
+    assert.equal(valueProblem('HLS_FRAGMENT', ''), 'Segment length cannot be empty. Leave it unset to use the default instead.');
   });
 });

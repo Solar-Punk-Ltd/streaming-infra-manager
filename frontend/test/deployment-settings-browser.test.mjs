@@ -10,8 +10,12 @@
  * version dropped, a value the manager would refuse, a save that sends only
  * what changed with the revision the page read, a reset, a save that lost a
  * race, the banner and its Apply, a stopped deployment, and a version with no
- * build yet. All of it at a phone's width, because that is where an operator
- * reads a page during an incident.
+ * build yet. The deployment's engine settings are in the same list since Levi
+ * ruled the Engine card's drawer out on 2026-09-26, so it also drives those as
+ * the drawer showed them, a pair the engine would refuse, and a saved segment
+ * length that Apply recreates the engine and the uploader for. All of it at a
+ * phone's width, because that is where an operator reads a page during an
+ * incident.
  *
  * A real headless Chrome over a real Vite, with an offline fixture in place of
  * the manager. Runs through `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser`,
@@ -173,8 +177,8 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
   // The viewport alone, scrolled to the card. A capture beyond the viewport
   // lays the page out again at its whole height and paints the open folds
   // over each other, which reads as a broken card when it is not.
-  const screenshot = async (name) => {
-    await evaluate(`${card}?.scrollIntoView({ block: 'start' })`);
+  const screenshot = async (name, at = card, block = 'start') => {
+    await evaluate(`(${at})?.scrollIntoView({ block: ${JSON.stringify(block)} })`);
     const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false });
     await writeFile(join(evidence, name), Buffer.from(data, 'base64'));
   };
@@ -196,6 +200,7 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.match(text, /1 setting is behind the running containers: LOG_LEVEL\. Apply recreates stream-uploader\./);
     assert.equal(await evaluate(`Boolean(${buttonIn(card, 'Apply')})`), true);
     assert.equal(await evaluate(`${card}.querySelectorAll('li[data-setting]').length`), 0, 'every section starts folded');
+    assert.match(text, /Engine settings\s+4 settings/);
     assert.match(text, /Stream Uploader\s+4 settings/);
     assert.match(text, /Logging\s+1 setting, 1 not applied/);
     assert.match(text, /No longer declared by this version\s+1 setting/);
@@ -216,7 +221,7 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
 
   await t.test('each key gets the field its shape takes, and the default beside it', async () => {
     await openEverySection();
-    await waitFor(() => evaluate(`${card}.querySelectorAll('li[data-setting]').length`), (count) => count === 11, 'every key on screen');
+    await waitFor(() => evaluate(`${card}.querySelectorAll('li[data-setting]').length`), (count) => count === 15, 'every key on screen');
 
     assert.equal(await evaluate(`${fieldOf('UPLOADER_START_GATES')}.tagName`), 'SELECT');
     assert.deepEqual(
@@ -251,7 +256,28 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.match(text, /http:\/\/bee-uploader:1633/);
     assert.match(text, /Decided by the deployment's Bee URL\. It cannot be set here\./);
     assert.equal(await evaluate(`${rowOf('BEE_URL')}.querySelectorAll('input, select, textarea').length`), 0);
-    assert.match(await rowText('HLS_FRAGMENT'), /Decided by the engine settings\. It cannot be set here\./);
+  });
+
+  await t.test('an engine setting the deployment does not read says who reads it and takes no input', async () => {
+    assert.match(await rowText('ABR_FPS'), /Only a deployment that encodes the ABR ladder reads it, so it cannot be set here\./);
+    assert.equal(await evaluate(`${rowOf('ABR_FPS')}.querySelectorAll('input, select, textarea').length`), 0);
+  });
+
+  await t.test('the engine settings come first, each by its label with the key beside it, its unit, its help and its default', async () => {
+    const folds = await evaluate(`[...document.querySelectorAll('#stack-settings h4')].map(heading => heading.textContent)`);
+    assert.match(folds[0] ?? '', /^Engine settings/);
+
+    const fragment = await rowText('HLS_FRAGMENT');
+    assert.match(fragment, /^Segment length\s+HLS_FRAGMENT/);
+    assert.match(fragment, /The shortest a piece of the stream may be/);
+    assert.match(fragment, /seconds/);
+    assert.match(fragment, /A number from 0\.5 to 30\. Use a period for decimals\./);
+    assert.match(fragment, /Default: 2 seconds, set on this host/);
+    assert.equal(await evaluate(`${fieldOf('HLS_FRAGMENT')}.value`), '2');
+    assert.equal(await evaluate(`${fieldOf('HLS_FRAGMENT')}.inputMode`), 'decimal');
+    assert.match(await rowText('SRT_LATENCY'), /Default: 2000 milliseconds, the manager's own/);
+    assert.equal(await evaluate(`${fieldOf('SRT_LATENCY')}.inputMode`), 'numeric');
+    assert.match(await rowText('HLS_WINDOW'), /This version's config does not read this setting, so a value here has no effect on this version\./);
   });
 
   await t.test('a key the version no longer declares is listed with only a reset', async () => {
@@ -292,10 +318,10 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
         fold: Math.round(fold.getBoundingClientRect().height),
         keys: Math.round(fold.querySelector('ul')?.getBoundingClientRect().height ?? 0),
       }))`),
-      (found) => found.length === 7 && found.every(({ fold, keys }) => keys > 0 && fold >= keys - 1),
+      (found) => found.length === 8 && found.every(({ fold, keys }) => keys > 0 && fold >= keys - 1),
       'every fold at the height of its keys',
     );
-    assert.equal(folds.length, 7);
+    assert.equal(folds.length, 8);
     await screenshot('open-phone.png');
   });
 
@@ -308,6 +334,32 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
 
     await typeInto('MAX_QUEUE_SIZE', '250');
     await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the footer back at rest');
+  });
+
+  await t.test('an engine value the engine would refuse is named under its field in its own words', async () => {
+    await typeInto('HLS_FRAGMENT', '0.1');
+    await waitFor(() => rowText('HLS_FRAGMENT'), (text) => text.includes('Segment length must be at least 0.5. Got 0.1.'), 'the refusal under the field');
+    await waitFor(saveDisabled, (off) => off === true, 'a Save that stops at the refused value');
+    assert.match(await cardText(), /One value cannot be saved as written: HLS_FRAGMENT/);
+
+    await typeInto('HLS_FRAGMENT', '2');
+    await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the footer back at rest');
+  });
+
+  await t.test('a pair the engine would refuse is named once above Save, which stays off until the pair is whole', async () => {
+    const pair = 'The force-close ceiling of 2.5 seconds is below the segment length of 3 seconds';
+    await typeInto('HLS_FRAGMENT', '3');
+    await waitFor(cardText, (text) => text.includes(pair), 'the pair refused above Save');
+    assert.equal((await cardText()).split(pair).length - 1, 1, 'the sentence is said once');
+    assert.equal(await saveDisabled(), true);
+    assert.equal(writes.length, 0, 'nothing went to the manager');
+    await screenshot('engine-pair-phone.png', buttonIn(card, 'Save'), 'end');
+
+    await typeInto('HLS_SEGMENT_MAX', '4');
+    await waitFor(cardText, (text) => !text.includes('force-close ceiling'), 'the pair whole again');
+    await waitFor(saveDisabled, (off) => off === false, 'Save back on');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Discard'), 'the Discard button');
+    await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the discarded draft');
   });
 
   await t.test('a changed key is marked with what applying it recreates', async () => {
@@ -411,6 +463,26 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     // reads is, which says nothing about when the containers were started.
     assert.doesNotMatch(await cardText(), /started before the manager recorded/);
     await screenshot('applied-phone.png');
+  });
+
+  await t.test('a saved segment length is behind the engine and the uploader, which Apply recreates', async () => {
+    const before = writes.length;
+    await typeInto('HLS_FRAGMENT', '1');
+    await waitFor(() => rowText('HLS_FRAGMENT'), (text) => text.includes('unsaved') && text.includes('recreates srs and stream-uploader'), 'the marker on the changed segment length');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Save'), 'the Save button');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the engine save');
+
+    assert.deepEqual(writes[before].body.entries, [{ key: 'HLS_FRAGMENT', value: '1' }]);
+    await waitFor(
+      cardText,
+      (text) => text.includes('1 setting is behind the running containers: HLS_FRAGMENT. Apply recreates srs and stream-uploader.'),
+      'the banner naming the segment length and what Apply recreates',
+    );
+    assert.match(await rowText('HLS_FRAGMENT'), /set here/);
+    await screenshot('engine-behind-phone.png');
+
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Apply'), 'the Apply button');
+    await waitFor(cardText, (text) => text.includes('Applied. Recreating srs and stream-uploader with the saved settings.'), 'what Apply recreated');
   });
 
   await t.test('the card takes the whole width of its column on a wide screen', async () => {

@@ -11,9 +11,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { DeploymentSettingEntry } from '@streaming-infra-manager/common';
+import { type DeploymentSettingEntry, engineSettingsFieldsFor } from '@streaming-infra-manager/common';
 
 import {
+  ENGINE_SECTION_TITLE,
   OTHER_SECTION_TITLE,
   UNDECLARED_SECTION_TITLE,
   filteredSections,
@@ -143,5 +144,36 @@ describe('isSectionOpen', () => {
 
   it('treats a blank search as none', () => {
     assert.equal(isSectionOpen('b', new Set(), '  '), false);
+  });
+});
+
+describe('the engine settings of a deployment', () => {
+  /** The SRS fields a deployment without the ladder reads, by key, as the editor hands them to the list. */
+  const ENGINE_FIELDS = new Map(engineSettingsFieldsFor('srs', { abr: false }).map((field) => [field.key, field]));
+  const WITH_ENGINE = [
+    ...ENTRIES,
+    entry('SRT_LATENCY', 'SRS Media Server'),
+    entry('HLS_WINDOW', ''),
+    entry('HLS_SEGMENT_MAX', ''),
+  ];
+
+  it('are gathered first in a section of their own, in the order the engine lists them', () => {
+    const sections = sectionsOf(WITH_ENGINE, ENGINE_FIELDS);
+
+    assert.equal(sections[0]?.title, ENGINE_SECTION_TITLE);
+    assert.deepEqual(keys(sections)[0], ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY']);
+    assert.equal(titles(sections).includes('SRS Media Server'), false, 'no key is left in the sample section they came from');
+    assert.deepEqual(keys(sections).at(-2), ['LOOSE_KEY']);
+  });
+
+  it('are found by their label and their help, as well as by their key', () => {
+    const sections = sectionsOf(WITH_ENGINE, ENGINE_FIELDS);
+
+    assert.deepEqual(keys(filteredSections(sections, 'force-close', ENGINE_FIELDS)), [['HLS_SEGMENT_MAX']]);
+    assert.deepEqual(keys(filteredSections(sections, 'resent before giving up', ENGINE_FIELDS)), [['SRT_LATENCY']]);
+  });
+
+  it('stay where the sample puts them when the list is given no engine fields, as the wizard list is', () => {
+    assert.equal(titles(sectionsOf(WITH_ENGINE)).includes(ENGINE_SECTION_TITLE), false);
   });
 });

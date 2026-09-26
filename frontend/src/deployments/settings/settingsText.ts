@@ -2,6 +2,8 @@ import {
   type DeploymentSettingEntry,
   type DeploymentSettingsApplied,
   type DeploymentSettingsCatalog,
+  type EngineDefaultSource,
+  type EngineSettingField,
   isNotReadOwner,
   SETTING_OWNER_LABELS,
   type SettingOwner,
@@ -23,7 +25,7 @@ export type SettingsEditTarget = 'deployment' | 'new-deployment';
 
 /** The line over the list: what a save does, and what it does not. */
 export const WHAT_SAVING_DOES =
-  "Every key this deployment's version declares, with the version's value as the default. Saving stores the values and restarts nothing. The running containers keep theirs until you apply them.";
+  "Every key this deployment's version declares and every engine setting it reads, each with its default beside it. Saving stores the values and restarts nothing. The running containers keep theirs until you apply them.";
 
 /** Said beside Apply while the draft holds changes, which Apply does not carry. */
 export const UNSAVED_NOT_APPLIED_NOTE = 'Changes you have not saved are not part of it.';
@@ -72,6 +74,41 @@ export function defaultText(entry: DeploymentSettingEntry): string {
   }
   if (!entry.versionSet) return "Default: not set, so the stack's own default applies";
   return entry.versionValue === '' || entry.versionValue === null ? 'Default: empty' : `Default: ${entry.versionValue}`;
+}
+
+/** Where an engine setting's default comes from, as the Engine card names it. */
+const ENGINE_DEFAULT_ORIGIN: Readonly<Record<EngineDefaultSource, string>> = {
+  host: 'set on this host',
+  stack: "the version's own",
+  manager: "the manager's own",
+};
+
+/**
+ * What an engine setting goes back to on a reset: what an unset one falls
+ * back to on the deployment's host, in the field's unit, and where that comes
+ * from, a default the manager owns named as the manager's.
+ */
+export function engineDefaultText(entry: DeploymentSettingEntry, field: EngineSettingField): string {
+  const value = entry.versionValue ?? field.defaultValue;
+  const unit = field.unit ? ` ${field.unit}` : '';
+  const origin = ENGINE_DEFAULT_ORIGIN[entry.engineSetting?.defaultSource ?? 'stack'];
+  return `Default: ${value}${unit}, ${origin}`;
+}
+
+/** What an engine setting's number field takes, for the line under it, or null for a list, which shows its choices. */
+export function engineFieldHint(field: EngineSettingField): string | null {
+  return field.kind === 'choice' ? null : fieldHint({ kind: field.kind, min: field.min, max: field.max });
+}
+
+/**
+ * Said under an engine setting the config the engine runs no longer reads:
+ * the deployment's own config file, or the version's template where it runs
+ * none of its own.
+ */
+export function notInConfigNote(ownConfig: boolean): string {
+  return ownConfig
+    ? "The deployment's own config file no longer reads this setting, so a value here has no effect until the file reads it again."
+    : "This version's config does not read this setting, so a value here has no effect on this version.";
 }
 
 /** Where a secret's value comes from, in place of the value, which is never shown. */

@@ -15,6 +15,8 @@ import { describe, it } from 'node:test';
 import {
   type DeploymentSettingEntry,
   type DeploymentSettingsCatalog,
+  type EngineSettingField,
+  engineSettingFieldOf,
   isNotReadOwner,
   SETTING_OWNER_LABELS,
   type SettingOwner,
@@ -35,10 +37,13 @@ import {
   defaultText,
   descriptionPreview,
   driftNotice,
+  engineDefaultText,
+  engineFieldHint,
   fieldHint,
   loadFailureOf,
   newDeploymentSettingsNote,
   noMatchText,
+  notInConfigNote,
   notTakenNote,
   ownedValueText,
   ownerSentence,
@@ -398,9 +403,58 @@ describe('the words themselves', () => {
       newDeploymentSettingsNote(0, []),
       newDeploymentSettingsNote(1, ['K']),
       notTakenNote(['A', 'B']),
+      notInConfigNote(true),
+      notInConfigNote(false),
+      engineDefaultText(entry({ key: 'SRT_LATENCY', versionValue: '2000', engineSetting: { defaultSource: 'manager', notInConfig: false } }), fieldOf('SRT_LATENCY')),
     ];
     for (const sentence of sentences) {
       assert.equal(/[—;]/.test(sentence), false, sentence);
     }
+  });
+});
+
+function fieldOf(key: string): EngineSettingField {
+  const field = engineSettingFieldOf(key);
+  assert.ok(field, `${key} is an engine setting`);
+  return field;
+}
+
+describe('the words of an engine setting', () => {
+  const facts = (defaultSource: 'stack' | 'host' | 'manager') => ({ defaultSource, notInConfig: false });
+
+  it('names its default with its unit and where the default comes from', () => {
+    assert.equal(
+      engineDefaultText(entry({ key: 'HLS_FRAGMENT', versionValue: '6', engineSetting: facts('host') }), fieldOf('HLS_FRAGMENT')),
+      'Default: 6 seconds, set on this host',
+    );
+    assert.equal(
+      engineDefaultText(entry({ key: 'HLS_WINDOW', versionValue: '15', engineSetting: facts('stack') }), fieldOf('HLS_WINDOW')),
+      "Default: 15 seconds, the version's own",
+    );
+    assert.equal(
+      engineDefaultText(entry({ key: 'SRT_LATENCY', versionValue: '2000', engineSetting: facts('manager') }), fieldOf('SRT_LATENCY')),
+      "Default: 2000 milliseconds, the manager's own",
+    );
+    assert.equal(
+      engineDefaultText(entry({ key: 'ABR_PRESET', versionValue: 'veryfast', engineSetting: facts('stack') }), fieldOf('ABR_PRESET')),
+      "Default: veryfast, the version's own",
+    );
+  });
+
+  it('says what a number field takes, and nothing for a list, which shows its choices', () => {
+    assert.equal(engineFieldHint(fieldOf('HLS_FRAGMENT')), 'A number from 0.5 to 30. Use a period for decimals.');
+    assert.equal(engineFieldHint(fieldOf('SRT_LATENCY')), 'A whole number from 20 to 10000.');
+    assert.equal(engineFieldHint(fieldOf('ABR_PRESET')), null);
+  });
+
+  it('says a value has no effect while the config the engine runs does not read it', () => {
+    assert.equal(
+      notInConfigNote(true),
+      "The deployment's own config file no longer reads this setting, so a value here has no effect until the file reads it again.",
+    );
+    assert.equal(
+      notInConfigNote(false),
+      "This version's config does not read this setting, so a value here has no effect on this version.",
+    );
   });
 });
