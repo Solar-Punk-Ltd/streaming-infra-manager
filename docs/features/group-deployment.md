@@ -72,6 +72,8 @@ All form fields filled in group mode are applied verbatim to every member:
 - `stack_version_id`, the default version when the body names none, so every member runs one
   version
 - `engine_settings`, so every member cuts the same segments
+- `stack_settings`, so every member starts with the same stack settings, a node pool's rungs
+  included
 
 Members differ in `name` and in their port slot, which each takes for itself as it is inserted:
 the lowest free slot, with the ports that slot reserves (`insertMemberWithFreeSlot` in
@@ -80,9 +82,9 @@ the lowest free slot, with the ports that slot reserves (`insertMemberWithFreeSl
 A group's members start with the engine settings the create body carries, and the wizard
 pre-fills a two-second segment length wherever the deployment runs SRS, so the whole group
 cuts the same lengths instead of falling back to whatever its stack version does. A member
-added later takes the settings its siblings already run. An ABR node pool carries none, because
-it is Bee nodes and no media server, and a create body that sends settings for one is refused
-with the sentence a single deployment with no engine gets.
+added later takes the settings its siblings already run. An ABR node pool carries no engine
+settings, because it is Bee nodes and no media server, and a create body that sends engine settings
+for one is refused with the sentence a single deployment with no engine gets.
 
 ### Known caveat: shared streamer identity
 
