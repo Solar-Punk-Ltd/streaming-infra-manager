@@ -51,7 +51,7 @@ export function saveDeploymentSettings(name: string, save: DeploymentSettingsSav
   return sendJson<DeploymentSettingsSaved>('PUT', settingsPath(name), save);
 }
 
-/** Recreates the containers that are behind on a saved setting, or every one when that cannot be told. */
+/** Recreates the containers that are behind on a saved setting, or redeploys every service when one reaches the deploy scripts alone. */
 export function applyDeploymentSettings(name: string, expectedInstanceId: string): Promise<DeploymentSettingsApplied> {
   return sendJson<DeploymentSettingsApplied>('POST', `${settingsPath(name)}/apply`, { expectedInstanceId });
 }
