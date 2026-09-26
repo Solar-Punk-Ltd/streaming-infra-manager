@@ -55,9 +55,10 @@ unit, help, kind, bounds and choices from it, so the answer carries none of them
 - **A key the config the engine runs no longer reads**, because the deployment's own config file
   dropped its placeholder or the version's template never takes it, says on its row that a value
   there has no effect.
-- **An engine setting the deployment does not read** is listed out of reach with the reason: a rung
-  setting on a deployment that does not encode the ABR ladder, and a setting of the engine it does
-  not run. A value stored for one before is listed so it can be reset.
+- **An engine setting the deployment does not read** is listed out of reach with the reason wherever
+  a sample the list reads declares it: a rung setting on a deployment that does not encode the ABR
+  ladder, and a setting of the engine it does not run. A value stored for one before is listed so it
+  can be reset.
 
 A save puts an engine key in `profiles.engine_settings` and never in the stack columns. Each value is
 held to its field, refused by key in the engine's own words. What the engine settings will be once the
