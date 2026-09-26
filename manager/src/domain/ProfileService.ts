@@ -2,20 +2,15 @@ import {
   slotCapFor,
   ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
-  applicableEngineSettings,
   assembleEngineSettingObservations,
   assembleBeePublishers,
   type BeePublishersResult,
   beeTargetProblem,
   defaultServicesFor,
-  effectiveEngineDefaults,
-  type EngineDefaults,
   type EngineName,
   engineOfServices,
   engineOverviewIdentity,
   type EngineSettings,
-  environmentSettingReadings,
-  OME_SERVICE,
   engineForComponents,
   engineSettingsFieldsFor,
   type EngineSettingsOverview,
@@ -38,11 +33,9 @@ import {
   rpcEndpointChoiceProblem,
   rungFromMemberName,
   rungOrder,
-  type StackContract,
   type StampGatedProfile,
   type StampHealth,
   stampHealthFrom,
-  SRS_SERVICE,
   STANDARD_GROUP_KIND,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -61,7 +54,6 @@ import {
   TRANSITIONAL_STATUSES,
 } from '../types/index.js';
 
-import { parseBaseEnv } from '../utils/envUtils.js';
 import { portTableForEngine } from './versions/enginePortTable.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
@@ -100,14 +92,14 @@ import {
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import { deploymentEngineReadings } from './engineConfig/deploymentEngineReadings.js';
 import { engineTemplateTextIn } from './engineConfig/engineConfigTemplates.js';
-import { omeSettingReadings } from './engineConfig/omeSettingReadings.js';
-import { srsSettingReadings, srsTemplateReadings } from './engineConfig/srsSettingReadings.js';
 import {
   localPublisherHost,
   type LocalPublisherHostReader,
 } from './localHost.js';
 import { ProfileRepository } from './ProfileRepository.js';
+import { engineDefaultsAt } from './settings/engineHostDefaults.js';
 import { initialStackSettingsFor, initialStackSettingsOf } from './settings/newDeploymentSettings.js';
 import { beePublisherUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
@@ -170,13 +162,16 @@ const NO_STAMP_PROBE: StampHealthProbe = async (_profile, stampId) =>
   stampHealthFrom(stampId, null);
 const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
 
-/** What is left of the stored settings once this profile stops encoding a ladder. */
-function withoutLadderSettings(profile: Profile): EngineSettings {
+/**
+ * The engine settings this profile still reads once it stops encoding a
+ * ladder, or undefined for a profile that runs no engine, whose settings stay
+ * as they are. Keys rather than values, so the write keeps a value the
+ * settings page saved after this edit read the row.
+ */
+function engineSettingKeysWithoutLadder(profile: Profile): readonly string[] | undefined {
   const engine = engineOfServices(defaultServicesFor(profile));
-  if (!engine) return profile.engine_settings;
-  return applicableEngineSettings(engine, profile.engine_settings, {
-    abr: false,
-  });
+  if (!engine) return undefined;
+  return engineSettingsFieldsFor(engine, { abr: false }).map((field) => field.key);
 }
 
 /**
@@ -642,9 +637,9 @@ export class ProfileService {
     }
 
     // Turning the ladder off in this same write leaves the rung settings behind,
-    // where no drawer renders them and no container reads them. They go out with
-    // the pool string, in one statement, so no state exists in which the column
-    // holds settings the deployment cannot act on.
+    // where nothing reads them and the settings page offers them only a reset.
+    // They go out with the pool string, in one statement, so no state exists in
+    // which the column holds settings the deployment cannot act on.
     const laddersEnded =
       hasBeePublishers(existing) && !proposed.bee_publishers?.trim();
 
@@ -674,7 +669,7 @@ export class ProfileService {
             : { srt_passphrase: passphraseEdit }),
           components: existing.components,
         },
-        laddersEnded ? withoutLadderSettings(existing) : undefined,
+        laddersEnded ? engineSettingKeysWithoutLadder(existing) : undefined,
         notesRevisionSent,
       );
       if (!written) {
@@ -779,37 +774,13 @@ export class ProfileService {
   }
 
   /**
-   * What an unset setting falls back to on this host, and where each value came
-   * from.
-   *
-   * `.env.<profile>` is a fresh copy of the host's base `.env` on every deploy
-   * and an unset key is left out of it, so a key set on the box by hand is what
-   * the container starts with. Naming the stack's own value instead would
-   * describe a deployment nobody is running.
-   */
-  private engineDefaultsAt(root: string, engine: EngineName, contract: StackContract | null): EngineDefaults {
-    const defaults = effectiveEngineDefaults(
-      engine,
-      parseBaseEnv(root),
-      contract?.engineDefaults ?? {},
-    );
-    if (defaults.rejected.length > 0) {
-      logger.warn(
-        `[ProfileService] The base .env sets ${defaults.rejected.join(', ')} to a value ${engine} would refuse. ` +
-          'The stack default stands for those.',
-      );
-    }
-    return defaults;
-  }
-
-  /**
-   * The gate the settings drawer passes, applied before the row exists.
+   * The gate a save of the engine settings passes, applied before the row exists.
    *
    * A value sent with the create body is written into `.env.<profile>` on the
    * very first deploy, so a pair the engine refuses puts a brand new deployment
    * straight into a crash loop with the reason only in its container logs. The
-   * settings route cannot catch it a moment later either, because it refuses a
-   * deployment that is still DEPLOYING. The version's own fallbacks are read
+   * engine settings route cannot catch it a moment later either, because it
+   * refuses a deployment that is still DEPLOYING. The version's own fallbacks are read
    * for the same reason the update path reads them: either half of a pair may
    * be unset, and judging one against the stack's own numbers passes a pair the
    * host then refuses.
@@ -820,7 +791,7 @@ export class ProfileService {
     settings: EngineSettings,
   ): void {
     const { engine, abr } = this.engineFacts(input);
-    const defaults = this.engineDefaultsAt(
+    const defaults = engineDefaultsAt(
       stackRootOf(version),
       engine,
       version.contract,
@@ -843,18 +814,14 @@ export class ProfileService {
     if (!version) throw new StackVersionNotFoundError(profile.stack_version_id);
     const root = stackRootOf(version);
     const contract = version.contract;
-    const defaults = this.engineDefaultsAt(root, engine, contract);
+    const defaults = engineDefaultsAt(root, engine, contract);
     const fields = engineSettingsFieldsFor(engine, { abr });
-    const template = engineTemplateTextIn(root, engine);
-    let readings = environmentSettingReadings(fields);
-    if (profile.has_engine_config) {
-      readings = engine === OME_SERVICE ? omeSettingReadings(template, engineConfig, fields)
-        : srsSettingReadings(template, engineConfig, fields, { abr });
-    } else if (engine === SRS_SERVICE) {
-      // Without a file of its own the deployment runs its version's template,
-      // which decides the SRT latency SRS waits on ingest.
-      readings = { ...readings, ...srsTemplateReadings(template, fields) };
-    }
+    const readings = deploymentEngineReadings(
+      engine,
+      fields,
+      { template: engineTemplateTextIn(root, engine), hasOwn: profile.has_engine_config, own: engineConfig },
+      { abr },
+    );
     const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
     return {
       identity,
@@ -870,7 +837,8 @@ export class ProfileService {
   }
 
   /**
-   * Stores the engine settings and recreates the containers that read them.
+   * Stores the engine settings and recreates the containers that read them,
+   * for the engine settings route that scripts save and recreate through.
    *
    * Almost always that is the engine alone, and the Bee node and the uploader
    * are left running because taking them down would interrupt an upload that
@@ -879,12 +847,20 @@ export class ProfileService {
    * environment alone, and `HLS_FRAGMENT`, which both containers read. A change
    * to either recreates the uploader as well, or the new value never reaches
    * the process that reads it.
+   *
+   * The stored settings are read first, with the revision a deployment's
+   * settings page saves under, and the write is refused once a page save has
+   * moved that revision. The settings replace what is stored whole, so without
+   * that a page save landing between this read and the write would be undone
+   * with nobody told.
    */
   async updateEngineSettings(
     name: string,
     settings: EngineSettings,
     expectedInstanceId?: string,
   ): Promise<ProfileWithContainers> {
+    const stored = await this.repo.stackSettingsOf(name);
+    if (!stored) throw new ProfileNotFoundError(name);
     const existing = await this.getByName(name);
     if (expectedInstanceId !== undefined && existing.instance_id !== expectedInstanceId) {
       throw new ProfileInstanceChangedError(name);
@@ -900,7 +876,7 @@ export class ProfileService {
     if (!version) {
       throw new ProfileConfigError(name, `Stack version ${existing.stack_version_id} no longer exists. Restore the version before deploying. No deployment was started.`);
     }
-    const defaults = this.engineDefaultsAt(stackRootOf(version), engine, version.contract);
+    const defaults = engineDefaultsAt(stackRootOf(version), engine, version.contract);
     const problem = engineSettingsProblem(engine, settings, {
       abr,
       defaults: defaults.values,
@@ -911,7 +887,7 @@ export class ProfileService {
 
     const services = servicesToRecreate(
       engine,
-      existing.engine_settings,
+      stored.engine,
       settings,
     );
 
@@ -930,7 +906,7 @@ export class ProfileService {
       const referenceId = reservation.build?.referenceId;
       if (!claimed || referenceId == null) throw new Error('An engine settings save has no claimed job.');
       const written = await this.repo.updateEngineSettings(name, settings, {
-        ...deployOwnerOf(claimed), jobReferenceId: referenceId,
+        ...deployOwnerOf(claimed), jobReferenceId: referenceId, settingsRevision: stored.revision,
       });
       if (!written) {
         const current = await this.repo.findByName(name);

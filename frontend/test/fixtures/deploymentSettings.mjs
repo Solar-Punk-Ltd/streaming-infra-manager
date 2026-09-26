@@ -32,11 +32,29 @@ function entry(overrides) {
     field: null,
     services: ['stream-uploader'],
     running: 'same',
+    engineSetting: null,
     ...overrides,
   };
 }
 
-/** The keys of one deployment on a version with an SRS engine, in the sample's order. */
+/**
+ * One of the deployment's own engine settings, as the manager lists it: set
+ * here, its default what an unset one falls back to on the host, and read by
+ * the engine, unless the services say otherwise.
+ */
+function engineEntry(key, defaultValue, { section = '', services = ['srs'], defaultSource = 'stack', notInConfig = false } = {}) {
+  return entry({
+    key,
+    section,
+    versionValue: defaultValue,
+    value: defaultSource === 'manager' ? defaultValue : null,
+    source: defaultSource === 'manager' ? 'manager-default' : 'version',
+    services,
+    engineSetting: { defaultSource, notInConfig },
+  });
+}
+
+/** The keys of one deployment on a version with an SRS engine, in the sample's order, then the engine settings no sample declares. */
 function entries() {
   return [
     entry({
@@ -116,14 +134,19 @@ function entries() {
       running: 'differs',
     }),
     entry({
-      key: 'HLS_FRAGMENT',
-      section: 'SRS Media Server',
-      description: 'Segment length in seconds.',
-      owner: 'engine-settings',
-      source: 'manager',
-      value: '0.5',
+      key: 'ABR_FPS',
+      section: 'ABR ladder',
+      description: 'Frames per second every rung is encoded at.',
+      owner: 'abr-only',
+      source: 'version',
+      versionValue: '30',
+      value: '30',
       services: ['srs'],
     }),
+    engineEntry('HLS_FRAGMENT', '2', { section: 'SRS Media Server', services: ['srs', 'stream-uploader'], defaultSource: 'host' }),
+    engineEntry('HLS_SEGMENT_MAX', '2.5'),
+    engineEntry('HLS_WINDOW', '15', { notInConfig: true }),
+    engineEntry('SRT_LATENCY', '2000', { defaultSource: 'manager' }),
     entry({
       key: 'OLD_UPLOAD_RETRIES',
       section: '',
@@ -151,6 +174,35 @@ export function runningCatalog() {
     entries: entries(),
     drift: { keys: ['LOG_LEVEL'], services: ['stream-uploader'], fullRedeploy: false },
     running: true,
+    engine: 'srs',
+    abr: false,
+    engineSettingsProblem: null,
+  };
+}
+
+export const REFUSED_ENGINE_INSTANCE = '88888888-8888-4888-8888-888888888888';
+
+/** The manager's sentence for a stored segment length of 3 under the default ceiling of 2.5. */
+export const CEILING_UNDER_STORED_SEGMENT =
+  'The force-close ceiling of 2.5 seconds is below the segment length of 3 seconds, so every piece would be cut before a keyframe could end one and the engine refuses to start. Raise the ceiling to at least the segment length, or lower the segment length.';
+
+/**
+ * A running deployment whose saved segment length of 3 the ceiling it falls
+ * back to now sits under, so the manager's deploy would refuse it, and whose
+ * containers run neither that nor its saved log level yet.
+ */
+export function refusedEngineCatalog() {
+  const rows = entries().map((row) =>
+    row.key === 'HLS_FRAGMENT'
+      ? { ...row, stored: true, storedValue: '3', value: '3', source: 'deployment', running: 'differs' }
+      : row,
+  );
+  return {
+    ...runningCatalog(),
+    instanceId: REFUSED_ENGINE_INSTANCE,
+    entries: rows,
+    drift: { keys: ['LOG_LEVEL', 'HLS_FRAGMENT'], services: ['srs', 'stream-uploader'], fullRedeploy: false },
+    engineSettingsProblem: CEILING_UNDER_STORED_SEGMENT,
   };
 }
 

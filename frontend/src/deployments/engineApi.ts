@@ -1,7 +1,6 @@
 import type {
   EngineConfigView,
   EngineOverview,
-  EngineSettings,
 } from '@streaming-infra-manager/common';
 
 import { apiFetch, failWith, getJson, sendJson } from '../http';
@@ -15,19 +14,6 @@ export async function fetchEngine(name: string, signal?: AbortSignal): Promise<E
   const response = await apiFetch(`/profiles/${encodeURIComponent(name)}/engine`, { signal });
   if (!response.ok) await failWith(response, `request failed (${response.status})`);
   return await response.json() as EngineOverview;
-}
-
-/** Stores the settings and recreates the engine container with them. */
-export function saveEngineSettings(
-  name: string,
-  settings: EngineSettings,
-  expectedInstanceId: string,
-): Promise<Profile> {
-  return sendJson<Profile>(
-    'PUT',
-    `/profiles/${encodeURIComponent(name)}/engine-settings`,
-    { ...settings, expectedInstanceId },
-  );
 }
 
 export function restartContainer(

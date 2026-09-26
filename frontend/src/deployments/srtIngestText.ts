@@ -42,8 +42,14 @@ export interface SrtIngestRow {
   detail: string;
 }
 
-/** The one step of the remedy the card can take the operator to. */
-export const RAISE_LATENCY_ACTION = 'engine-settings' as const;
+/**
+ * The one step of the remedy the card can take the operator to: the SRT
+ * latency in the deployment's Stack settings card.
+ */
+export const RAISE_LATENCY_ACTION = 'raise-srt-latency' as const;
+
+/** What the button of that step says. */
+export const RAISE_LATENCY_BUTTON = 'Change SRT latency';
 
 export interface SrtIngestRemedyStep {
   text: string;
@@ -197,7 +203,7 @@ function remedyFor(
       "The broadcaster's connection is losing packets, and some arrive too late to use, so the picture breaks up.",
     steps: [
       latencySettingOffered
-        ? { text: `${raiseLatency}, in its engine settings.`, action: RAISE_LATENCY_ACTION }
+        ? { text: `${raiseLatency}, in its stack settings.`, action: RAISE_LATENCY_ACTION }
         : {
             text:
               `${raiseLatency}. Until this manager offers that setting, the change in OBS below ` +

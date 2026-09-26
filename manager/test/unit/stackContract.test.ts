@@ -182,8 +182,8 @@ describe('readStackContract on a table it cannot fully read', () => {
 
   it('leaves out an engine default that is itself a substitution', () => {
     // `${HLS_FRAGMENT:-${FALLBACK_FRAGMENT:-1.5}}` would come back as
-    // `${FALLBACK_FRAGMENT:-1.5` with the brace missing, and the engine
-    // settings drawer would offer that to an operator as a number.
+    // `${FALLBACK_FRAGMENT:-1.5` with the brace missing, and the settings
+    // page would offer that to an operator as a number.
     assert.equal(odd.engineDefaults.HLS_FRAGMENT, undefined);
     assert.equal(odd.engineDefaults.HLS_WINDOW, '22.5');
   });

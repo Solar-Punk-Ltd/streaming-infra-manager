@@ -314,6 +314,68 @@ function resolveRpcEndpoint(
 /** The keys the manager computes for one deployment, each with its value, in the order they are written. */
 export type ManagedEnvLines = Record<string, string>;
 
+export interface ManagedEnvOptions {
+  /**
+   * Keeps engine settings the engine would refuse in the lines rather than
+   * refusing them, for working out what the next deploy would write while
+   * they wait for a fix. That answer names the problem beside it, from
+   * `engineSettingsLinesOf`. A deploy never passes this.
+   */
+  keepRefusedEngineSettings?: boolean;
+}
+
+/** The engine settings lines of one deployment's env file, and why the engine would refuse them. */
+export interface EngineSettingsLines {
+  lines: Record<string, string>;
+  /** The engine's own sentence, which the deploy refuses the settings with, or null. */
+  problem: string | null;
+}
+
+/**
+ * The engine settings a deploy writes into the deployment's env file, and
+ * whether the engine would take them.
+ *
+ * Validated here as well as in the settings route, because this is the last
+ * point before the values leave the manager and both entrypoints splice them
+ * into a `sed` expression without a guard of their own. `abr` follows
+ * BEE_PUBLISHERS, which is the same thing that turns ABR_ENABLED on in
+ * `managedEnvLines`.
+ *
+ * Only over the keys this deployment still reads. A rung setting stored while
+ * the ladder was on and left behind when it was turned off is skipped, not
+ * refused: refusing would fail every deploy from here on over a value that
+ * does nothing. A key that does not apply in a new request is still refused,
+ * by the request schema and by the settings save.
+ */
+export function engineSettingsLinesOf(
+  values: ProfileEnvValues,
+  baseText: string,
+): EngineSettingsLines {
+  const abr = Boolean(normalizeBeePublishers(values.beePublishers?.trim()));
+  const engineSettings = applicableEngineSettings(
+    values.engine,
+    values.engineSettings ?? {},
+    { abr },
+  );
+  // Against the defaults this host actually falls back to, not the stack's own:
+  // an unset key is left out of the file and whatever the base .env says
+  // stands, so checking a pair against the stack values refuses a deployment
+  // that would start and passes one that would not. A default the manager owns
+  // is the one unset key written, which the same answer says.
+  const defaults = effectiveEngineDefaults(
+    values.engine,
+    parseEnvText(baseText),
+    values.stackEngineDefaults ?? {},
+  );
+  return {
+    lines: engineSettingsEnv(values.engine, engineSettings, { abr, defaults }),
+    problem: engineSettingsProblem(values.engine, engineSettings, {
+      abr,
+      defaults: defaults.values,
+    }),
+  };
+}
+
 /**
  * The keys the manager computes for one deployment and the value each gets.
  *
@@ -324,6 +386,7 @@ export type ManagedEnvLines = Record<string, string>;
 export function managedEnvLines(
   values: ProfileEnvValues,
   baseText: string,
+  options: ManagedEnvOptions = {},
 ): ManagedEnvLines {
   const lines: ManagedEnvLines = {};
   const set = (key: string, value: string): void => {
@@ -484,44 +547,13 @@ export function managedEnvLines(
     set('STREAM_KEY', streamKey);
   }
 
-  // Validated here as well as in the settings route, because this is the last
-  // point before the values leave the manager and both entrypoints splice them
-  // into a `sed` expression without a guard of their own. `abr` follows
-  // BEE_PUBLISHERS, which is the same thing that turns ABR_ENABLED on above.
-  //
-  // Only over the keys this deployment still reads. A rung setting stored while
-  // the ladder was on and left behind when it was turned off is skipped, not
-  // refused: refusing would fail every deploy from here on over a value no
-  // drawer shows and nobody can remove. A key that does not apply in a new
-  // request is still refused, by the request schema and by the settings route.
-  const abr = Boolean(publishers);
-  const engineSettings = applicableEngineSettings(
-    values.engine,
-    values.engineSettings ?? {},
-    { abr },
-  );
-  // Against the defaults this host actually falls back to, not the stack's own:
-  // an unset key is left out of the file below and whatever the base .env says
-  // stands, so checking a pair against the stack values refuses a deployment
-  // that would start and passes one that would not. A default the manager owns
-  // is the one unset key written below, which the same answer says.
-  const defaults = effectiveEngineDefaults(
-    values.engine,
-    parseEnvText(baseText),
-    values.stackEngineDefaults ?? {},
-  );
-  const settingsProblem = engineSettingsProblem(values.engine, engineSettings, {
-    abr,
-    defaults: defaults.values,
-  });
-  if (settingsProblem) {
+  const engineSettings = engineSettingsLinesOf(values, baseText);
+  if (engineSettings.problem && !options.keepRefusedEngineSettings) {
     throw new Error(
-      `refusing to write the engine settings to the env file: ${settingsProblem}`,
+      `refusing to write the engine settings to the env file: ${engineSettings.problem}`,
     );
   }
-  for (const [key, value] of Object.entries(
-    engineSettingsEnv(values.engine, engineSettings, { abr, defaults }),
-  )) {
+  for (const [key, value] of Object.entries(engineSettings.lines)) {
     set(key, value);
   }
 
@@ -562,7 +594,6 @@ export function managedEnvLines(
   return lines;
 }
 
-/** The deployment's env file: the version's base `.env` with every managed line upserted. */
 /**
  * The deployment's env file: the version's base `.env`, then the values the
  * operator stored for this deployment, then every managed line.

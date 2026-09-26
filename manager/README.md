@@ -195,10 +195,10 @@ gates on it. The card that reads it and the bounds of the read are in
 
 `engine_settings` is create-only and `POST /groups` takes it on the same terms,
 writing it to every member of the group, because a deployment is `DEPLOYING`
-from the moment create returns and the settings route refuses a busy one. It is
-held to the rule the settings drawer applies, so a deployment that runs no media
-server, an ABR node pool among them, is refused rather than storing keys nothing
-would read.
+from the moment create returns and the engine settings route refuses a busy one.
+It is held to the rules a save of the engine settings is held to, so a
+deployment that runs no media server, an ABR node pool among them, is refused
+rather than storing keys nothing would read.
 
 `stack_settings` is create-only too, and `POST /groups` takes it on the same
 terms: a list of `{ key, value }`, each value text, that the new deployment
@@ -207,9 +207,10 @@ starts with instead of its version's values (2026-09-26,
 deployment's own settings is held to, against the list `GET
 /versions/:id/settings-catalog` answers for a deployment of the kind, services
 and host the body describes: a key the version does not declare, a key one of
-the deployment's own controls decides, a key named twice and a value the stack
-would read differently are refused, and so is the whole create, each key named
-and no value repeated. Accepted values are stored at the insert, a secret apart
+the deployment's own controls decides, a key named twice, a value the stack
+would read differently and a value outside the bounds or choices the stack
+takes for its key are refused, and so is the whole create, each key named and
+no secret repeated. Accepted values are stored at the insert, a secret apart
 from the rest, so the first deploy writes them. A group writes them to every
 member, a node pool's rungs included, and a member appended to a group later
 takes those of the group's first member.
@@ -538,14 +539,18 @@ Every key a deployment's version declares, with the value its next deploy
 writes, where that comes from, and whether the running containers got it
 (2026-09-26), and the same list for a deployment not created yet, which the
 new-deployment wizard edits and `stack_settings` on `POST /profiles` and `POST
-/groups` is checked against. `docs/features/deployment-settings.md` says what
-each part does.
+/groups` is checked against. A deployment's list also holds every engine
+setting it reads, as its own to set, since the Engine card's settings drawer
+went the same day: a save puts an engine key in `profiles.engine_settings` and
+never in the stack columns, holds it to the engine's own rules with the host's
+defaults, and moves the one revision for the whole save.
+`docs/features/deployment-settings.md` says what each part does.
 
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
-| GET | `/profiles/:name/settings` | none | `{ instanceId, revision, buildId, entries, drift, running }`, `no-store`. No secret value, only whether one is stored. 409 `settings_not_ready` for a version with no build |
-| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version | `{ revision }`. Stores and runs nothing. 400 `validation_error` for an undeclared key, a key a control of the deployment decides or a value the stack would read differently, 409 `deployment_settings_changed` for an older revision |
-| POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys |
+| GET | `/profiles/:name/settings` | none | `{ instanceId, revision, buildId, entries, drift, running, engine, abr, engineSettingsProblem }`, `no-store`. No secret value, only whether one is stored. `engine` and `abr` say which engine's settings the list takes and whether the rung settings are among them, and an engine setting's entry carries `engineSetting`, where its default comes from and whether the config the engine runs still reads it. `engineSettingsProblem` is the sentence the next deploy would refuse the stored engine settings with, or null, which a change to the host's defaults can bring about under values it took when they were saved. 409 `settings_not_ready` for a version with no build |
+| PUT | `/profiles/:name/settings` | `{ expectedInstanceId, expectedRevision, entries: [{ key, value }] }`, `value` null to go back to the version or, for an engine setting, to its default | `{ revision }`. Stores and runs nothing, and one refused key refuses the whole save. 400 `validation_error` for a key the version does not declare and the deployment does not store, a key named twice, a key a control of the deployment decides, an engine setting the deployment does not read, a value for a stored key the version no longer declares, which only takes a reset, a value the stack would read differently or outside the bounds or choices the stack takes for its key, an engine value outside its field, or engine settings the engine would refuse together. 409 `deployment_settings_changed` for an older revision, 409 `profile_instance_changed` for a deployment removed and created again under the name, 409 `profile_busy` while it is being removed. A save that names no engine setting is taken while `engineSettingsProblem` stands |
+| POST | `/profiles/:name/settings/apply` | `{ expectedInstanceId }` | 202 `{ recreated: [service] }` or `{ recreated: 'all' }`, 200 `{ recreated: [] }` when nothing is behind, 400 `validation_error` with the `engineSettingsProblem` sentence while it stands, 409 `profile_stopped` for a stopped deployment, 409 `profile_busy` while it deploys, stops or is removed, 409 `profile_instance_changed` for a deployment removed and created again under the name |
 | GET | `/versions/:id/settings-catalog?kind=&components=&host=` | none | `{ versionId, buildId, entries }`, `no-store`. What a deployment not created yet starts with: the version's keys and values, the control that decides each key a control decides, nothing stored, recorded or running. No secret value. `kind` defaults to `custom`, `components` is a comma list, and `host` absent is the manager's own. 400 `validation_error` for a query no create body could describe, 404 `stack_version_not_found`, 409 `settings_not_ready` for a version with no build |
 
 ### Engine control
@@ -556,7 +561,7 @@ things an operator does to it by hand.
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
 | GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason, notInConfig }` |
-| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, SRT_LATENCY?, ABR_*? }` for SRS, the three `HLS_*` keys for OME | 202 and the profile. Recreates the engine container, and the uploader with it when a key the uploader also reads changed |
+| PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, SRT_LATENCY?, ABR_*? }` for SRS, `{ HLS_SEGMENT_DURATION?, HLS_SEGMENT_COUNT?, OME_HLS_POLL_INTERVAL_MS? }` for OME, the whole set, and `expectedInstanceId?`. `{}` puts every setting back to its default | 202 and the profile. For scripts: saves and recreates in one call, the engine container and the uploader with it when a key the uploader also reads changed. 400 `validation_error` naming a key neither engine reads, never its value, with nothing stored, because the body replaces the whole set and a misspelled key would have reset the setting it meant. 409 `engine_settings_changed` when a save of the deployment's settings landed after it read them |
 | POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
 | GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store`. The config the running container generated |
@@ -580,18 +585,25 @@ from 20 to 10000, defaults to the manager's own 2000, which the owner decided
 that day. `v3.1` falls back to 200, as does every version cut before that day
 which reads the key at all, and the bundled stack, `v3.4`, falls
 back to 2000 itself. On every version an absent `SRT_LATENCY` is written into
-`.env.<name>` as 2000 unless the base `.env` sets it, and the drawer calls it
-"Manager default". SRS waits that long on ingest only on a stack version whose
+`.env.<name>` as 2000 unless the base `.env` sets it, and the Engine card calls
+it "Manager default". SRS waits that long on ingest only on a stack version whose
 template fills `recvlatency` as well as `latency`, as the bundled stack's does.
-`v3.1` fills `latency` alone, so on it the drawer shows SRS's own 120 as
+`v3.1` fills `latency` alone, so on it the Engine card shows SRS's own 120 as
 "Engine default" instead, measured on 2026-09-23 and recorded in
 [engine-control.md](../docs/features/engine-control.md). It is not a key of
 this manager's own environment, so the table under Environment below does not
 list it.
 
-Saving settings redeploys the engine service alone, so the profile goes
-`DEPLOYING` and back while the uploader and the Bee node stay up. A restart is
-below that state machine: it changes no status and publishes an
+The engine settings are edited in the deployment's Stack settings card since
+2026-09-26, where a save stores and runs nothing and Apply recreates the
+containers behind on a saved value. `PUT /profiles/:name/engine-settings`
+stays as the way a script saves and recreates in one call: it redeploys the
+engine service alone, and the uploader with it for a key it also reads, so the
+profile goes `DEPLOYING` and back while the Bee node stays up. It reads the
+stored settings with the settings revision the page saves under, moves that
+revision with its write, and is refused rather than writing over a page save
+that landed in between, so a page that read before it is refused in turn. A
+restart is below that state machine: it changes no status and publishes an
 `engine.restarted` activity event instead.
 
 Live status (what is publishing right now) is not read yet. The bundled
@@ -604,15 +616,16 @@ deployment's version in `liveUnavailableReason`.
 
 #### A config file of the deployment's own
 
-Everything an engine can do beyond the settings drawer is a matter of editing
+Everything an engine can do beyond its engine settings is a matter of editing
 its config file, and both engines are configured by file alone: SRS by
 `srs.conf`, OvenMediaEngine by `Server.xml`. Neither has a configuration web
 page. The Engine card's **Config file** button opens the whole file, and the
 manager stores it in `profiles.engine_config` (migration 012), whole, with the
 stack's `*_PLACEHOLDER` tokens kept in it. The stack fills those at container
-start, so the passphrase, the ports, the webhook token and the values from the
-settings drawer never sit in the stored text, and a token the file drops is a
-setting the drawer marks as not read (`notInConfig`).
+start, so the passphrase, the ports, the webhook token and the engine settings
+never sit in the stored text, and a token the file drops is a setting the
+Engine card marks as not read (`notInConfig`) and the Stack settings card says
+a value has no effect for.
 
 It works on a stack version whose contract has the hook, `engineConfig` in
 `GET /versions`, which the reader sets when the checkout ships
@@ -679,8 +692,8 @@ reading a checkout's scripts proves its shape and not its behaviour.
 What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
 (99 on the bundled `v3.4`, 999 on the older `main-v2`, and the
-manager caps both at 100 whatever the contract declares), the engine defaults the settings
-drawer names, whether the engine can run on a config file of its own, which
+manager caps both at 100 whatever the contract declares), the engine defaults the Engine
+card and the settings page name, whether the engine can run on a config file of its own, which
 setting each container reads, taken from every `${KEY}` its block of the
 version's compose files names (since 2026-09-26, a version built before that
 falls back to the manager's own shorter list), and the
@@ -781,18 +794,18 @@ are stored on the deployment, plain ones in `profiles.stack_settings` and
 secret ones in `profiles.stack_settings_secret`, which no page and no event
 carries. A deploy writes them into `.env.<name>` over the version's base
 `.env`, and the lines the manager computes are written after them, so a stored
-value never takes the place of one: the stamp, the node pool, the chain
-endpoint and the gateway's mode, the Bee URL, the SRT passphrase and stream
-key, the feed, the engine config file, the engine settings, every slotted port
-and, on the manager's own host, the data directories. A stored value for one of
-those is left out of the file and named in the log. A generated secret is the
-exception: a value stored for it replaces the generated one, which stays kept
-for when the value is reset. The API that lists, saves and applies them is
-under "A deployment's own settings" above, the deployment page edits them
-in its Stack settings card (2026-09-26, `feat/deployment-settings-page`), and
-the new-deployment wizard sets them before the deployment exists (2026-09-26,
-`feat/deployment-settings-wizard`), which `docs/features/deployment-settings.md`
-describes.
+value never takes the place of one: the services it runs, the stamp, the node
+pool, the chain endpoint and the gateway's mode, the Bee URL, the SRT
+passphrase and stream key, the feed, the engine config file, the engine
+settings, every slotted port and, on the manager's own host, the data
+directories. A stored value for one of those is left out of the file and named
+in the log. A generated secret is the exception: a value stored for it replaces
+the generated one, which stays kept for when the value is reset. The API that
+lists, saves and applies them is under "A deployment's own settings" above, the
+deployment page edits them in its Stack settings card (2026-09-26,
+`feat/deployment-settings-page`), and the new-deployment wizard sets them
+before the deployment exists (2026-09-26, `feat/deployment-settings-wizard`),
+which `docs/features/deployment-settings.md` describes.
 
 Every successful deploy records, per container it started, what that container
 got: the keys its compose block reads and the keys the version declares that

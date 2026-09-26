@@ -15,6 +15,9 @@ import { describe, it } from 'node:test';
 import {
   type DeploymentSettingEntry,
   type DeploymentSettingsCatalog,
+  type EngineSettingField,
+  engineSettingFieldOf,
+  isNotReadOwner,
   SETTING_OWNER_LABELS,
   type SettingOwner,
 } from '@streaming-infra-manager/common';
@@ -34,10 +37,13 @@ import {
   defaultText,
   descriptionPreview,
   driftNotice,
+  engineDefaultText,
+  engineFieldHint,
   fieldHint,
   loadFailureOf,
   newDeploymentSettingsNote,
   noMatchText,
+  notInConfigNote,
   notTakenNote,
   ownedValueText,
   ownerSentence,
@@ -49,6 +55,7 @@ import {
   secretNote,
   sectionSummary,
   startedBeforeRecords,
+  storedEngineProblemText,
   wordList,
 } from './settingsText';
 
@@ -69,12 +76,13 @@ function entry(overrides: Partial<DeploymentSettingEntry> & { key: string }): De
     field: null,
     services: null,
     running: 'same',
+    engineSetting: null,
     ...overrides,
   };
 }
 
 function catalogWith(drift: DeploymentSettingsCatalog['drift'], running: boolean): DeploymentSettingsCatalog {
-  return { instanceId: 'i', revision: 1, buildId: null, entries: [], drift, running };
+  return { instanceId: 'i', revision: 1, buildId: null, entries: [], drift, running, engine: 'srs', abr: false, engineSettingsProblem: null };
 }
 
 describe('wordList', () => {
@@ -104,9 +112,14 @@ describe('ownerSentence', () => {
   });
 
   it('reads as a sentence for every control', () => {
-    for (const owner of Object.keys(SETTING_OWNER_LABELS) as SettingOwner[]) {
+    for (const owner of (Object.keys(SETTING_OWNER_LABELS) as SettingOwner[]).filter((candidate) => !isNotReadOwner(candidate))) {
       assert.match(ownerSentence(owner), /^Decided by .+\. It cannot be set here\.$/);
     }
+  });
+
+  it('says who reads an engine setting the deployment does not, rather than naming a control', () => {
+    assert.equal(ownerSentence('abr-only'), 'Only a deployment that encodes the ABR ladder reads it, so it cannot be set here.');
+    assert.equal(ownerSentence('ome-only'), 'Only a deployment that runs OvenMediaEngine reads it, so it cannot be set here.');
   });
 });
 
@@ -171,15 +184,32 @@ describe('driftNotice', () => {
     });
   });
 
-  it('says Apply redeploys everything when a key reaches the deploy scripts alone', () => {
+  it('says Apply redeploys everything when a key reaches the deploy scripts alone, the engine and its publisher with it', () => {
     const notice = driftNotice(
       catalogWith({ keys: ['LOG_LEVEL', 'BEE_UPLOADER_FULL_NODE'], services: ['stream-uploader'], fullRedeploy: true }, true),
     );
 
     assert.equal(
       notice?.text,
-      '2 settings are behind the running containers: LOG_LEVEL and BEE_UPLOADER_FULL_NODE. Apply redeploys every service of this deployment.',
+      '2 settings are behind the running containers: LOG_LEVEL and BEE_UPLOADER_FULL_NODE. Apply redeploys every service of this deployment. A publisher, if one is live, is disconnected for a few seconds.',
     );
+  });
+
+  // The SRT ingest card sends an operator here during a live broadcast that is losing packets.
+  it('warns that recreating the engine disconnects a live publisher, and says nothing of one otherwise', () => {
+    const srs = driftNotice(catalogWith({ keys: ['SRT_LATENCY'], services: ['srs'], fullRedeploy: false }, true));
+    const ome = driftNotice(catalogWith({ keys: ['HLS_SEGMENT_DURATION'], services: ['ome', 'stream-uploader'], fullRedeploy: false }, true));
+    const uploader = driftNotice(catalogWith({ keys: ['LOG_LEVEL'], services: ['stream-uploader'], fullRedeploy: false }, true));
+
+    assert.equal(
+      srs?.text,
+      '1 setting is behind the running containers: SRT_LATENCY. Apply recreates srs. A publisher, if one is live, is disconnected for a few seconds.',
+    );
+    assert.equal(
+      ome?.text,
+      '1 setting is behind the running containers: HLS_SEGMENT_DURATION. Apply recreates ome and stream-uploader. A publisher, if one is live, is disconnected for a few seconds.',
+    );
+    assert.doesNotMatch(uploader?.text ?? '', /publisher/);
   });
 
   it('offers no Apply to a stopped deployment, whose Start uses the saved settings', () => {
@@ -391,9 +421,69 @@ describe('the words themselves', () => {
       newDeploymentSettingsNote(0, []),
       newDeploymentSettingsNote(1, ['K']),
       notTakenNote(['A', 'B']),
+      notInConfigNote(true),
+      notInConfigNote(false),
+      engineDefaultText(entry({ key: 'SRT_LATENCY', versionValue: '2000', engineSetting: { defaultSource: 'manager', notInConfig: false } }), fieldOf('SRT_LATENCY')),
+      storedEngineProblemText('The force-close ceiling of 1 seconds is below the segment length of 2 seconds.'),
     ];
     for (const sentence of sentences) {
       assert.equal(/[—;]/.test(sentence), false, sentence);
     }
+  });
+});
+
+function fieldOf(key: string): EngineSettingField {
+  const field = engineSettingFieldOf(key);
+  assert.ok(field, `${key} is an engine setting`);
+  return field;
+}
+
+describe('the words of an engine setting', () => {
+  const facts = (defaultSource: 'stack' | 'host' | 'manager') => ({ defaultSource, notInConfig: false });
+
+  it('names its default with its unit and where the default comes from', () => {
+    assert.equal(
+      engineDefaultText(entry({ key: 'HLS_FRAGMENT', versionValue: '6', engineSetting: facts('host') }), fieldOf('HLS_FRAGMENT')),
+      'Default: 6 seconds, set on this host',
+    );
+    assert.equal(
+      engineDefaultText(entry({ key: 'HLS_WINDOW', versionValue: '15', engineSetting: facts('stack') }), fieldOf('HLS_WINDOW')),
+      "Default: 15 seconds, the version's own",
+    );
+    assert.equal(
+      engineDefaultText(entry({ key: 'SRT_LATENCY', versionValue: '2000', engineSetting: facts('manager') }), fieldOf('SRT_LATENCY')),
+      "Default: 2000 milliseconds, the manager's own",
+    );
+    assert.equal(
+      engineDefaultText(entry({ key: 'ABR_PRESET', versionValue: 'veryfast', engineSetting: facts('stack') }), fieldOf('ABR_PRESET')),
+      "Default: veryfast, the version's own",
+    );
+  });
+
+  // The unit beside the field is drawn, not read out, so the hint is where a screen reader hears it.
+  it('says what a number field takes in its unit, and nothing for a list, which shows its choices', () => {
+    assert.equal(engineFieldHint(fieldOf('HLS_FRAGMENT')), 'A number of seconds from 0.5 to 30. Use a period for decimals.');
+    assert.equal(engineFieldHint(fieldOf('SRT_LATENCY')), 'A whole number of milliseconds from 20 to 10000.');
+    assert.equal(engineFieldHint(fieldOf('ABR_FPS')), 'A whole number of frames per second from 1 to 120.');
+    assert.equal(engineFieldHint(fieldOf('ABR_THREADS')), 'A whole number per rung from 0 to 64.');
+    assert.equal(engineFieldHint(fieldOf('ABR_PRESET')), null);
+  });
+
+  it("says the saved engine settings cannot be deployed and what that holds up, then gives the manager's own reason", () => {
+    assert.equal(
+      storedEngineProblemText('The force-close ceiling of 1 seconds is below the segment length of 2 seconds.'),
+      'The engine settings saved for this deployment cannot be deployed, so Apply is refused and any other deploy fails until they change. The force-close ceiling of 1 seconds is below the segment length of 2 seconds.',
+    );
+  });
+
+  it('says a value has no effect while the config the engine runs does not read it', () => {
+    assert.equal(
+      notInConfigNote(true),
+      "The deployment's own config file no longer reads this setting, so a value here has no effect until the file reads it again.",
+    );
+    assert.equal(
+      notInConfigNote(false),
+      "This version's config does not read this setting, so a value here has no effect on this version.",
+    );
   });
 });

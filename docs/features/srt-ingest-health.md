@@ -151,9 +151,12 @@ failed ask clears the last reading rather than leaving it on screen.
   instead of WiFi.
 
 The latency step reads the deployment's engine settings. When they list
-`SRT_LATENCY`, as an SRS deployment's do since PR 44, the step carries an
-**Engine settings** button that opens the drawer. When they do not, it says that
-the change in OBS does the same from the broadcaster's side.
+`SRT_LATENCY`, as an SRS deployment's do since PR 44, the step says to raise it
+in the deployment's stack settings and carries a **Change SRT latency** button,
+which brings the Stack settings card into view at that setting, focused. It
+opened the Engine card's settings drawer until the drawer went on 2026-09-26.
+When they do not list it, the step says that the change in OBS does the same
+from the broadcaster's side.
 
 ## What it does not do
 
@@ -223,7 +226,8 @@ These are P3 by the estate's scale: rare, with no damage path, recorded once.
   SRS deployment runs, not for a stopped or failed one that keeps its records.
 - `frontend/test/srt-ingest-browser.test.mjs`: the card in a real Chrome, bad
   with its remedy, on a phone, healthy, with no reports, the latency button
-  opening the drawer, no card and no request without SRS, and none for a
+  landing on the SRT latency in the Stack settings card, focused, no card and
+  no request without SRS, and none for a
   stopped deployment that still carries its SRS records.
 - `frontend/test/mock-srt-ingest-http.test.mjs`: the offline mock answers the
   route in the manager's shape and keeps the state a reviewer picked.

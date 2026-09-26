@@ -122,6 +122,20 @@ describe('who decides a key', () => {
     assert.equal(settingOwnerOf('BEE_UPLOADER_DATA_DIR', { ports: [], isLocalTarget: true }), 'data-dir');
     assert.equal(settingOwnerOf('BEE_UPLOADER_DATA_DIR', NO_PORTS), null);
   });
+
+  // The deploy writes the engine settings on their own, and the wizard asks for
+  // them in a step of its own, so neither reads one as a stack setting. A
+  // deployment's own settings list sets the ones the deployment reads.
+  it('leaves every engine setting to the engine settings unless a deployment list reads it', () => {
+    const srs = { ...NO_PORTS, engineReader: { engine: 'srs' as const, abr: false } };
+
+    assert.equal(settingOwnerOf('SRT_LATENCY', NO_PORTS), 'engine-settings');
+    assert.equal(settingOwnerOf('SRT_LATENCY', srs), null);
+    assert.equal(settingOwnerOf('ABR_FPS', srs), 'abr-only');
+    assert.equal(settingOwnerOf('ABR_FPS', { ...srs, engineReader: { engine: 'srs', abr: true } }), null);
+    assert.equal(settingOwnerOf('HLS_SEGMENT_COUNT', srs), 'ome-only');
+    assert.equal(settingOwnerOf('SRT_LATENCY', { ...NO_PORTS, engineReader: { engine: null, abr: false } }), 'srs-only');
+  });
 });
 
 const REQUIRED = ['API_AUTH_TOKEN', 'SRS_WEBHOOK_TOKEN'];

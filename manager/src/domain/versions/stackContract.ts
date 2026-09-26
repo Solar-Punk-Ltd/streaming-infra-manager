@@ -581,8 +581,8 @@ function readEngineDefaults(root: string): Record<string, string> {
  *
  * A default that is itself a substitution, `${HLS_FRAGMENT:-${FRAGMENT:-1.5}}`,
  * is not supported: the match ends at the first closing brace, which is the
- * inner one, so the value would come back as `${FRAGMENT:-1.5` and the engine
- * settings drawer would offer that as a number to an operator. Null says the
+ * inner one, so the value would come back as `${FRAGMENT:-1.5` and the
+ * settings page would offer that as a number to an operator. Null says the
  * manager does not know this default, which is true.
  */
 function fallbackFor(entrypoint: string, key: string): string | null {

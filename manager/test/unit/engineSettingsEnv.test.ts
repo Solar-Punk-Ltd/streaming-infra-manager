@@ -127,9 +127,10 @@ describe('writeProfileEnv: engine settings', () => {
   it('skips a stored ABR setting on a deployment with no ladder', () => {
     // A rung setting stored while the ladder was on and left behind when the
     // pool string was cleared. Refusing it here would put every later deploy of
-    // this profile into ERROR over a value no drawer renders, so the deploy goes
-    // ahead and the key is simply not written. A new request carrying one is
-    // still refused, by the request schema and by the settings route.
+    // this profile into ERROR over a value the settings page offers only a
+    // reset for, so the deploy goes ahead and the key is simply not written. A
+    // new request carrying one is still refused, by the request schema and by
+    // the settings route.
     withBaseEnv();
     const env = envFor('nolad', { ABR_FPS: '30', HLS_FRAGMENT: '2' });
 
@@ -172,8 +173,8 @@ describe('writeProfileEnv: engine settings', () => {
  *
  * The owner set the SRT latency to 2000 ms on 2026-09-23, and v3.1's entrypoint
  * falls back to 200. Leaving the key out would hand SRS 200 for every
- * deployment that stores none while the drawer names 2000. A value somebody set
- * on the box still stands, which is the rule this file opens with.
+ * deployment that stores none while the settings page names 2000. A value
+ * somebody set on the box still stands, which is the rule this file opens with.
  */
 describe("writeProfileEnv: the manager's own SRT latency", () => {
   it('writes 2000 when neither the deployment nor the host sets one', () => {
@@ -203,7 +204,7 @@ describe("writeProfileEnv: the manager's own SRT latency", () => {
     assert.equal(env.match(/^SRT_LATENCY=/gm)?.length, 1);
   });
 
-  it('replaces a value on the host that the field refuses, which the drawer does not show', () => {
+  it('replaces a value on the host that the field refuses, which the settings page does not show', () => {
     withBaseEnv(`${BASE_ENV}SRT_LATENCY=5\n`);
     const env = envFor('hostbad', {});
 

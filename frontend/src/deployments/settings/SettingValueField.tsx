@@ -3,6 +3,7 @@ import { FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/mat
 import type { DeploymentSettingEntry } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../../app/theme';
+import { settingFieldId } from './settingFieldIds';
 import { fieldHint } from './settingsText';
 
 const BOOLEAN_TRUE = 'true';
@@ -17,7 +18,7 @@ const UNSET_CHOICE_LABEL = "not set, the stack's own default";
  * that offers to save a token puts it somewhere nobody rotated it from, and
  * one that fills a field changes a setting nobody typed.
  */
-const PLAIN_TEXT_INPUT = {
+export const PLAIN_TEXT_INPUT = {
   spellCheck: false,
   autoComplete: 'off',
   autoCapitalize: 'off',
@@ -31,10 +32,6 @@ const PLAIN_TEXT_INPUT = {
  * that asks for a new password is never filled from a saved one.
  */
 const MASKED_AUTOCOMPLETE = 'new-password';
-
-export function settingFieldId(key: string): string {
-  return `deployment-setting-${key}`;
-}
 
 interface FieldProps {
   entry: DeploymentSettingEntry;

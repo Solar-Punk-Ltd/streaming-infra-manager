@@ -8,7 +8,6 @@ import {
 import { EditDeploymentDrawer } from './EditDeploymentDrawer';
 import { EditGroupDrawer } from './EditGroupDrawer';
 import { EngineConfigDialog } from './EngineConfigDialog';
-import { EngineSettingsDrawer } from './EngineSettingsDrawer';
 import { NewDeploymentWizard } from './wizard/NewDeploymentWizard';
 
 /** Whichever form is open, if any. Only ever one at a time. */
@@ -16,7 +15,6 @@ type OpenEditor = (
   | { kind: 'wizard'; prefill?: WizardPrefill }
   | { kind: 'deployment'; name: string }
   | { kind: 'group'; id: number }
-  | { kind: 'engine'; name: string }
   | { kind: 'engine-config'; name: string }
 ) & {
   /**
@@ -31,8 +29,8 @@ type OpenEditor = (
 };
 
 /**
- * Owns the wizard and the two edit drawers, and hands every page the three
- * functions that open them.
+ * Owns the wizard, the two edit drawers and the engine's config file dialog,
+ * and hands every page the functions that open them.
  *
  * Mounted above the shell so a row, a page header and a pool card all reach the
  * same forms, and so the forms outlive the row that opened them: a list that
@@ -48,8 +46,6 @@ export function EditorsHost({ children }: { children: ReactNode }) {
       openWizard: (prefill) => setOpen({ kind: 'wizard', prefill, seq: seq() }),
       openEditDeployment: (name) => setOpen({ kind: 'deployment', name, seq: seq() }),
       openEditGroup: (id) => setOpen({ kind: 'group', id, seq: seq() }),
-      openEngineSettings: (name) =>
-        setOpen({ kind: 'engine', name, seq: seq() }),
       openEngineConfig: (name) =>
         setOpen({ kind: 'engine-config', name, seq: seq() }),
     };
@@ -68,9 +64,6 @@ export function EditorsHost({ children }: { children: ReactNode }) {
       )}
       {open?.kind === 'group' && (
         <EditGroupDrawer key={open.seq} id={open.id} onClose={close} />
-      )}
-      {open?.kind === 'engine' && (
-        <EngineSettingsDrawer key={open.seq} name={open.name} onClose={close} />
       )}
       {open?.kind === 'engine-config' && (
         <EngineConfigDialog key={open.seq} name={open.name} onClose={close} />

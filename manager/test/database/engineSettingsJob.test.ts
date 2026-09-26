@@ -52,7 +52,9 @@ describe('engine settings writes own the exact active job in isolated PostgreSQL
     if (root) await rm(root, { recursive: true, force: true });
   });
 
-  const ownerOf = (job: ClaimedDeploy): EngineSettingsWriteOwner => ({ ...deployOwnerOf(job.profile), jobReferenceId: job.descriptor.referenceId! });
+  const ownerOf = (job: ClaimedDeploy): EngineSettingsWriteOwner => ({
+    ...deployOwnerOf(job.profile), jobReferenceId: job.descriptor.referenceId!, settingsRevision: 0,
+  });
   const state = async () => (await pool.query("SELECT * FROM profiles WHERE name = 'observed'")).rows[0];
   const write = (owner = ownerOf(claim), settings: EngineSettings = { HLS_FRAGMENT: '2' }) =>
     profiles.updateEngineSettings('observed', settings, owner);
@@ -74,7 +76,51 @@ describe('engine settings writes own the exact active job in isolated PostgreSQL
     assert.equal((await state()).deploy_job_reference_id, claim.descriptor.referenceId);
   });
 
-  for (const field of ['instanceId', 'intentRevision', 'configRevision', 'stackVersionId', 'jobReferenceId'] as const) {
+  it('moves the settings revision a deployment settings page guards on', async () => {
+    await write();
+    assert.equal((await state()).settings_revision, 1);
+  });
+
+  /** A page save of an engine value and a stack value, as the settings page makes one. */
+  const pageSave = (expectedRevision: number) => profiles.updateStackSettings(
+    'observed',
+    { plain: { LOG_LEVEL: 'warn' }, secret: {}, remove: [], engine: { set: { HLS_WINDOW: '20' }, remove: [] } },
+    { instanceId: claim.profile.instance_id, expectedRevision },
+  );
+
+  it('refuses to write over a page save that landed after it read the revision', async () => {
+    assert.equal(await pageSave(0), 1);
+    const before = await state();
+    assert.equal(await write(), null);
+    assert.deepEqual(await state(), before);
+    assert.deepEqual(before.engine_settings, { HLS_FRAGMENT: '7', HLS_WINDOW: '20' });
+  });
+
+  it('leaves a page save made against the revision before it to be refused', async () => {
+    await write();
+    const before = await state();
+    assert.equal(await pageSave(0), null);
+    assert.deepEqual(await state(), before);
+    assert.deepEqual(before.engine_settings, { HLS_FRAGMENT: '2' });
+  });
+
+  it('lets exactly one of a page save and a scripted save at the same revision through, and loses nothing unseen', async () => {
+    const [page, scripted] = await Promise.all([pageSave(0), write()]);
+    const row = await state();
+
+    assert.equal([page, scripted].filter((landed) => landed !== null).length, 1);
+    assert.equal(row.settings_revision, 1);
+    if (page !== null) {
+      assert.deepEqual(
+        { stack: row.stack_settings, engine: row.engine_settings },
+        { stack: { LOG_LEVEL: 'warn' }, engine: { HLS_FRAGMENT: '7', HLS_WINDOW: '20' } },
+      );
+    } else {
+      assert.deepEqual({ stack: row.stack_settings, engine: row.engine_settings }, { stack: {}, engine: { HLS_FRAGMENT: '2' } });
+    }
+  });
+
+  for (const field of ['instanceId', 'intentRevision', 'configRevision', 'stackVersionId', 'jobReferenceId', 'settingsRevision'] as const) {
     it(`refuses a mismatched ${field} without touching the winner`, async () => {
       const owner = ownerOf(claim);
       if (field === 'instanceId') owner.instanceId = randomUUID();

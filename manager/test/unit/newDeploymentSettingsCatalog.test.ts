@@ -185,3 +185,20 @@ describe('what a new deployment list never answers', () => {
     assert.doesNotMatch(JSON.stringify(catalog), /synthetic-provider-key/);
   });
 });
+
+// The wizard asks for a new deployment's engine settings in a step of its own,
+// so its settings list keeps them out of reach and points at that step, however
+// a deployment's own list takes them once it exists.
+describe('the engine settings of a new deployment', () => {
+  it('stay with the wizard engine step, with none of the facts a deployment list gives its own', () => {
+    const catalog = newDeploymentSettingsCatalogOf(input());
+    const fragment = entryOf(catalog, 'HLS_FRAGMENT');
+
+    assert.deepEqual(
+      { owner: fragment.owner, source: fragment.source, value: fragment.value, engineSetting: fragment.engineSetting },
+      { owner: 'engine-settings', source: 'manager', value: null, engineSetting: null },
+    );
+    assert.equal(catalog.entries.some((entry) => entry.key === 'HLS_WINDOW'), false, 'no engine setting is added that no sample declares');
+    assert.deepEqual(Object.keys(catalog).sort(), ['buildId', 'entries', 'versionId']);
+  });
+});

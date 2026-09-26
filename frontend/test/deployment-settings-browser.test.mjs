@@ -10,8 +10,13 @@
  * version dropped, a value the manager would refuse, a save that sends only
  * what changed with the revision the page read, a reset, a save that lost a
  * race, the banner and its Apply, a stopped deployment, and a version with no
- * build yet. All of it at a phone's width, because that is where an operator
- * reads a page during an incident.
+ * build yet. The deployment's engine settings are in the same list since Levi
+ * ruled the Engine card's drawer out on 2026-09-26, so it also drives those as
+ * the drawer showed them, a pair the engine would refuse, a saved segment
+ * length that Apply recreates the engine and the uploader for, the Engine card
+ * marking a saved value the engine does not run yet, and stored engine
+ * settings the next deploy would refuse. All of it at a phone's width, because
+ * that is where an operator reads a page during an incident.
  *
  * A real headless Chrome over a real Vite, with an offline fixture in place of
  * the manager. Runs through `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser`,
@@ -25,13 +30,27 @@ import { fileURLToPath } from 'node:url';
 
 import { createServer } from 'vite';
 
-import { clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, readWhenPresent, waitFor } from './support/chrome.mjs';
+import { engineSettingFieldOf } from '@streaming-infra-manager/common';
+
+import {
+  clickWhenEnabled,
+  fillWhenPresent,
+  launchChrome,
+  PAGE_TEXT,
+  paintedInView,
+  readWhenPresent,
+  stillWithin,
+  waitFor,
+} from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { endViteServer } from './support/teardown.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 import {
   afterApply,
   afterSave,
+  CEILING_UNDER_STORED_SEGMENT,
+  REFUSED_ENGINE_INSTANCE,
+  refusedEngineCatalog,
   RUNNING_INSTANCE,
   runningCatalog,
   STOPPED_INSTANCE,
@@ -39,8 +58,15 @@ import {
   UNRECORDED_INSTANCE,
   unrecordedCatalog,
 } from './fixtures/deploymentSettings.mjs';
+import { srsOverviewOf } from './fixtures/engineOverview.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
+
+/** What the host's base `.env` sets, which the settings list names as the segment length's default. */
+const HOST_ENV = { HLS_FRAGMENT: '2' };
+
+/** Whether the drawer the Engine card used to open is on screen, which it never is since the drawer went. */
+const ENGINE_DRAWER_OPEN = `[...document.querySelectorAll('h2')].some(heading => heading.textContent.startsWith('Engine settings for'))`;
 
 const NARROW = 390;
 const WIDE = 1280;
@@ -49,17 +75,18 @@ const RUNNING = 'settings-stage';
 const STOPPED = 'parked-stage';
 const NOT_READY = 'fresh-stage';
 const UNRECORDED = 'early-stage';
+const REFUSED_ENGINE = 'stuck-stage';
 
 const RUNNING_SRS = [{ service: 'srs', ports: {} }, { service: 'stream-uploader', ports: {} }, { service: 'bee-uploader', ports: {} }];
 
-function profileNamed(name, instanceId, status) {
+function profileNamed(name, instanceId, status, engineSettings = {}) {
   return {
     name, kind: 'streamer', status, port_slot: 1, host: 'localhost',
     instance_id: instanceId, engine_config_revision: 0, intent_revision: 0,
     stack_version_id: 1, engine_config_state: null, engine_config_error: null, has_engine_config: false,
     notes: null, notes_revision: 0, last_error: null, last_error_at: null, has_srt_passphrase: false,
     created_at: '2026-09-26T08:00:00.000Z', updated_at: '2026-09-26T08:00:00.000Z',
-    engine_settings: {}, stamp_id: null, public_key: '1'.repeat(40), pendingStamp: false,
+    engine_settings: engineSettings, stamp_id: null, public_key: '1'.repeat(40), pendingStamp: false,
     containers: status === 'RUNNING' ? RUNNING_SRS : [],
   };
 }
@@ -69,13 +96,35 @@ const PROFILES = [
   profileNamed(STOPPED, STOPPED_INSTANCE, 'STOPPED'),
   profileNamed(NOT_READY, '66666666-6666-4666-8666-666666666666', 'RUNNING'),
   profileNamed(UNRECORDED, UNRECORDED_INSTANCE, 'RUNNING'),
+  profileNamed(REFUSED_ENGINE, REFUSED_ENGINE_INSTANCE, 'RUNNING', { HLS_FRAGMENT: '3' }),
 ];
+
+/**
+ * The deployment's row after a save of its settings, as the manager keeps it:
+ * each engine key in its engine settings, and the row moved, which is what a
+ * read of the deployments list finds.
+ */
+function storeEngineSettings(name, entries) {
+  const profile = PROFILES.find((row) => row.name === name);
+  if (!profile) return;
+  for (const { key, value } of entries) {
+    if (!engineSettingFieldOf(key)) continue;
+    if (value === null) delete profile.engine_settings[key];
+    else profile.engine_settings[key] = value;
+  }
+  profile.updated_at = new Date().toISOString();
+}
 
 /** The sentence the fixture's manager refuses a staged save with, as `settingEditProblems` words one. */
 const STAGED_REFUSAL = 'ADMIN_API_URL is stored for this deployment, but its version no longer declares it. Reset it rather than set it.';
 
 test('a deployment settings card lists, edits, saves and applies at a phone width', { timeout: 240_000 }, async (t) => {
-  const catalogs = new Map([[RUNNING, runningCatalog()], [STOPPED, stoppedCatalog()], [UNRECORDED, unrecordedCatalog()]]);
+  const catalogs = new Map([
+    [RUNNING, runningCatalog()],
+    [STOPPED, stoppedCatalog()],
+    [UNRECORDED, unrecordedCatalog()],
+    [REFUSED_ENGINE, refusedEngineCatalog()],
+  ]);
   const writes = [];
   const stage = { refuseSave: false, applyBusy: false };
 
@@ -120,6 +169,8 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
 
             if (apply) {
               if (stage.applyBusy) return json({ error: 'profile_busy', name, status: 'DEPLOYING' }, 409);
+              // The manager's own refusal: its deploy would refuse the stored engine settings.
+              if (catalog.engineSettingsProblem) return json({ error: 'validation_error', errors: [catalog.engineSettingsProblem], name }, 400);
               const applied = afterApply(catalog);
               catalogs.set(name, applied.catalog);
               return json({ recreated: applied.recreated }, 202);
@@ -132,8 +183,12 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
             }
             const saved = afterSave(catalog, body.entries);
             catalogs.set(name, saved);
+            storeEngineSettings(name, body.entries);
             return json({ revision: saved.revision });
           }
+          const engine = /^\/profiles\/([^/]+)\/engine$/.exec(path);
+          const engineOf = PROFILES.find((row) => row.name === engine?.[1]);
+          if (engineOf) return json(srsOverviewOf(engineOf, { hostEnv: HOST_ENV }));
           // Every other read of a deployment is a node that does not answer,
           // which the rest of the page already knows how to show.
           if (path.startsWith('/profiles/')) return json({ error: 'Node unavailable', code: 'bee_node_unreachable' }, 503);
@@ -153,8 +208,18 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
   const shows = (description, ...texts) => waitFor(body, (text) => texts.every((part) => text.includes(part)), description);
   const card = `document.getElementById('stack-settings')`;
   const cardText = () => evaluate(`${card}?.innerText ?? ''`);
+  const engineCard = `[...document.querySelectorAll('h3')].find(el => el.textContent.trim() === 'SRS 6')?.closest('.MuiPaper-root')`;
+  const engineCardText = () => evaluate(`(${engineCard})?.innerText ?? ''`);
   const rowOf = (key) => `document.querySelector('li[data-setting="${key}"]')`;
-  const fieldOf = (key) => `document.querySelector('[aria-label="${key}"]')`;
+  const fieldOf = (key) => `document.getElementById('deployment-setting-${key}')`;
+  // What a screen reader is told about a field: the name and the description
+  // Chrome itself works out, rather than the attributes they come from.
+  const accessible = async (key) => {
+    const { root } = await call('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await call('DOM.querySelector', { nodeId: root.nodeId, selector: `#deployment-setting-${key}` });
+    const { nodes } = await call('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    return { name: nodes[0]?.name?.value ?? '', description: nodes[0]?.description?.value ?? '' };
+  };
   const rowText = (key) => readWhenPresent(evaluate, rowOf(key), 'innerText', `the ${key} row`);
   const buttonIn = (scope, label) => `[...((${scope})?.querySelectorAll('button') ?? [])].find(button => button.textContent.trim() === ${JSON.stringify(label)})`;
   const saveDisabled = () => readWhenPresent(evaluate, buttonIn(card, 'Save'), 'disabled', 'the Save button');
@@ -170,13 +235,16 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
   const openEverySection = () => evaluate(`[...document.querySelectorAll('#stack-settings h4 button')]
     .filter(button => button.getAttribute('aria-expanded') === 'false')
     .forEach(button => button.click())`);
-  // The viewport alone, scrolled to the card. A capture beyond the viewport
-  // lays the page out again at its whole height and paints the open folds
-  // over each other, which reads as a broken card when it is not.
-  const screenshot = async (name) => {
-    await evaluate(`${card}?.scrollIntoView({ block: 'start' })`);
+  // The viewport alone. A capture beyond the viewport lays the page out again
+  // at its whole height and paints the open folds over each other, which
+  // reads as a broken card when it is not.
+  const capture = async (name) => {
     const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false });
     await writeFile(join(evidence, name), Buffer.from(data, 'base64'));
+  };
+  const screenshot = async (name, at = card, block = 'start') => {
+    await evaluate(`(${at})?.scrollIntoView({ block: ${JSON.stringify(block)} })`);
+    await capture(name);
   };
   const openDeployment = async (name) => {
     await call('Page.navigate', { url: `${origin}/#/deployments/${name}` });
@@ -196,6 +264,7 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.match(text, /1 setting is behind the running containers: LOG_LEVEL\. Apply recreates stream-uploader\./);
     assert.equal(await evaluate(`Boolean(${buttonIn(card, 'Apply')})`), true);
     assert.equal(await evaluate(`${card}.querySelectorAll('li[data-setting]').length`), 0, 'every section starts folded');
+    assert.match(text, /Engine settings\s+4 settings/);
     assert.match(text, /Stream Uploader\s+4 settings/);
     assert.match(text, /Logging\s+1 setting, 1 not applied/);
     assert.match(text, /No longer declared by this version\s+1 setting/);
@@ -216,7 +285,7 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
 
   await t.test('each key gets the field its shape takes, and the default beside it', async () => {
     await openEverySection();
-    await waitFor(() => evaluate(`${card}.querySelectorAll('li[data-setting]').length`), (count) => count === 11, 'every key on screen');
+    await waitFor(() => evaluate(`${card}.querySelectorAll('li[data-setting]').length`), (count) => count === 15, 'every key on screen');
 
     assert.equal(await evaluate(`${fieldOf('UPLOADER_START_GATES')}.tagName`), 'SELECT');
     assert.deepEqual(
@@ -253,7 +322,39 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.match(text, /http:\/\/bee-uploader:1633/);
     assert.match(text, /Decided by the deployment's Bee URL\. It cannot be set here\./);
     assert.equal(await evaluate(`${rowOf('BEE_URL')}.querySelectorAll('input, select, textarea').length`), 0);
-    assert.match(await rowText('HLS_FRAGMENT'), /Decided by the engine settings\. It cannot be set here\./);
+  });
+
+  await t.test('an engine setting the deployment does not read says who reads it and takes no input', async () => {
+    assert.match(await rowText('ABR_FPS'), /Only a deployment that encodes the ABR ladder reads it, so it cannot be set here\./);
+    assert.equal(await evaluate(`${rowOf('ABR_FPS')}.querySelectorAll('input, select, textarea').length`), 0);
+  });
+
+  await t.test('the engine settings come first, each by its label with the key beside it, its unit, its help and its default', async () => {
+    const folds = await evaluate(`[...document.querySelectorAll('#stack-settings h4')].map(heading => heading.textContent)`);
+    assert.match(folds[0] ?? '', /^Engine settings/);
+
+    const fragment = await rowText('HLS_FRAGMENT');
+    assert.match(fragment, /^Segment length\s+HLS_FRAGMENT/);
+    assert.match(fragment, /The shortest a piece of the stream may be/);
+    assert.match(fragment, /seconds/);
+    assert.match(fragment, /A number of seconds from 0\.5 to 30\. Use a period for decimals\./);
+    assert.match(fragment, /Default: 2 seconds, set on this host/);
+    assert.equal(await evaluate(`${fieldOf('HLS_FRAGMENT')}.value`), '2');
+    assert.equal(await evaluate(`${fieldOf('HLS_FRAGMENT')}.inputMode`), 'decimal');
+    assert.match(await rowText('SRT_LATENCY'), /Default: 2000 milliseconds, the manager's own/);
+    assert.equal(await evaluate(`${fieldOf('SRT_LATENCY')}.inputMode`), 'numeric');
+    assert.match(await rowText('HLS_WINDOW'), /This version's config does not read this setting, so a value here has no effect on this version\./);
+  });
+
+  await t.test('an engine field is named by its label and its key, and says its unit, its bounds and its default', async () => {
+    assert.deepEqual(await accessible('HLS_FRAGMENT'), {
+      name: 'Segment length HLS_FRAGMENT',
+      description: 'A number of seconds from 0.5 to 30. Use a period for decimals. Default: 2 seconds, set on this host',
+    });
+    assert.deepEqual(await accessible('SRT_LATENCY'), {
+      name: 'SRT latency SRT_LATENCY',
+      description: "A whole number of milliseconds from 20 to 10000. Default: 2000 milliseconds, the manager's own",
+    });
   });
 
   await t.test('a key the version no longer declares is listed with only a reset', async () => {
@@ -294,10 +395,10 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
         fold: Math.round(fold.getBoundingClientRect().height),
         keys: Math.round(fold.querySelector('ul')?.getBoundingClientRect().height ?? 0),
       }))`),
-      (found) => found.length === 7 && found.every(({ fold, keys }) => keys > 0 && fold >= keys - 1),
+      (found) => found.length === 8 && found.every(({ fold, keys }) => keys > 0 && fold >= keys - 1),
       'every fold at the height of its keys',
     );
-    assert.equal(folds.length, 7);
+    assert.equal(folds.length, 8);
     await screenshot('open-phone.png');
   });
 
@@ -310,6 +411,41 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
 
     await typeInto('MAX_QUEUE_SIZE', '250');
     await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the footer back at rest');
+  });
+
+  await t.test('an engine value the engine would refuse is named under its field in its own words, and read out', async () => {
+    await typeInto('HLS_FRAGMENT', '0.1');
+    await waitFor(() => rowText('HLS_FRAGMENT'), (text) => text.includes('Segment length must be at least 0.5. Got 0.1.'), 'the refusal under the field');
+    await waitFor(saveDisabled, (off) => off === true, 'a Save that stops at the refused value');
+    assert.match(await cardText(), /One value cannot be saved as written: HLS_FRAGMENT/);
+    assert.equal(
+      (await accessible('HLS_FRAGMENT')).description,
+      'Segment length must be at least 0.5. Got 0.1. Default: 2 seconds, set on this host',
+    );
+    assert.equal(
+      await evaluate(`document.getElementById('deployment-setting-HLS_FRAGMENT-helper-text')?.getAttribute('aria-live')`),
+      'polite',
+      'the line under the field is a live region, so the refusal is read out as it appears',
+    );
+
+    await typeInto('HLS_FRAGMENT', '2');
+    await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the footer back at rest');
+  });
+
+  await t.test('a pair the engine would refuse is named once above Save, which stays off until the pair is whole', async () => {
+    const pair = 'The force-close ceiling of 2.5 seconds is below the segment length of 3 seconds';
+    await typeInto('HLS_FRAGMENT', '3');
+    await waitFor(cardText, (text) => text.includes(pair), 'the pair refused above Save');
+    assert.equal((await cardText()).split(pair).length - 1, 1, 'the sentence is said once');
+    assert.equal(await saveDisabled(), true);
+    assert.equal(writes.length, 0, 'nothing went to the manager');
+    await screenshot('engine-pair-phone.png', buttonIn(card, 'Save'), 'end');
+
+    await typeInto('HLS_SEGMENT_MAX', '4');
+    await waitFor(cardText, (text) => !text.includes('force-close ceiling'), 'the pair whole again');
+    await waitFor(saveDisabled, (off) => off === false, 'Save back on');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Discard'), 'the Discard button');
+    await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the discarded draft');
   });
 
   await t.test('a changed key is marked with what applying it recreates', async () => {
@@ -342,7 +478,7 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     });
     await waitFor(cardText, (text) => text.includes('Nothing changed yet'), 'the draft cleared by the reload after the save');
     await waitFor(cardText, (text) => text.includes('4 settings are behind the running containers'), 'the banner naming the saved keys');
-    assert.match(await cardText(), /Apply redeploys every service of this deployment\./);
+    assert.match(await cardText(), /Apply redeploys every service of this deployment\. A publisher, if one is live, is disconnected for a few seconds\./);
     assert.match(await rowText('UPLOADER_START_GATES'), /not applied/);
     assert.match(await rowText('UPLOADER_START_GATES'), /Saved, and the running containers still have the old value/);
   });
@@ -415,17 +551,101 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     await screenshot('applied-phone.png');
   });
 
+  await t.test('a saved segment length is behind the engine and the uploader, which Apply recreates', async () => {
+    const before = writes.length;
+    await typeInto('HLS_FRAGMENT', '1');
+    await waitFor(() => rowText('HLS_FRAGMENT'), (text) => text.includes('unsaved') && text.includes('recreates srs and stream-uploader'), 'the marker on the changed segment length');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Save'), 'the Save button');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the engine save');
+
+    assert.deepEqual(writes[before].body.entries, [{ key: 'HLS_FRAGMENT', value: '1' }]);
+    await waitFor(
+      cardText,
+      (text) => text.includes(
+        '1 setting is behind the running containers: HLS_FRAGMENT. Apply recreates srs and stream-uploader. A publisher, if one is live, is disconnected for a few seconds.',
+      ),
+      'the banner naming the segment length, what Apply recreates and the publisher that drops',
+    );
+    assert.match(await rowText('HLS_FRAGMENT'), /set here/);
+    await screenshot('engine-behind-phone.png');
+
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Apply'), 'the Apply button');
+    await waitFor(cardText, (text) => text.includes('Applied. Recreating srs and stream-uploader with the saved settings.'), 'what Apply recreated');
+  });
+
+  await t.test('the Engine card marks a saved value saved, not applied until Apply, before and after a reload', async () => {
+    const marked = /SRT latency\s+4000 milliseconds\s+Deployment override\s+saved, not applied/;
+    const before = writes.length;
+    await typeInto('SRT_LATENCY', '4000');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Save'), 'the Save button');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the latency save');
+    await waitFor(engineCardText, (text) => marked.test(text), 'the saved latency marked on the Engine card');
+
+    await call('Page.reload');
+    await shows('the page read again', 'Stack settings');
+    await waitFor(engineCardText, (text) => marked.test(text), 'the saved latency marked after a reload');
+    await screenshot('engine-card-saved-not-applied-phone.png', engineCard);
+
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Apply'), 'the Apply button');
+    await waitFor(engineCardText, (text) => !text.includes('saved, not applied'), 'the mark gone once applied');
+    assert.match(await engineCardText(), /SRT latency\s+4000 milliseconds\s+Deployment override/);
+  });
+
   await t.test('the card takes the whole width of its column on a wide screen', async () => {
     await call('Emulation.setDeviceMetricsOverride', { width: WIDE, height: 900, deviceScaleFactor: 1, mobile: false });
     await waitFor(() => evaluate('innerWidth'), (width) => width === WIDE, 'the wide viewport');
     const widths = await evaluate(`(() => {
-      const engine = [...document.querySelectorAll('h3')].find(el => el.textContent.trim() === 'SRS 6')?.closest('.MuiPaper-root');
+      const engine = ${engineCard};
       const settings = ${card};
       return { engine: engine?.getBoundingClientRect().width ?? 0, settings: settings?.getBoundingClientRect().width ?? -1 };
     })()`);
     assert.ok(widths.engine > 0);
     assert.equal(Math.round(widths.settings), Math.round(widths.engine));
     await call('Emulation.setDeviceMetricsOverride', { width: NARROW, height: 900, deviceScaleFactor: 1, mobile: false });
+  });
+
+  await t.test("the Engine card opens no drawer: its Settings button brings this card into view with the engine settings open and the first focused", async () => {
+    await call('Page.reload');
+    await shows('the page read again, every section folded', 'Stack settings');
+    await evaluate('scrollTo(0, 0)');
+
+    await clickWhenEnabled(evaluate, buttonIn(engineCard, 'Settings'), "the Engine card's Settings button");
+
+    await waitFor(() => evaluate('document.activeElement?.id'), (id) => id === 'deployment-setting-HLS_FRAGMENT', 'the segment length focused');
+    assert.equal(await evaluate(paintedInView(rowOf('HLS_FRAGMENT'))), true, 'the segment length on screen as it is focused');
+    assert.equal(await evaluate(ENGINE_DRAWER_OPEN), false, 'no engine settings drawer opened');
+    const engineFold = `[...document.querySelectorAll('#stack-settings h4 button')].find(button => button.textContent.startsWith('Engine settings'))`;
+    assert.equal(await evaluate(`${engineFold}?.getAttribute('aria-expanded')`), 'true');
+    const shown = await evaluate(`[...document.querySelectorAll('#stack-settings li[data-setting]')].map(row => row.dataset.setting)`);
+    assert.deepEqual(shown, ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY'], 'the engine settings and nothing else are open');
+    await waitFor(() => evaluate(stillWithin(card)), Boolean, 'the settings card still');
+    assert.equal(await evaluate(paintedInView(rowOf('HLS_FRAGMENT'))), true, 'the segment length still on screen once the card is still');
+    await capture('engine-settings-from-engine-card-phone.png');
+  });
+
+  await t.test('stored engine settings the next deploy would refuse are named above Save, which other keys still pass, and refuse Apply', async () => {
+    const stored = `The engine settings saved for this deployment cannot be deployed, so Apply is refused and any other deploy fails until they change. ${CEILING_UNDER_STORED_SEGMENT}`;
+    const said = (text) => text.split(CEILING_UNDER_STORED_SEGMENT).length - 1;
+    await openDeployment(REFUSED_ENGINE);
+    await waitFor(cardText, (text) => text.includes(stored), 'the stored engine settings named above Save');
+
+    await openEverySection();
+    await typeInto('MAX_QUEUE_SIZE', '300');
+    await waitFor(saveDisabled, (off) => off === false, 'Save on for a stack key alone');
+    assert.equal(said(await cardText()), 1, 'the sentence is said once');
+    await waitFor(() => evaluate(stillWithin(card)), Boolean, 'the settings card still');
+    await screenshot('engine-stored-refused-phone.png', buttonIn(card, 'Save'), 'end');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Discard'), 'the Discard button');
+
+    const before = writes.length;
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Apply'), 'the Apply button');
+    await waitFor(() => writes.length, (count) => count === before + 1, 'the apply request');
+    await waitFor(cardText, (text) => said(text) === 2, "Apply refused with the manager's sentence");
+
+    await typeInto('HLS_FRAGMENT', '2');
+    await waitFor(cardText, (text) => !text.includes(stored), 'the stored sentence gone once the draft fixes the pair');
+    await waitFor(saveDisabled, (off) => off === false, 'Save on for the fix');
+    await clickWhenEnabled(evaluate, buttonIn(card, 'Discard'), 'the Discard button');
   });
 
   await t.test('a stopped deployment is told Start will use the changes, with no Apply', async () => {

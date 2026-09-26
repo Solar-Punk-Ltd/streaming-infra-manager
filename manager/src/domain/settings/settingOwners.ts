@@ -1,9 +1,10 @@
 import {
   ENGINE_CONFIG_ENV_KEYS,
+  type EngineName,
+  engineOfSettingKey,
+  engineSettingFieldOf,
   OME_SERVICE,
-  OME_SETTINGS,
   SRS_SERVICE,
-  SRS_SETTINGS,
   type SettingOwner,
   type StackPortVar,
 } from '@streaming-infra-manager/common';
@@ -43,9 +44,19 @@ const DERIVED_PORT_KEYS: readonly string[] = [
 /** Exported to the deploy script on the manager's own host, which beats any line of the file. */
 const DATA_DIR_KEYS: readonly string[] = ['BEE_UPLOADER_DATA_DIR', 'BEE_GATEWAY_DATA_DIR'];
 
-const ENGINE_SETTING_KEYS: ReadonlySet<string> = new Set(
-  [...SRS_SETTINGS, ...OME_SETTINGS].map((field) => field.key),
-);
+/** Who reads each engine's settings, when one reads none of them. */
+const ENGINE_ONLY_OWNER: Readonly<Record<EngineName, SettingOwner>> = {
+  [SRS_SERVICE]: 'srs-only',
+  [OME_SERVICE]: 'ome-only',
+};
+
+/** The deployment whose settings list decides who sets an engine setting. */
+export interface EngineSettingsReader {
+  /** The media server it runs, or null for one that runs none. */
+  engine: EngineName | null;
+  /** Whether it encodes the ABR ladder, so the rung settings are its own. */
+  abr: boolean;
+}
 
 /** What decides ownership beyond the key's name. */
 export interface SettingOwnerContext {
@@ -53,13 +64,29 @@ export interface SettingOwnerContext {
   ports: readonly StackPortVar[];
   /** Whether the deployment runs on the manager's own host, where its data directories are the manager's. */
   isLocalTarget: boolean;
+  /**
+   * The deployment a settings list is for, which sets the engine settings it
+   * reads in that list. Absent, every engine setting is the engine settings'
+   * own, which is the wizard's list, whose segment length is a field of its
+   * own, and the deploy's, which writes the engine settings on their own.
+   */
+  engineReader?: EngineSettingsReader;
 }
 
-/** The control that decides this key for a deployment, or null when the operator does. */
+/** Who sets an engine setting: the operator in the list, the engine settings, or nobody the deployment has. */
+function engineSettingOwnerOf(key: string, engine: EngineName, reader: EngineSettingsReader | undefined): SettingOwner | null {
+  if (!reader) return 'engine-settings';
+  if (reader.engine !== engine) return ENGINE_ONLY_OWNER[engine];
+  if (engineSettingFieldOf(key)?.abrOnly && !reader.abr) return 'abr-only';
+  return null;
+}
+
+/** The control that decides this key for a deployment, or why the deployment does not read it, or null when the operator decides it. */
 export function settingOwnerOf(key: string, context: SettingOwnerContext): SettingOwner | null {
   const field = FIELD_OWNERS[key];
   if (field) return field;
-  if (ENGINE_SETTING_KEYS.has(key)) return 'engine-settings';
+  const engine = engineOfSettingKey(key);
+  if (engine) return engineSettingOwnerOf(key, engine, context.engineReader);
   if (DERIVED_PORT_KEYS.includes(key) || context.ports.some((port) => port.name === key)) {
     return 'port-slot';
   }

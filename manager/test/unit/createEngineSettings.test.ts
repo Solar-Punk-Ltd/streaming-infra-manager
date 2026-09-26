@@ -49,7 +49,7 @@ describe('what the create body accepts as engine settings', () => {
 });
 
 describe('engine settings on a new deployment', () => {
-  it('stores what the body carries, so the drawer shows it and the deploy writes it', async () => {
+  it('stores what the body carries, so the settings card shows it and the deploy writes it', async () => {
     const harness = profileServiceHarness();
 
     await harness.service.create({
@@ -71,7 +71,7 @@ describe('engine settings on a new deployment', () => {
     assert.deepEqual(harness.profiles.rows.get('stage')?.engine_settings, {});
   });
 
-  it('holds the value to the rule the settings drawer applies, and stores nothing', async () => {
+  it('holds the value to the rule the settings page applies, and stores nothing', async () => {
     // Four second pieces against the 2.5 second force-close ceiling compose
     // supplies when a profile sets none. The engine exits 1 on that pair, so
     // the create has to as well rather than deploying into a crash loop.

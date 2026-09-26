@@ -173,12 +173,11 @@ export function createProfile(
   return sendJson<Profile>('POST', '/profiles', body, signal);
 }
 
-// engine_settings is create-only: a running deployment's are saved through
-// PUT /profiles/:name/engine-settings, which claims the deploy they need and
-// works out which containers to recreate. The update schema strips the key, so
-// carrying it in this type would only promise something the manager ignores.
-// stack_settings is create-only for the same reason, and a running
-// deployment's are saved through PUT /profiles/:name/settings.
+// engine_settings and stack_settings are create-only: a running deployment's
+// are saved together through PUT /profiles/:name/settings, and a script can
+// still save and recreate the engine settings in one call through PUT
+// /profiles/:name/engine-settings. The update schema strips both keys, so
+// carrying them in this type would only promise something the manager ignores.
 export type UpdateProfileBody = Omit<
   CreateProfileBody,
   'name' | 'host' | 'srt_passphrase' | 'engine_settings' | 'stack_settings'

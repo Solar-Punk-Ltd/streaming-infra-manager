@@ -11,6 +11,8 @@ import {
   engineSettingsFields,
   engineSettingsFieldsFor,
   engineSettingsProblem,
+  engineSettingFieldOf,
+  engineOfSettingKey,
   OME_SETTINGS,
   SRS_SETTINGS,
 } from './engineSettings.js';
@@ -25,7 +27,7 @@ const ownDefaults = (engine: typeof SRS_SERVICE | typeof OME_SERVICE) =>
 describe('the field lists', () => {
   it('accepts its own defaults, on both engines', () => {
     // The list is the only place these numbers exist. A default outside its own
-    // bounds would open the drawer already showing an error.
+    // bounds would open the settings page already showing an error.
     assert.equal(
       engineSettingsProblem(SRS_SERVICE, ownDefaults(SRS_SERVICE), ABR),
       null,
@@ -187,10 +189,16 @@ describe('out of range and non numeric values', () => {
   });
 
   it('refuses an empty value, and says how to go back to the default', () => {
-    assert.match(
-      engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '  ' }, PLAIN) ?? '',
-      /cannot be empty.*default of 2/,
+    assert.equal(
+      engineSettingsProblem(SRS_SERVICE, { HLS_FRAGMENT: '  ' }, PLAIN),
+      'Segment length cannot be empty. Leave it unset to use the default instead.',
     );
+  });
+
+  // The field's own number is not what an unset key falls back to on a host
+  // that sets one, so a refusal naming it would name the wrong default.
+  it('names no default number when it refuses an empty value', () => {
+    assert.doesNotMatch(engineSettingsProblem(SRS_SERVICE, { SRT_LATENCY: '' }, PLAIN) ?? '', /\d/);
   });
 
   it('refuses a key the engine does not read', () => {
@@ -270,7 +278,7 @@ describe('engineSettingsEnv', () => {
   it('drops a rung setting stored before the ladder was turned off', () => {
     // The key stays in the column when the pool string is cleared elsewhere.
     // Writing it would be a line the engine ignores. Refusing it would fail the
-    // deploy over a value no drawer renders.
+    // deploy over a value that does nothing.
     assert.deepEqual(
       engineSettingsEnv(
         SRS_SERVICE,
@@ -494,7 +502,7 @@ describe('the SRT latency', () => {
   it('is an SRS setting in whole milliseconds, 2000 by default', () => {
     const field = latency();
 
-    assert.ok(field, 'the drawer offers nothing for the SRT latency');
+    assert.ok(field, 'the settings page offers nothing for the SRT latency');
     assert.equal(field.kind, 'integer');
     assert.equal(field.unit, 'milliseconds');
     assert.equal(field.defaultValue, '2000');
@@ -616,7 +624,7 @@ describe('what an operator can see about the force-close ceiling', () => {
   it('is a field, in seconds, rather than a hidden multiple of another field', () => {
     const ceiling = field('HLS_SEGMENT_MAX');
 
-    assert.ok(ceiling, 'the drawer offers nothing about the force-close ceiling');
+    assert.ok(ceiling, 'the settings page offers nothing about the force-close ceiling');
     assert.equal(ceiling.unit, 'seconds');
     assert.doesNotMatch(ceiling.label, /ratio/i);
   });
@@ -641,3 +649,17 @@ describe('what an operator can see about the force-close ceiling', () => {
   });
 });
 
+
+describe('engineSettingFieldOf and engineOfSettingKey', () => {
+  it('find the field a key names, of either engine, and the engine that reads it', () => {
+    assert.equal(engineSettingFieldOf('HLS_FRAGMENT')?.label, 'Segment length');
+    assert.equal(engineSettingFieldOf('OME_HLS_POLL_INTERVAL_MS')?.label, 'Poll interval');
+    assert.equal(engineOfSettingKey('SRT_LATENCY'), SRS_SERVICE);
+    assert.equal(engineOfSettingKey('HLS_SEGMENT_COUNT'), OME_SERVICE);
+  });
+
+  it('answer nothing for a key no engine setting takes', () => {
+    assert.equal(engineSettingFieldOf('LOG_LEVEL'), null);
+    assert.equal(engineOfSettingKey('LOG_LEVEL'), null);
+  });
+});

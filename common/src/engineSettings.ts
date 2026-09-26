@@ -2,8 +2,8 @@
  * The engine settings an operator may change per deployment, and the rules the
  * stack's entrypoint scripts apply to them.
  *
- * The manager, the settings drawer and the offline mock all read this list, so
- * a value the drawer accepts is a value the container starts with. The
+ * The manager, the settings page and the offline mock all read this list, so
+ * a value the page accepts is a value the container starts with. The
  * alternative was three copies of the same bounds, and the failure that follows
  * from them drifting is a container that crash-loops under
  * `restart: unless-stopped` with the reason only in its logs.
@@ -295,14 +295,32 @@ export function engineSettingsFieldsFor(
   );
 }
 
+/** The engine that reads each key, which no two engines share. */
+const ENGINE_OF_KEY: ReadonlyMap<string, EngineName> = new Map([
+  ...SRS_SETTINGS.map((field) => [field.key, SRS_SERVICE] as const),
+  ...OME_SETTINGS.map((field) => [field.key, OME_SERVICE] as const),
+]);
+
+/** The engine that reads this key as one of its settings, or null for a key no engine setting takes. */
+export function engineOfSettingKey(key: string): EngineName | null {
+  return ENGINE_OF_KEY.get(key) ?? null;
+}
+
+/** The field this key names among either engine's settings, or null. */
+export function engineSettingFieldOf(key: string): EngineSettingField | null {
+  const engine = engineOfSettingKey(key);
+  return engine === null ? null : (engineSettingsFields(engine).find((field) => field.key === key) ?? null);
+}
+
 /**
  * The stored keys this deployment still reads, and nothing else.
  *
- * A setting outlives the state it was set under. Turning the ABR ladder off
- * leaves the rung settings in the column, where they apply to nothing and no
- * drawer renders them. They are dropped here rather than refused, because a
- * refusal would fail every later deploy of that deployment over a value the
- * operator has no way to see, let alone remove.
+ * A setting can outlive the state it was set under. One the deployment no
+ * longer reads, such as a rung setting once the ladder is off, applies to
+ * nothing, and the settings page offers it only a reset. It is dropped here
+ * rather than refused, because a refusal would fail every later deploy of that
+ * deployment over a value that does nothing until somebody went looking for it.
+ * The edit that turns the ladder off takes the rung settings out with it.
  */
 export function applicableEngineSettings(
   engine: EngineName,
@@ -359,9 +377,11 @@ const NUMBER_RE = /^\d+(\.\d{1,6})?$/;
 /**
  * What is wrong with one field's value, or null.
  *
- * Exported so the settings drawer can put the message under the input that
+ * Exported so the settings page can put the message under the input that
  * caused it. `engineSettingsProblem` is still the gate, because the keyframe
- * rule spans two fields and no single input owns it.
+ * rule spans two fields and no single input owns it. An empty value names no
+ * default, because the field's own number is not what an unset key falls back
+ * to on a host that sets one.
  */
 export function engineSettingFieldProblem(
   field: EngineSettingField,
@@ -369,7 +389,7 @@ export function engineSettingFieldProblem(
 ): string | null {
   const value = rawValue.trim();
   if (!value) {
-    return `${field.label} cannot be empty. Clear the whole field to go back to the default of ${field.defaultValue}.`;
+    return `${field.label} cannot be empty. Leave it unset to use the default instead.`;
   }
 
   if (field.kind === 'choice') {
@@ -540,7 +560,7 @@ export interface EngineSettingsEnvOptions {
  *
  * The one exception is a default the manager owns, written wherever the host
  * sets no value of its own. Left out, the container would start on the
- * version's own fallback, a different number from the one the drawer names.
+ * version's own fallback, a different number from the one the settings page names.
  */
 export function engineSettingsEnv(
   engine: EngineName,

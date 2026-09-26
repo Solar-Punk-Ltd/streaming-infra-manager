@@ -1,10 +1,13 @@
+import type { ReactNode } from 'react';
 import { Box, Button, Chip, Stack, Typography } from '@mui/material';
 
-import type { DeploymentSettingEntry, SettingOwner } from '@streaming-infra-manager/common';
+import type { DeploymentSettingEntry, EngineSettingField, SettingOwner } from '@streaming-infra-manager/common';
 
 import { MONO_STACK } from '../../app/theme';
 import { canReset, type SettingEdit, shownValue } from './deploymentSettingsDraft';
+import { EngineSettingValueField } from './EngineSettingValueField';
 import { SettingDescription } from './SettingDescription';
+import { settingDefaultId, settingKeyId, settingLabelId } from './settingFieldIds';
 import { SettingValueField } from './SettingValueField';
 import {
   OWNED_STORED_NOTE,
@@ -13,6 +16,8 @@ import {
   UNDECLARED_NOTE,
   behindNote,
   defaultText,
+  engineDefaultText,
+  notInConfigNote,
   ownedValueText,
   ownerSentence,
   pendingChipLabel,
@@ -32,6 +37,14 @@ export interface SettingRowState {
   problem: string | null;
 }
 
+/** What a row of one of the deployment's own engine settings shows beyond the list's own facts about it. */
+export interface EngineRowFacts {
+  /** The field in common's list that the key names: its label, unit, help, kind and bounds. */
+  field: EngineSettingField;
+  /** Whether the engine runs a config file of the deployment's own rather than the version's template. */
+  ownConfig: boolean;
+}
+
 interface RowActions {
   onValue: (value: string) => void;
   onReset: () => void;
@@ -46,7 +59,9 @@ const CAPTION_WRAP = { overflowWrap: 'anywhere' } as const;
 /**
  * One key of a deployment's settings: its name, what the sample says about
  * it, and either the field that changes it or the reason it is changed
- * elsewhere.
+ * elsewhere. One of the deployment's own engine settings is named by its
+ * label with the key beside it, and says what the engine's field list says
+ * about it, as the Engine card's drawer did.
  */
 export function DeploymentSettingRow({
   entry,
@@ -55,6 +70,7 @@ export function DeploymentSettingRow({
   disabled,
   target = 'deployment',
   controlValue,
+  engine,
   ...actions
 }: {
   entry: DeploymentSettingEntry;
@@ -69,7 +85,10 @@ export function DeploymentSettingRow({
    * a key, since the manager works it out at the first deploy.
    */
   controlValue?: string;
+  /** For one of the deployment's own engine settings, what its row shows beyond the list's facts. */
+  engine?: EngineRowFacts;
 } & RowActions) {
+  const engineRow = engine && entry.owner === null && entry.engineSetting !== null ? engine : undefined;
   return (
     <Box
       component="li"
@@ -77,12 +96,28 @@ export function DeploymentSettingRow({
       sx={{ listStyle: 'none', py: 1.5, borderTop: 1, borderColor: 'divider', minWidth: 0 }}
     >
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
-        <Typography variant="body2" sx={{ fontFamily: MONO_STACK, fontWeight: 600, wordBreak: 'break-all' }}>
-          {entry.key}
-        </Typography>
+        {engineRow ? (
+          <Stack direction="row" alignItems="baseline" spacing={1} flexWrap="wrap" useFlexGap sx={{ minWidth: 0 }}>
+            <Typography id={settingLabelId(entry.key)} variant="body2" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
+              {engineRow.field.label}
+            </Typography>
+            <Typography
+              id={settingKeyId(entry.key)}
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontFamily: MONO_STACK, wordBreak: 'break-all' }}
+            >
+              {entry.key}
+            </Typography>
+          </Stack>
+        ) : (
+          <Typography variant="body2" sx={{ fontFamily: MONO_STACK, fontWeight: 600, wordBreak: 'break-all' }}>
+            {entry.key}
+          </Typography>
+        )}
         <RowChips entry={entry} state={state} target={target} />
       </Stack>
-      <SettingDescription settingKey={entry.key} description={entry.description} />
+      <SettingDescription settingKey={entry.key} description={engineRow ? engineRow.field.help : entry.description} />
       {entry.owner !== null ? (
         <OwnedBody
           entry={entry}
@@ -94,6 +129,8 @@ export function DeploymentSettingRow({
         />
       ) : !entry.declared ? (
         <UndeclaredBody entry={entry} edit={state.edit} disabled={disabled} {...actions} />
+      ) : engineRow ? (
+        <EngineValueBody entry={entry} engine={engineRow} state={state} running={running} disabled={disabled} {...actions} />
       ) : (
         <ValueBody entry={entry} state={state} running={running} disabled={disabled} target={target} {...actions} />
       )}
@@ -202,41 +239,51 @@ function UndeclaredBody({
   );
 }
 
-function ValueBody({
+/**
+ * The frame every key the operator sets here shares: its field, the default
+ * a reset goes back to with Undo and Reset beside it, and what a pending
+ * reset or a saved value the containers do not have yet still waits for.
+ */
+function ValueFrame({
   entry,
   state,
   running,
   disabled,
-  target,
-  onValue,
+  field,
+  defaultLine,
+  notes,
   onReset,
   onUndo,
-}: { entry: DeploymentSettingEntry; state: SettingRowState; running: boolean; disabled: boolean; target: SettingsEditTarget } & RowActions) {
+}: {
+  entry: DeploymentSettingEntry;
+  state: SettingRowState;
+  running: boolean;
+  disabled: boolean;
+  field: ReactNode;
+  defaultLine: string;
+  /** Anything the key says between its default and what its saved value waits for. */
+  notes?: ReactNode;
+} & Omit<RowActions, 'onValue'>) {
   const { edit } = state;
   const resetPending = edit?.kind === 'reset';
   return (
     <Stack spacing={0.75}>
-      {entry.secret && (
-        <Typography variant="caption" color="text.secondary">
-          {secretNote(entry, target)}
-        </Typography>
-      )}
-      <SettingValueField
-        entry={entry}
-        value={shownValue(entry, edit)}
-        disabled={disabled || resetPending}
-        problem={state.problem}
-        onChange={onValue}
-      />
+      {field}
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
-        <Typography variant="caption" color="text.secondary" sx={{ flex: '1 1 12rem', ...CAPTION_WRAP }}>
-          {defaultText(entry)}
+        <Typography
+          id={settingDefaultId(entry.key)}
+          variant="caption"
+          color="text.secondary"
+          sx={{ flex: '1 1 12rem', ...CAPTION_WRAP }}
+        >
+          {defaultLine}
         </Typography>
         {edit && <ActionButton label="Undo" settingKey={entry.key} disabled={disabled} onClick={onUndo} />}
         {canReset(entry) && !resetPending && (
           <ActionButton label="Reset to default" settingKey={entry.key} disabled={disabled} onClick={onReset} />
         )}
       </Stack>
+      {notes}
       {resetPending && (
         <Typography variant="caption" color="info.main">
           {RESET_PENDING_NOTE}
@@ -248,5 +295,87 @@ function ValueBody({
         </Typography>
       )}
     </Stack>
+  );
+}
+
+function ValueBody({
+  entry,
+  state,
+  running,
+  disabled,
+  target,
+  onValue,
+  onReset,
+  onUndo,
+}: { entry: DeploymentSettingEntry; state: SettingRowState; running: boolean; disabled: boolean; target: SettingsEditTarget } & RowActions) {
+  const resetPending = state.edit?.kind === 'reset';
+  return (
+    <ValueFrame
+      entry={entry}
+      state={state}
+      running={running}
+      disabled={disabled}
+      defaultLine={defaultText(entry)}
+      onReset={onReset}
+      onUndo={onUndo}
+      field={
+        <>
+          {entry.secret && (
+            <Typography variant="caption" color="text.secondary">
+              {secretNote(entry, target)}
+            </Typography>
+          )}
+          <SettingValueField
+            entry={entry}
+            value={shownValue(entry, state.edit)}
+            disabled={disabled || resetPending}
+            problem={state.problem}
+            onChange={onValue}
+          />
+        </>
+      }
+    />
+  );
+}
+
+/** One of the deployment's own engine settings, shaped and bounded by common's field for it. */
+function EngineValueBody({
+  entry,
+  engine,
+  state,
+  running,
+  disabled,
+  onValue,
+  onReset,
+  onUndo,
+}: { entry: DeploymentSettingEntry; engine: EngineRowFacts; state: SettingRowState; running: boolean; disabled: boolean } & RowActions) {
+  const resetPending = state.edit?.kind === 'reset';
+  return (
+    <ValueFrame
+      entry={entry}
+      state={state}
+      running={running}
+      disabled={disabled}
+      defaultLine={engineDefaultText(entry, engine.field)}
+      onReset={onReset}
+      onUndo={onUndo}
+      field={
+        <EngineSettingValueField
+          entry={entry}
+          field={engine.field}
+          value={shownValue(entry, state.edit)}
+          disabled={disabled || resetPending}
+          problem={state.problem}
+          onChange={onValue}
+        />
+      }
+      notes={
+        entry.engineSetting?.notInConfig && (
+          <Typography variant="caption" color="warning.main" sx={CAPTION_WRAP}>
+            {notInConfigNote(engine.ownConfig)}
+          </Typography>
+        )
+      }
+    />
   );
 }

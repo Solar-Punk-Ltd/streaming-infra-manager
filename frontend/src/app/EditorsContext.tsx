@@ -21,7 +21,6 @@ export interface Editors {
   openWizard: (prefill?: WizardPrefill) => void;
   openEditDeployment: (name: string) => void;
   openEditGroup: (id: number) => void;
-  openEngineSettings: (name: string) => void;
   openEngineConfig: (name: string) => void;
 }
 

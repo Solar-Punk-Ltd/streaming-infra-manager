@@ -95,14 +95,18 @@ async function listed(app: Awaited<ReturnType<typeof startRouterTestApp>>): Prom
 }
 
 describe('GET /profiles/:name/settings', () => {
-  it('lists the version keys with nothing behind straight after a deploy, and is not cached', async () => {
+  it('lists the version keys and the engine settings with nothing behind straight after a deploy, and is not cached', async () => {
     const { app } = await appFor();
     try {
       const response = await fetch(`${app.url}/profiles/stage/settings`);
       const catalog = (await response.json()) as DeploymentSettingsCatalog;
 
       assert.equal(response.headers.get('cache-control'), 'no-store');
-      assert.deepEqual(catalog.entries.map((entry) => entry.key), ['LOG_LEVEL', 'ADMIN_API_TOKEN', 'UPLOADER_START_GATES', 'STAMP']);
+      assert.deepEqual(catalog.entries.map((entry) => entry.key), [
+        'LOG_LEVEL', 'ADMIN_API_TOKEN', 'UPLOADER_START_GATES', 'STAMP',
+        'HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY',
+      ]);
+      assert.deepEqual({ engine: catalog.engine, abr: catalog.abr }, { engine: 'srs', abr: false });
       assert.deepEqual(catalog.drift, { keys: [], services: [], fullRedeploy: false });
     } finally {
       await app.close();

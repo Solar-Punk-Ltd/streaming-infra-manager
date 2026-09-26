@@ -53,7 +53,8 @@ describe('engine settings instance fences in isolated PostgreSQL', { skip: !Numb
     const version = await new PostgresStackVersionRepository(pool).findById(1);
     const profile = (await profiles.findByName('observed'))!;
     const claim = (await ledger.claim('observed', ['RUNNING'], version, ['srs'], { ...deployOwnerOf(profile), intent: 'advance' }))!;
-    return { profile: claim.profile, owner: { ...deployOwnerOf(claim.profile), jobReferenceId: claim.descriptor.referenceId! } };
+    const owner = { ...deployOwnerOf(claim.profile), jobReferenceId: claim.descriptor.referenceId!, settingsRevision: 0 };
+    return { profile: claim.profile, owner };
   }
 
   it('refuses a changed instance in the atomic status claim', async () => {

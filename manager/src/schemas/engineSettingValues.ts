@@ -27,9 +27,10 @@ export const ENGINE_SETTING_VALUE_FIELDS = Object.fromEntries(
 /**
  * Drops the keys yup left as `undefined`.
  *
- * The schemas declare every known key so unknown ones are stripped, and yup
- * hands back the absent ones as `undefined`. Stored as they are, they would
- * become JSON nulls in the column and then values the engine tries to read.
+ * The schemas declare every known key, so an unknown one is dropped from a
+ * create body and refused by the engine settings route, and yup hands back the
+ * absent ones as `undefined`. Stored as they are, they would become JSON nulls
+ * in the column and then values the engine tries to read.
  */
 export function definedSettingValues(
   body: Record<string, unknown>,

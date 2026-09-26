@@ -3,6 +3,12 @@ import {
   type DeploymentSettingEntry,
   type DeploymentSettingsCatalog,
   type DeploymentSettingsSave,
+  editsEngineSettings,
+  type EngineSettings,
+  engineSettingFieldOf,
+  engineSettingFieldProblem,
+  engineSettingsAfterEdits,
+  engineSettingsSaveProblem,
   settingValueProblem,
   stackSettingFieldProblem,
 } from '@streaming-infra-manager/common';
@@ -137,9 +143,12 @@ export function pendingEdits(
 /**
  * Why the manager would refuse this value for this key, by the same shared
  * rules it applies, or null. A sentence that follows no key starts with "This
- * value", and none repeats a secret.
+ * value", and none repeats a secret. An engine setting is held to the engine's
+ * own rule for its field, whose sentence names the field's label.
  */
 export function valueProblem(key: string, value: string): string | null {
+  const engineField = engineSettingFieldOf(key);
+  if (engineField) return engineSettingFieldProblem(engineField, value);
   const envProblem = settingValueProblem(key, value);
   if (envProblem) return `This value ${envProblem}`;
   return stackSettingFieldProblem(key, value);
@@ -157,6 +166,48 @@ export function draftProblems(
     if (problem) problems[key] = problem;
   }
   return problems;
+}
+
+/** The deployment's own engine settings the list shows, each the operator may set. */
+function ownEngineEntries(catalog: DeploymentSettingsCatalog): DeploymentSettingEntry[] {
+  return catalog.entries.filter((entry) => entry.engineSetting !== null);
+}
+
+/** What the deployment's engine settings will be once the draft is saved: the stored ones, with its edits applied. */
+export function engineSettingsOfDraft(catalog: DeploymentSettingsCatalog, draft: DeploymentSettingsDraft): EngineSettings {
+  const stored: EngineSettings = {};
+  for (const entry of ownEngineEntries(catalog)) {
+    if (entry.stored && entry.storedValue !== null) stored[entry.key] = entry.storedValue;
+  }
+  return engineSettingsAfterEdits(stored, pendingEdits(catalog, draft));
+}
+
+/**
+ * Why the engine would refuse the engine settings the draft leaves, as the
+ * manager's save would refuse them, with the host's default for a key they
+ * leave unset, or null. Only a draft that changes an engine setting is judged,
+ * as only such a save is, and a value refused on its own field is left to the
+ * field, which says so where it is typed.
+ */
+export function engineDraftProblem(catalog: DeploymentSettingsCatalog, draft: DeploymentSettingsDraft): string | null {
+  const edits = pendingEdits(catalog, draft);
+  if (catalog.engine === null || !editsEngineSettings(edits)) return null;
+  const problems = draftProblems(catalog, draft);
+  if (edits.some(({ key }) => engineSettingFieldOf(key) !== null && key in problems)) return null;
+  const defaults = Object.fromEntries(ownEngineEntries(catalog).map((entry) => [entry.key, entry.versionValue ?? '']));
+  return engineSettingsSaveProblem(catalog.engine, engineSettingsOfDraft(catalog, draft), { abr: catalog.abr, defaults });
+}
+
+/**
+ * Why the next deploy would refuse the engine settings the deployment stores,
+ * as the manager lists it, while the draft leaves them as they are, or null.
+ * It keeps no save back, because a save of other keys alone still lands. A
+ * draft that changes an engine setting is judged by `engineDraftProblem`
+ * instead, which says whether the save leaves them whole.
+ */
+export function storedEngineProblem(catalog: DeploymentSettingsCatalog, draft: DeploymentSettingsDraft): string | null {
+  if (catalog.engineSettingsProblem === null || editsEngineSettings(pendingEdits(catalog, draft))) return null;
+  return catalog.engineSettingsProblem;
 }
 
 /** The body of `PUT /profiles/:name/settings` for this draft. */

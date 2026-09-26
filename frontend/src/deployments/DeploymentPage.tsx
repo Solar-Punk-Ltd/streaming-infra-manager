@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, CircularProgress, Paper, Stack } from '@mui/material';
 
 import {
   type ChequebookHealth,
   chequebookHealthFromPayload,
+  engineSettingsFields,
   rungFromMemberName,
   sameBatchId,
   stampHealthFrom,
@@ -51,8 +52,10 @@ import { PublishCard } from './PublishCard';
 import { ReadinessCard } from './ReadinessCard';
 import { RemoveCard } from './RemoveCard';
 import { ownsBeeNode, readinessFor } from './readiness';
+import type { SettingReveal } from './settings/SettingsList';
+import { useDeploymentSettings } from './settings/useDeploymentSettings';
 import { SrtIngestCard } from './SrtIngestCard';
-import { offersLatencySetting } from './srtIngestText';
+import { offersLatencySetting, SRT_LATENCY_SETTING_KEY } from './srtIngestText';
 import { StorageCard } from './StorageCard';
 import { engineOf, isRunning, readsSrtIngest, shapeOf, streamersOf } from './shape';
 import { WatchCard } from './WatchCard';
@@ -131,6 +134,14 @@ function DeploymentBody({
   const release = useAttemptRelease();
   const { openEditDeployment } = useEditors();
   const { snapshot, stale, staleSeconds } = useMetrics();
+  // The Engine card and the SRT ingest card lead to a setting in the Stack
+  // settings card rather than editing it themselves: one list of settings for
+  // the whole deployment (Levi, 2026-09-26).
+  const [settingsReveal, setSettingsReveal] = useState<SettingReveal | null>(null);
+  const revealSetting = useCallback(
+    (key: string) => setSettingsReveal((current) => ({ key, seq: (current?.seq ?? 0) + 1 })),
+    [],
+  );
   // The Publish card puts this URL on screen, which is the operator opening
   // it, so the passphrase is asked for as the page loads rather than on a
   // click. It goes no further than this page.
@@ -145,6 +156,12 @@ function DeploymentBody({
   const shape = shapeOf(profile);
   const engine = engineOf(profile);
   const engineLoad = useEngineOverview(engine ? profile : null);
+  // One read for the Stack settings card, the Engine card and the side column.
+  // The two engine views read the stored settings, so they mark a value the
+  // running containers are behind on, and a save refreshes the deployment's
+  // row they read, since the manager announces no change for a save.
+  const settings = useDeploymentSettings(profile);
+  const savedNotApplied = settings.catalog?.drift.keys ?? [];
   // Only where there is an uploader to ask. Since D16 one can be running and
   // still waiting for a Bee node that never answered, which nothing on the
   // container says.
@@ -265,9 +282,9 @@ function DeploymentBody({
 
           {srtIngestShown && (
             <SrtIngestCard
-              profile={profile}
               load={srtIngest}
               latencySettingOffered={offersLatencySetting(engineLoad.overview?.fields)}
+              onRaiseLatency={() => revealSetting(SRT_LATENCY_SETTING_KEY)}
             />
           )}
 
@@ -287,10 +304,12 @@ function DeploymentBody({
               engine={engine}
               overview={engineLoad.overview}
               loadError={engineLoad.loadError}
+              savedNotApplied={savedNotApplied}
+              onShowSettings={() => revealSetting(engineSettingsFields(engine)[0]!.key)}
             />
           )}
 
-          <DeploymentSettingsCard profile={profile} />
+          <DeploymentSettingsCard profile={profile} load={settings} onSaved={reload} reveal={settingsReveal} />
 
           {watchUrl && (
             <WatchCard
@@ -345,6 +364,7 @@ function DeploymentBody({
             version={version}
             engineOverview={engineLoad.overview}
             engineLoadError={engineLoad.loadError}
+            savedNotApplied={savedNotApplied}
           />
           {shape === 'stream' && isRunning(profile) && (
             <NextStepsCard streamName={profile.name} />

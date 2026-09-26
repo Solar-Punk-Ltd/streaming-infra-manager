@@ -160,9 +160,10 @@ describe('the mock deployment settings routes', { concurrency: false, timeout: 6
       field: { kind: 'choice', choices: ['debug', 'log', 'info', 'warn', 'error', 'silent'] },
       services: ['stream-uploader'],
       running: 'same',
+      engineSetting: null,
     });
     assert.equal(entryOf(catalog, 'API_AUTH_TOKEN').source, 'generated');
-    assert.equal(entryOf(catalog, 'HLS_FRAGMENT').owner, 'engine-settings');
+    assert.equal(entryOf(catalog, 'HLS_FRAGMENT').owner, null);
     assert.equal(entryOf(catalog, 'STAMP').owner, 'stamp');
     assert.equal(entryOf(catalog, 'CLIENT_PORT').owner, 'port-slot');
     assert.deepEqual(catalog.drift, { keys: [], services: [], fullRedeploy: false });
@@ -222,12 +223,12 @@ describe('the mock deployment settings routes', { concurrency: false, timeout: 6
   it('refuses a key a control decides, and a value outside its bounds, in the manager\'s words', async () => {
     const name = await runningDeployment();
 
-    const owned = await saveOn(name, [{ key: 'HLS_FRAGMENT', value: '2' }]);
+    const owned = await saveOn(name, [{ key: 'STAMP', value: 'cd'.repeat(32) }]);
     const outOfBounds = await saveOn(name, [{ key: 'MAX_QUEUE_SIZE', value: '0' }]);
 
     assert.deepEqual(owned, {
       status: 400,
-      body: { error: 'validation_error', errors: ['HLS_FRAGMENT is set by the engine settings, not here.'], name },
+      body: { error: 'validation_error', errors: ["STAMP is set by the deployment's postage stamp, not here."], name },
     });
     assert.equal(outOfBounds.status, 400);
     assert.deepEqual(outOfBounds.body.errors, ['MAX_QUEUE_SIZE must be at least 1. Got 0.']);
@@ -300,6 +301,110 @@ describe('the mock deployment settings routes', { concurrency: false, timeout: 6
 
     assert.equal(answer.status, 409);
     assert.equal(answer.body.error, 'profile_stopped');
+  });
+});
+
+describe("the mock's engine settings in a deployment's settings", { concurrency: false, timeout: 60_000 }, () => {
+  it('lists each engine setting the deployment reads as its own, with the default it falls back to on this host', async () => {
+    const catalog = await settingsOf(await runningDeployment());
+    const fragment = entryOf(catalog, 'HLS_FRAGMENT');
+    const latency = entryOf(catalog, 'SRT_LATENCY');
+
+    assert.deepEqual({ engine: catalog.engine, abr: catalog.abr }, { engine: 'srs', abr: false });
+    assert.deepEqual(
+      { owner: fragment.owner, versionValue: fragment.versionValue, source: fragment.source, facts: fragment.engineSetting, services: fragment.services },
+      { owner: null, versionValue: '2', source: 'version', facts: { defaultSource: 'host', notInConfig: false }, services: ['srs', 'stream-uploader'] },
+    );
+    assert.deepEqual(
+      { owner: latency.owner, versionValue: latency.versionValue, source: latency.source, defaultSource: latency.engineSetting?.defaultSource },
+      { owner: null, versionValue: '2000', source: 'manager-default', defaultSource: 'manager' },
+    );
+    assert.equal(entryOf(catalog, 'HLS_SEGMENT_MAX')?.owner, null, 'a setting no sample declares is listed too');
+  });
+
+  it('saves an engine setting into the engine settings, which Apply then recreates the engine and the uploader for', async () => {
+    const name = await runningDeployment();
+
+    const saved = await saveOn(name, [{ key: 'HLS_FRAGMENT', value: '1' }]);
+    const catalog = await settingsOf(name);
+    const profile = await request(`/profiles/${name}`);
+    const engine = await request(`/profiles/${name}/engine`);
+
+    assert.deepEqual(saved, { status: 200, body: { revision: 1 } });
+    assert.deepEqual(profile.engine_settings, { HLS_FRAGMENT: '1' });
+    assert.equal(engine.settings.HLS_FRAGMENT, '1');
+    assert.deepEqual(
+      { source: entryOf(catalog, 'HLS_FRAGMENT').source, storedValue: entryOf(catalog, 'HLS_FRAGMENT').storedValue },
+      { source: 'deployment', storedValue: '1' },
+    );
+    assert.deepEqual(catalog.drift, { keys: ['HLS_FRAGMENT'], services: ['srs', 'stream-uploader'], fullRedeploy: false });
+    assert.deepEqual(await call(`/profiles/${name}/settings/apply`, 'POST', { expectedInstanceId: catalog.instanceId }), {
+      status: 202,
+      body: { recreated: ['srs', 'stream-uploader'] },
+    });
+    await until(`/profiles/${name}`, (current) => current.status === 'RUNNING');
+    assert.deepEqual((await settingsOf(name)).drift, { keys: [], services: [], fullRedeploy: false });
+  });
+
+  it("refuses a pair the engine would refuse, in the engine's own words, and stores nothing", async () => {
+    const name = await runningDeployment();
+
+    const refused = await saveOn(name, [{ key: 'HLS_FRAGMENT', value: '3' }]);
+
+    assert.equal(refused.status, 400);
+    assert.match(refused.body.errors.join(' '), /^The force-close ceiling of 2\.5 seconds is below the segment length of 3 seconds/);
+    assert.deepEqual((await request(`/profiles/${name}`)).engine_settings, {});
+    assert.equal((await settingsOf(name)).revision, 0);
+  });
+
+  it('refuses a value outside its field, naming the key', async () => {
+    const name = await runningDeployment();
+
+    const outside = await saveOn(name, [{ key: 'SRT_LATENCY', value: '5' }]);
+
+    assert.deepEqual(outside.body.errors, ['SRT_LATENCY: SRT latency must be at least 20. Got 5.']);
+  });
+
+  it('moves the revision on a scripted engine save, so a page that read before it is refused', async () => {
+    const name = await runningDeployment();
+    const before = await settingsOf(name);
+
+    await request(`/profiles/${name}/engine-settings`, 'PUT', { HLS_WINDOW: '20', expectedInstanceId: before.instanceId });
+    await until(`/profiles/${name}`, (profile) => profile.status === 'RUNNING');
+    const late = await call(`/profiles/${name}/settings`, 'PUT', {
+      expectedInstanceId: before.instanceId,
+      expectedRevision: before.revision,
+      entries: [{ key: 'HLS_WINDOW', value: '30' }],
+    });
+
+    assert.equal(late.status, 409);
+    assert.equal(late.body.error, 'deployment_settings_changed');
+    assert.deepEqual((await request(`/profiles/${name}`)).engine_settings, { HLS_WINDOW: '20' });
+  });
+
+  it('lists stored settings the next deploy would refuse with its sentence, takes other keys, refuses Apply, and takes the fix', async () => {
+    const name = await runningDeployment();
+    assert.equal((await saveOn(name, [{ key: 'HLS_FRAGMENT', value: '0.55' }])).status, 200);
+    // The seeded blocked attempt holds every edit's redeploy on this version until a person releases it.
+    for (const { id, jobId } of (await request('/versions/attempts')).attempts) {
+      await request(`/versions/attempts/${id}/release`, 'POST', { jobId });
+    }
+    // Turning the ladder on holds the saved segment length to the keyframe rule, which 0.55 seconds at 30 frames breaks.
+    await request(`/profiles/${name}`, 'PUT', { stamp_id: 'ab'.repeat(32), bee_publishers: 'synthetic-pool' });
+    await until(`/profiles/${name}`, (profile) => profile.status === 'RUNNING');
+    const refusedPair =
+      'Frame rate 30 times segment length 0.55 is 16.5 frames, which is not a whole number. ' +
+      'Pick values whose product is whole, otherwise the rungs cannot place their keyframes at the same moments and the engine refuses to start.';
+
+    const catalog = await settingsOf(name);
+    const stackOnly = await saveOn(name, [{ key: 'LOG_LEVEL', value: 'warn' }]);
+    const apply = await call(`/profiles/${name}/settings/apply`, 'POST', { expectedInstanceId: catalog.instanceId });
+
+    assert.equal(catalog.engineSettingsProblem, refusedPair);
+    assert.equal(stackOnly.status, 200);
+    assert.deepEqual(apply, { status: 400, body: { error: 'validation_error', errors: [refusedPair], name } });
+    assert.equal((await saveOn(name, [{ key: 'HLS_FRAGMENT', value: '1' }])).status, 200);
+    assert.equal((await settingsOf(name)).engineSettingsProblem, null);
   });
 });
 

@@ -55,7 +55,7 @@ export function newDeploymentSettingsCatalogFor(
  * The stack settings a new deployment is created with, held to the rules a
  * save of its settings page is held to, against the list its version gives a
  * deployment of this shape, and split the way the two columns hold them.
- * Refused whole, each key named and no value repeated. A create that names
+ * Refused whole, each key named and no secret repeated. A create that names
  * none reads nothing, so it is never refused over a version's files.
  */
 export function initialStackSettingsFor(

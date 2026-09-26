@@ -3,9 +3,9 @@
  * at a phone's width.
  *
  * Levi ruled on 2026-09-25 that every setting a deployment reads is editable,
- * with the version's value as the default, and the plan's item C.5 puts the
- * deployment page's settings editor into the new-deployment wizard, so a
- * deployment is created with its settings already set. This walks it: the
+ * with the version's value as the default, and the new-deployment wizard
+ * carries the deployment page's settings editor, so a deployment is created
+ * with its settings already set. This walks it: the
  * Advanced settings fold on the settings step, folded until opened, the list
  * the manager answers for the version and the services chosen, a changed key,
  * a value the manager would refuse stopping Continue, a secret that is never
@@ -131,7 +131,7 @@ test('the wizard creates a deployment with its own settings at a phone width', {
   const fold = `document.getElementById((${foldButton})?.getAttribute('aria-controls') ?? '')`;
   const foldText = () => evaluate(`(${foldButton})?.closest('section')?.innerText ?? ''`);
   const rowOf = (key) => `document.querySelector('li[data-setting="${key}"]')`;
-  const fieldOf = (key) => `document.querySelector('[aria-label="${key}"]')`;
+  const fieldOf = (key) => `document.getElementById('deployment-setting-${key}')`;
   const rowText = (key) => readWhenPresent(evaluate, rowOf(key), 'innerText', `the ${key} row`);
   const search = (text) => fillWhenPresent(evaluate, `${dialog}?.querySelector('input[aria-label="Search settings"]')`, text, 'the search field');
   const choose = (key, value) => waitFor(() => evaluate(`(() => {
@@ -303,10 +303,14 @@ test('the wizard creates a deployment with its own settings at a phone width', {
 
     const stored = await evaluate(`fetch('/profiles/${NAME}/settings').then(r => r.json()).then(list => list.entries
       .filter(entry => entry.stored).map(entry => [entry.key, entry.storedValue]))`);
+    // The segment length the wizard's own engine step took is listed too: a
+    // deployment's list takes its engine settings as its own since the Engine
+    // card's drawer went on 2026-09-26.
     assert.deepEqual(stored, [
       ['ADMIN_API_TOKEN', null],
       ['MAX_QUEUE_SIZE', '250'],
       ['LOG_LEVEL', 'debug'],
+      ['HLS_FRAGMENT', '1.5'],
       ['SRS_WEBHOOK_TOKEN', null],
     ]);
     const page = await body();

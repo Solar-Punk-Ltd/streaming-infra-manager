@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { engineSettingsFieldsFor } from '@streaming-infra-manager/common';
 import pg, { type Pool } from 'pg';
 
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
@@ -26,7 +27,8 @@ const connection = {
 };
 
 const SECRET = 'synthetic-admin-token';
-const NOTHING = { plain: {}, secret: {}, remove: [] };
+const NO_ENGINE_CHANGE = { set: {}, remove: [] };
+const NOTHING = { plain: {}, secret: {}, remove: [], engine: NO_ENGINE_CHANGE };
 
 describe('saving a deployment settings, in isolated PostgreSQL', {
   skip: !Number.isInteger(port) || port < 1 || port > 65535,
@@ -70,24 +72,24 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
   it('stores plain and secret values apart, and answers the page the secret names alone', async () => {
     const revision = await profiles.updateStackSettings(
       'stage',
-      { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secret: { ADMIN_API_TOKEN: SECRET }, remove: [] },
+      { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secret: { ADMIN_API_TOKEN: SECRET }, remove: [], engine: NO_ENGINE_CHANGE },
       { instanceId, expectedRevision: 0 },
     );
 
     assert.equal(revision, 1);
     const read = await profiles.stackSettingsOf('stage');
-    assert.deepEqual(read, { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secretKeys: ['ADMIN_API_TOKEN'], revision: 1 });
+    assert.deepEqual(read, { plain: { LOG_LEVEL: 'info', ADMIN_API_URL: '' }, secretKeys: ['ADMIN_API_TOKEN'], engine: {}, revision: 1 });
     assert.doesNotMatch(JSON.stringify(read), new RegExp(SECRET));
     assert.deepEqual(await profiles.stackSettingsForDeploy('stage'), { LOG_LEVEL: 'info', ADMIN_API_URL: '', ADMIN_API_TOKEN: SECRET });
   });
 
   it('takes a reset key out of whichever column holds it', async () => {
-    await profiles.updateStackSettings('stage', { plain: { LOG_LEVEL: 'info' }, secret: { ADMIN_API_TOKEN: SECRET }, remove: [] }, { instanceId, expectedRevision: 0 });
+    await profiles.updateStackSettings('stage', { ...NOTHING, plain: { LOG_LEVEL: 'info' }, secret: { ADMIN_API_TOKEN: SECRET } }, { instanceId, expectedRevision: 0 });
 
     const revision = await profiles.updateStackSettings('stage', { ...NOTHING, remove: ['LOG_LEVEL', 'ADMIN_API_TOKEN'] }, { instanceId, expectedRevision: 1 });
 
     assert.equal(revision, 2);
-    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], revision: 2 });
+    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], engine: {}, revision: 2 });
   });
 
   it('stores nothing for a save made against an older revision', async () => {
@@ -106,7 +108,7 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
     });
 
     assert.equal(other, null);
-    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], revision: 0 });
+    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], engine: {}, revision: 0 });
   });
 
   it('lets exactly one of two saves at the same revision through', async () => {
@@ -117,6 +119,67 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
 
     assert.deepEqual([first, second].filter((revision) => revision !== null), [1]);
     assert.equal((await profiles.stackSettingsOf('stage'))?.revision, 1);
+  });
+
+  const columns = async () => (await pool.query(
+    "SELECT stack_settings, stack_settings_secret, engine_settings, settings_revision FROM profiles WHERE name = 'stage'",
+  )).rows[0];
+
+  it('writes the stack columns, the engine settings and the revision in one statement', async () => {
+    await pool.query(`UPDATE profiles SET engine_settings = '{"HLS_WINDOW":"20","SRT_LATENCY":"3000"}' WHERE name = 'stage'`);
+
+    const revision = await profiles.updateStackSettings(
+      'stage',
+      { ...NOTHING, plain: { LOG_LEVEL: 'warn' }, engine: { set: { HLS_FRAGMENT: '1' }, remove: ['SRT_LATENCY'] } },
+      { instanceId, expectedRevision: 0 },
+    );
+
+    assert.equal(revision, 1);
+    assert.deepEqual(await columns(), {
+      stack_settings: { LOG_LEVEL: 'warn' },
+      stack_settings_secret: {},
+      engine_settings: { HLS_WINDOW: '20', HLS_FRAGMENT: '1' },
+      settings_revision: 1,
+    });
+  });
+
+  it('writes neither the stack columns nor the engine settings for a save against an older revision', async () => {
+    await profiles.updateStackSettings('stage', { ...NOTHING, plain: { LOG_LEVEL: 'info' } }, { instanceId, expectedRevision: 0 });
+    const before = await columns();
+
+    const late = await profiles.updateStackSettings(
+      'stage',
+      { ...NOTHING, plain: { LOG_LEVEL: 'warn' }, engine: { set: { HLS_WINDOW: '30' }, remove: [] } },
+      { instanceId, expectedRevision: 0 },
+    );
+
+    assert.equal(late, null);
+    assert.deepEqual(await columns(), before);
+  });
+
+  it('keeps what a page saved after an edit that turns the ladder off read the row, and takes the rung settings out', async () => {
+    await pool.query(`UPDATE profiles SET engine_settings = '{"HLS_FRAGMENT":"2","ABR_FPS":"30"}' WHERE name = 'stage'`);
+    const readByTheEdit = (await profiles.findByName('stage'))!;
+    await profiles.updateStackSettings(
+      'stage',
+      { ...NOTHING, engine: { set: { SRT_LATENCY: '3000' }, remove: [] } },
+      { instanceId, expectedRevision: 0 },
+    );
+
+    await profiles.updateEditable(
+      'stage',
+      readByTheEdit.kind,
+      { components: readByTheEdit.components },
+      engineSettingsFieldsFor('srs', { abr: false }).map((field) => field.key),
+    );
+
+    assert.deepEqual((await columns()).engine_settings, { HLS_FRAGMENT: '2', SRT_LATENCY: '3000' });
+  });
+
+  it('answers the engine settings beside the stack settings, under the one revision', async () => {
+    await pool.query(`UPDATE profiles SET engine_settings = '{"HLS_WINDOW":"20"}' WHERE name = 'stage'`);
+
+    assert.deepEqual(await profiles.stackSettingsOf('stage'), { plain: {}, secretKeys: [], engine: { HLS_WINDOW: '20' }, revision: 0 });
   });
 
   it('answers nothing for a deployment that does not exist', async () => {

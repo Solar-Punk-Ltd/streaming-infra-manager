@@ -2,7 +2,7 @@
  * The placeholder rules a config file of the deployment's own lives by.
  *
  * The editor warns on them live, the manager refuses on them, and the
- * settings drawer says which of its fields a file stopped reading. All three
+ * settings page says which engine settings a file stopped reading. All three
  * read these, so what a placeholder is has one definition.
  */
 import assert from 'node:assert/strict';

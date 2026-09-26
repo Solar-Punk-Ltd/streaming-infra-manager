@@ -35,12 +35,15 @@ addresses and ports. Do not paste credentials into documentation or test
 fixtures. A custom file is stored as text, so replacing a placeholder with a
 literal also stores that literal.
 
-The settings drawer and summary show configured values with their source.
+The Engine card and the summary show configured values with their source.
 For a setting read from the environment, the manager combines the selected
-version's defaults, valid host overrides and deployment overrides. Clearing
-a deployment override uses the effective default, which can differ between
-versions. A reliably parsed literal is labeled "Set in config file". Changing
-an environment override does not change that literal.
+version's defaults, valid host overrides and deployment overrides. Resetting
+a deployment override in the Stack settings card uses the effective default,
+which can differ between versions. A reliably parsed literal is labeled "Set
+in config file". Changing an environment override does not change that
+literal, and since 2026-09-26 the setting's row in the Stack settings card
+says so: a key the file no longer reads says a value there has no effect
+until the file reads it again.
 
 Since 2026-09-23 the SRT latency is the one setting whose default does not
 come from the version. The manager writes its own 2000 milliseconds into the
@@ -50,7 +53,7 @@ deployment's env file wherever the host sets no value of its own, labeled
 wait on ingest, since `f42fba2` on 2026-09-23. A literal there is labeled "Set
 in config file" like any other. A block that sets no `recvlatency` is shown
 as SRS's own 120 milliseconds, labeled "Engine default", with one sentence
-saying why, and changing the override does not change it. SRS ignores
+saying why, and changing the setting does not change it. SRS ignores
 `latency` for ingest without `recvlatency`, measured on 2026-09-23 as
 [engine-control.md](engine-control.md) records. A file that still carries
 only the `latency` placeholder, as one copied from the `v3.1` template does,
@@ -72,15 +75,19 @@ the XML file. These observations describe configured input, not proof of what
 the running engine loaded. Inspect its running configuration under Logs.
 
 When the page receives a changed deployment or configuration revision, the
-card and open drawer hide old observations immediately. Failed or timed-out
-refreshes keep the draft text but do not restore stale values. A draft for a
-deleted and recreated deployment cannot be applied to the replacement. Close
-and reopen Settings to review that deployment.
+Engine card hides old observations immediately. Failed or timed-out refreshes
+do not restore stale values. The engine settings are edited in the Stack
+settings card since the Engine card's drawer went on 2026-09-26, and a
+deployment deleted and recreated under its name is a page of its own there,
+with nothing typed for the old one carried over.
 
-A settings write is bound to the exact deployment job that reserved it. Losing
-that ownership returns a conflict and preserves the draft. Validation and job
-admission use one captured published build. Publication of another build before
-the locked claim refuses the save before settings or job state changes.
+A write through the engine settings route, which scripts use to save and
+recreate in one call, is bound to the exact deployment job that reserved it.
+Losing that ownership returns a conflict. Since 2026-09-26 it is also bound to
+the settings revision it read, so a save from the Stack settings card that
+landed in between refuses it rather than being written over. Validation and
+job admission use one captured published build. Publication of another build
+before the locked claim refuses the save before settings or job state changes.
 Capturing mutable host inputs before execution remains open, and it closes with
 the exact-execution slice described at the end of this page.
 
@@ -95,7 +102,7 @@ OME's protected set includes placeholder-bearing elements, bind ports,
 admission providers, application names, provider and publisher element names,
 and output stream mappings. Paths, values and multiplicity must match the
 version's template. Sibling order can differ. A setting mapped to a supported
-engine-settings field, such as segment duration or count, can replace its
+engine setting, such as segment duration or count, can replace its
 placeholder with a literal that passes the same field validation.
 
 Changing a callback route while retaining every placeholder is refused.

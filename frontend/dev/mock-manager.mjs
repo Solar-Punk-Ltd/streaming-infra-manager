@@ -57,6 +57,7 @@ import {
   copyStoredSettings,
   createdSettingsRefusal,
   deploymentSettingsRoutes,
+  engineSettingsSaved,
   recordDeployedSettings,
   storeCreatedSettings,
 } from './mock-deployment-settings.mjs';
@@ -923,7 +924,7 @@ const ROUTES = [
   ],
   ...attemptRoutes(readBody, publish),
   ...createTargetRoutes(readBody),
-  ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish }),
+  ...engineRoutes({ readBody, withProfile, findProfile, deploy, publish, settingsSaved: engineSettingsSaved }),
   ...engineConfigRoutes({ readBody, withProfile, deploy, publish }),
   ...srtIngestRoutes({ withProfile }),
   ...deploymentSettingsRoutes({ readBody, withProfile, deploy }),

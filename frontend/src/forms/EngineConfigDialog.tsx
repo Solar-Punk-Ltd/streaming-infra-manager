@@ -41,7 +41,7 @@ const APPLY_LABEL = 'Check and apply';
 const RESET_LABEL = 'Back to the template';
 
 const WHAT_THIS_IS =
-  'Everything the engine can do is in this file. Keep the placeholder tokens where you want the stack to fill them in at start: the passphrase, the ports, the webhook token and the values from the Settings drawer all arrive that way and never have to be written here.';
+  'Everything the engine can do is in this file. Keep the placeholder tokens where you want the stack to fill them in at start: the passphrase, the ports, the webhook token and the engine settings from Stack settings all arrive that way and never have to be written here.';
 
 /**
  * What applying does, per engine, because the two are checked differently:

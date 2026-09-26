@@ -11,17 +11,17 @@ import {
  * at.
  *
  * Read off the shared field list rather than written here, so the number the
- * wizard shows is the manager's own default and the wizard, the settings
- * drawer and the create body cannot disagree about it. Everything else about
- * the engine stays in the drawer, where a running deployment's settings belong.
+ * wizard shows is the manager's own default and the wizard, the deployment's
+ * Stack settings card and the create body cannot disagree about it. Every
+ * other engine setting is set in that card, once the deployment exists.
  */
 export const SEGMENT_LENGTH_FIELD: EngineSettingField = engineSettingsFields(
   SRS_SERVICE,
 ).find((field) => field.key === 'HLS_FRAGMENT')!;
 
 /**
- * What is wrong with the typed segment length, in the drawer's own words, or
- * null.
+ * What is wrong with the typed segment length, in the words the Stack
+ * settings card uses, or null.
  *
  * An empty field is not wrong. It means send nothing, which leaves the
  * deployment on whatever its stack version's entrypoints fall back to, and it

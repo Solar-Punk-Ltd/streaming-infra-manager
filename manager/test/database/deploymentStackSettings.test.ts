@@ -148,6 +148,7 @@ describe('the per-deployment stack settings columns, in isolated PostgreSQL', {
     assert.deepEqual(await profiles.stackSettingsOf('created'), {
       plain: { LOG_LEVEL: 'debug', ADMIN_API_URL: 'http://admin.internal' },
       secretKeys: ['ADMIN_API_TOKEN'],
+      engine: {},
       revision: 0,
     });
     assert.deepEqual(await profiles.stackSettingsForDeploy('created'), {
@@ -161,7 +162,7 @@ describe('the per-deployment stack settings columns, in isolated PostgreSQL', {
   it('creates a deployment that names none with both columns empty', async () => {
     await profiles.insertWithFreeSlot('plain', 'streamer', 'DEPLOYING', {}, PLACEMENT);
 
-    assert.deepEqual(await profiles.stackSettingsOf('plain'), { plain: {}, secretKeys: [], revision: 0 });
+    assert.deepEqual(await profiles.stackSettingsOf('plain'), { plain: {}, secretKeys: [], engine: {}, revision: 0 });
   });
 
   it('gives every member of a new group the same values, in the same columns', async () => {

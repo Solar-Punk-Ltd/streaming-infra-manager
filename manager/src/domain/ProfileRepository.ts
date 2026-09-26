@@ -53,20 +53,42 @@ export interface EngineOverviewSnapshot {
 
 export interface EngineSettingsWriteOwner extends ExpectedDeployOwner {
   jobReferenceId: number;
+  /**
+   * The settings revision read before the settings the write replaces, which
+   * a save from the deployment's settings page moves. A page save that landed
+   * since is refused over rather than written over.
+   */
+  settingsRevision: number;
 }
 
-/** A deployment's own settings as its page may know them: no secret value, only which secrets are stored. */
+/**
+ * A deployment's own settings as its page may know them, read in one
+ * statement: no secret value, only which secrets are stored, and the engine
+ * settings beside the stack settings under the one revision both move.
+ */
 export interface StoredStackSettings {
   plain: Record<string, string>;
   secretKeys: string[];
+  engine: EngineSettings;
   revision: number;
 }
 
-/** One save's change to a deployment's own settings, already split by whether each key is a secret. */
+/**
+ * One save's change to a deployment's own settings, already split by where
+ * each key is kept: a secret apart from the rest, and an engine setting in the
+ * engine settings, never in either stack column.
+ */
 export interface StackSettingsChange {
   plain: Record<string, string>;
   secret: Record<string, string>;
   /** Keys that go back to what the version sets, taken out of whichever column holds them. */
+  remove: string[];
+  engine: EngineSettingsChange;
+}
+
+/** One save's change to the engine settings: values to store, and keys that go back to their default. */
+export interface EngineSettingsChange {
+  set: EngineSettings;
   remove: string[];
 }
 
@@ -229,9 +251,12 @@ export class ProfileRepository {
   }
 
   /**
-   * @param engineSettings replaces the column in the same statement, for a
-   *   caller whose edit changes what the stored settings mean. Left out, the
-   *   column keeps what it holds, which is what every ordinary PUT body wants.
+   * @param keptEngineSettingKeys the engine settings the deployment still reads
+   *   after this edit. Given, every other key leaves the column in the same
+   *   statement, for a caller whose edit changes which settings the deployment
+   *   reads. Only keys leave: a value the settings page saved after the caller
+   *   read the row stays. Left out, the column keeps what it holds, which is
+   *   what every ordinary PUT body wants.
    * @param expectedNotesRevision the notes revision the caller's page loaded.
    *   Given, the write happens only while that is still the current one, and
    *   null comes back when it moved, the same as for a row that is gone.
@@ -266,7 +291,7 @@ export class ProfileRepository {
     name: string,
     kind: ProfileKind,
     dataWithOptionalValues: ProfileWriteData = {},
-    engineSettings?: EngineSettings,
+    keptEngineSettingKeys?: readonly string[],
     expectedNotesRevision?: number,
   ): Promise<Profile | null> {
     const {
@@ -293,7 +318,10 @@ export class ProfileRepository {
              rpc_endpoint_source = COALESCE($18::text, rpc_endpoint_source),
              node_mode = COALESCE($19::text, node_mode),
              srt_passphrase = CASE WHEN $14::boolean THEN $15::text ELSE srt_passphrase END,
-             engine_settings = COALESCE($16::jsonb, engine_settings),
+             engine_settings = CASE WHEN $16::text[] IS NULL THEN engine_settings ELSE
+               (SELECT COALESCE(jsonb_object_agg(kept.key, kept.value), '{}'::jsonb)
+                  FROM jsonb_each(engine_settings) AS kept
+                 WHERE kept.key = ANY($16::text[])) END,
              updated_at = NOW()
        WHERE name = $1
          AND ($17::int IS NULL OR notes_revision = $17::int)
@@ -314,7 +342,7 @@ export class ProfileRepository {
         rpcEndpoint ?? null,
         passphrase !== undefined,
         passphrase ?? null,
-        engineSettings === undefined ? null : JSON.stringify(engineSettings),
+        keptEngineSettingKeys ?? null,
         expectedNotesRevision ?? null,
         data.rpc_endpoint_source,
         data.node_mode,
@@ -346,13 +374,18 @@ export class ProfileRepository {
   }
 
   /**
-   * Replaces the whole engine settings object.
+   * Replaces the whole engine settings object, for the engine settings route
+   * scripts save and recreate through.
    *
    * Deliberately not part of `ProfileWriteData`, which `updateEditable` writes
    * from a full-replace PUT body: a body that has never heard of engine
    * settings would clear them, and every existing caller of that path is such
    * a body. The settings have their own route and their own write, the way the
    * stamp id does.
+   *
+   * It moves the settings revision a deployment's settings page saves under,
+   * and writes nothing once that revision has moved past the one the caller
+   * read, so neither save can replace the other unseen.
    */
   async updateEngineSettings(
     name: string,
@@ -362,13 +395,15 @@ export class ProfileRepository {
     const result = await this.pool.query<Profile>(
       `UPDATE profiles
          SET engine_settings = $2::jsonb,
+             settings_revision = settings_revision + 1,
              updated_at = NOW()
        WHERE name = $1 AND instance_id = $3 AND intent_revision = $4
          AND engine_config_revision = $5 AND stack_version_id = $6
          AND status = 'DEPLOYING' AND deploy_job_reference_id = $7
+         AND settings_revision = $8
        RETURNING ${PROFILE_COLUMNS}`,
       [name, JSON.stringify(settings), owner.instanceId, owner.intentRevision,
-        owner.configRevision, owner.stackVersionId, owner.jobReferenceId],
+        owner.configRevision, owner.stackVersionId, owner.jobReferenceId, owner.settingsRevision],
     );
     return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
   }
@@ -516,26 +551,34 @@ export class ProfileRepository {
 
   /**
    * What the deployment stores, as its settings page may know it: the plain
-   * values, the names of the secret ones and never their values, and the
-   * revision a save names. Null for a deployment that does not exist.
+   * values, the names of the secret ones and never their values, its engine
+   * settings, and the revision a save names. Null for a deployment that does
+   * not exist.
    */
   async stackSettingsOf(name: string): Promise<StoredStackSettings | null> {
-    const result = await this.pool.query<{ plain: Record<string, string>; secret_keys: string[]; revision: number }>(
+    const result = await this.pool.query<{
+      plain: Record<string, string>;
+      secret_keys: string[];
+      engine: EngineSettings;
+      revision: number;
+    }>(
       `SELECT stack_settings AS plain,
               ARRAY(SELECT jsonb_object_keys(stack_settings_secret) ORDER BY 1) AS secret_keys,
+              engine_settings AS engine,
               settings_revision AS revision
          FROM profiles WHERE name = $1`,
       [name],
     );
     const row = result.rows[0];
-    return row ? { plain: row.plain, secretKeys: row.secret_keys, revision: row.revision } : null;
+    return row ? { plain: row.plain, secretKeys: row.secret_keys, engine: row.engine, revision: row.revision } : null;
   }
 
   /**
-   * One save of the deployment's settings: sets and removes keys in both
-   * columns and moves the revision, only while the row is the instance the
-   * page read and still at the revision it read. Answers the new revision, or
-   * null when either had moved and nothing was stored.
+   * One save of the deployment's settings: sets and removes keys in both stack
+   * columns and in the engine settings, and moves the revision, in one
+   * statement and only while the row is the instance the page read and still
+   * at the revision it read. So a save lands whole or not at all. Answers the
+   * new revision, or null when either had moved and nothing was stored.
    */
   async updateStackSettings(
     name: string,
@@ -546,11 +589,15 @@ export class ProfileRepository {
       `UPDATE profiles
           SET stack_settings = (stack_settings - $4::text[]) || $5::jsonb,
               stack_settings_secret = (stack_settings_secret - $4::text[]) || $6::jsonb,
+              engine_settings = (engine_settings - $7::text[]) || $8::jsonb,
               settings_revision = settings_revision + 1,
               updated_at = NOW()
         WHERE name = $1 AND instance_id = $2 AND settings_revision = $3
         RETURNING settings_revision`,
-      [name, guard.instanceId, guard.expectedRevision, change.remove, JSON.stringify(change.plain), JSON.stringify(change.secret)],
+      [
+        name, guard.instanceId, guard.expectedRevision, change.remove, JSON.stringify(change.plain),
+        JSON.stringify(change.secret), change.engine.remove, JSON.stringify(change.engine.set),
+      ],
     );
     return result.rows[0]?.settings_revision ?? null;
   }

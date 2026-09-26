@@ -4,9 +4,10 @@
  * Unit test, no database and no Docker. `pnpm test` in manager/.
  *
  * The schema's only job is shape: known keys, string values, and nothing else
- * stored. The bounds, the choices and the keyframe rule belong to
- * `engineSettingsProblem`, which the drawer and the deploy both call, so a
- * second copy of them here would be a third rule to keep in step.
+ * taken, a key no engine reads refused by name. The bounds, the choices and
+ * the keyframe rule belong to `engineSettingsProblem`, which the settings
+ * page, its save and the deploy all call, so a second copy of them here would
+ * be one more rule to keep in step.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -19,12 +20,14 @@ import {
 
 const validate = <T>(schema: {
   validate: (value: unknown, options: object) => Promise<T>;
-}) =>
+}, stripUnknown = true) =>
   (value: unknown): Promise<T> =>
-    schema.validate(value, { abortEarly: false, stripUnknown: true });
+    schema.validate(value, { abortEarly: false, stripUnknown });
 
 describe('engineSettingsSchema', () => {
-  const accept = validate(engineSettingsSchema);
+  // As the engine settings route reads a body: a key it does not declare is
+  // refused rather than dropped, because the body replaces the whole set.
+  const accept = validate(engineSettingsSchema, false);
 
   it('takes the keys of either engine, as strings', async () => {
     assert.deepEqual(
@@ -36,10 +39,19 @@ describe('engineSettingsSchema', () => {
     });
   });
 
-  it('strips a key neither engine reads, rather than storing it', async () => {
-    assert.deepEqual(await accept({ HLS_FRAGMENT: '2', NONSENSE: 'x' }), {
-      HLS_FRAGMENT: '2',
-    });
+  it('refuses a key neither engine reads, naming every such key and never a value', async () => {
+    const typed = 'typed-value-4711';
+    const refusal = await accept({ HLS_FRAGMENT: '2', HLS_FRAGMNT: typed, NONSENSE: 'x' }).then(
+      () => null,
+      (error: { errors: string[] }) => error.errors,
+    );
+
+    assert.deepEqual(refusal, [
+      'Not an engine setting either engine reads: HLS_FRAGMNT, NONSENSE. Nothing was stored. This route replaces ' +
+        'every engine setting with the body, so a misspelled key would have put the setting it meant back to its ' +
+        'default. GET /profiles/:name/engine lists the settings this deployment reads.',
+    ]);
+    assert.equal(JSON.stringify(refusal).includes(typed), false);
   });
 
   it('takes an empty body, which is every setting back to its default', async () => {

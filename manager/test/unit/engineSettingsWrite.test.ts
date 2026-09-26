@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { harnessFor, profileRow } from '../support/profileServiceHarness.js';
+import { harnessFor, profileRow, profileServiceHarness } from '../support/profileServiceHarness.js';
 
 describe('updateEngineSettings: which containers come back', () => {
   it('recreates the engine alone for a key only the engine reads', async () => {
@@ -127,7 +127,8 @@ describe('update: clearing the ABR pool string', () => {
 
   it('takes the rung settings out with it', async () => {
     // Left behind, ABR_FPS fails the settings check on every later deploy and
-    // the deployment lands in ERROR over a field no drawer renders.
+    // the deployment lands in ERROR over a field the settings page offers only
+    // a reset for.
     //
     // The bee_url goes with the clearing because this deployment runs no Bee
     // node of its own: beeTargetProblem refuses an uploader left with nowhere
@@ -150,6 +151,38 @@ describe('update: clearing the ABR pool string', () => {
     assert.deepEqual(stored().engine_settings, {
       HLS_FRAGMENT: '2',
       ABR_FPS: '30',
+    });
+  });
+
+  it('keeps an engine setting the settings page saved after the edit read the deployment', async () => {
+    // A save from the settings page claims no deploy, so it can land between
+    // this edit's read of the row and its write.
+    const { service, profiles } = profileServiceHarness([
+      profileRow({
+        kind: 'custom',
+        components: ['srs', 'stream-uploader'],
+        bee_publishers: LADDER,
+        engine_settings: { HLS_FRAGMENT: '2', ABR_FPS: '30' },
+      }),
+    ]);
+    const write = profiles.updateEditable.bind(profiles);
+    profiles.updateEditable = async (...args: Parameters<typeof write>) => {
+      await profiles.updateStackSettings(
+        'stream1',
+        { plain: {}, secret: {}, remove: [], engine: { set: { SRT_LATENCY: '3000' }, remove: [] } },
+        { instanceId: profiles.rows.get('stream1')!.instance_id, expectedRevision: 0 },
+      );
+      return write(...args);
+    };
+
+    await service.update('stream1', {
+      bee_publishers: null,
+      bee_url: 'http://10.0.0.7:1633',
+    });
+
+    assert.deepEqual(profiles.rows.get('stream1')!.engine_settings, {
+      HLS_FRAGMENT: '2',
+      SRT_LATENCY: '3000',
     });
   });
 });

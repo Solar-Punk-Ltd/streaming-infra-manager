@@ -4,6 +4,7 @@ import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/ma
 import {
   type DeploymentSettingsApplied,
   type DeploymentSettingsCatalog,
+  engineSettingsFieldsFor,
   getErrorMessage,
 } from '@streaming-infra-manager/common';
 
@@ -16,15 +17,18 @@ import {
   type DeploymentSettingsDraft,
   EMPTY_DRAFT,
   draftProblems,
+  engineDraftProblem,
   pendingEdits,
   saveOf,
+  storedEngineProblem,
   withReset,
   withValue,
   withoutEdit,
 } from './deploymentSettingsDraft';
 import type { SettingRowState } from './DeploymentSettingRow';
 import { SettingsDriftBanner } from './SettingsDriftBanner';
-import { SettingsList } from './SettingsList';
+import { type EngineFields } from './settingsSections';
+import { type SettingReveal, SettingsList } from './SettingsList';
 import {
   UNRECORDED_NOTE,
   WHAT_SAVING_DOES,
@@ -35,9 +39,10 @@ import {
   saveRefusalOf,
   savedText,
   startedBeforeRecords,
+  storedEngineProblemText,
   type LoadFailure,
 } from './settingsText';
-import { useDeploymentSettings } from './useDeploymentSettings';
+import type { DeploymentSettingsLoad } from './useDeploymentSettings';
 
 type Busy = 'saving' | 'applying' | null;
 
@@ -52,6 +57,14 @@ function recreatedNothing(applied: DeploymentSettingsApplied): boolean {
 
 function refusalOf(caught: unknown): { message: string; reload: boolean } {
   return caught instanceof ApiError ? saveRefusalOf(caught.code, caught.message) : { message: getErrorMessage(caught), reload: false };
+}
+
+/** The deployment's own engine settings the list holds, by key, in the order the engine lists them. */
+function engineFieldsOf(catalog: DeploymentSettingsCatalog): EngineFields {
+  if (catalog.engine === null) return new Map();
+  const own = new Set(catalog.entries.filter((entry) => entry.engineSetting !== null).map((entry) => entry.key));
+  const fields = engineSettingsFieldsFor(catalog.engine, { abr: catalog.abr }).filter((field) => own.has(field.key));
+  return new Map(fields.map((field) => [field.key, field]));
 }
 
 /** Where every key stands against the draft and the containers, by key. */
@@ -76,15 +89,34 @@ function rowStatesOf(catalog: DeploymentSettingsCatalog, draft: DeploymentSettin
  * Every key a deployment's stack version declares, editable for this
  * deployment with the version's value as the default (Levi, 2026-09-25).
  *
- * A component of its own rather than a card, because where it lives is still
- * Levi's to choose between a card, a page of its own and a tab. Whatever holds
- * it is a frame and nothing more. A save stores and restarts nothing, and the
- * banner above the list says what the running containers are behind on and
- * offers Apply.
+ * A component of its own, which the Stack settings card frames and nothing
+ * more. A save stores and restarts nothing, and the banner above the list says
+ * what the running containers are behind on and offers Apply. The deployment's
+ * engine settings are in the same list (Levi, 2026-09-26), shown as the Engine
+ * card's drawer showed them, and a pair of them the engine would refuse is
+ * named once above Save, which it keeps off. Stored engine settings the next
+ * deploy would refuse are named there too and keep no save back, so the save
+ * that fixes them, or one of other keys, still goes through. The manager
+ * refuses Apply while they stand.
+ *
+ * The list is the page's own read, which the Engine card and the side column
+ * share to mark a value the containers are behind on, and a save that lands
+ * says so, because it changed the deployment's row those two read.
  */
-export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
+export function DeploymentSettingsEditor({
+  profile,
+  load,
+  onSaved,
+  reveal = null,
+}: {
+  profile: Profile;
+  load: DeploymentSettingsLoad;
+  /** Called once a save has landed. */
+  onSaved: () => void;
+  /** The latest request from elsewhere on the page to show one of the settings. */
+  reveal?: SettingReveal | null;
+}) {
   const toast = useToast();
-  const load = useDeploymentSettings(profile);
   const [draft, setDraft] = useState<DeploymentSettingsDraft>(EMPTY_DRAFT);
   const [busy, setBusy] = useState<Busy>(null);
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
@@ -105,6 +137,9 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
   const states = rowStatesOf(catalog, draft);
   const pending = pendingEdits(catalog, draft);
   const refused = Object.keys(draftProblems(catalog, draft));
+  const engineProblem = engineDraftProblem(catalog, draft);
+  const storedProblem = storedEngineProblem(catalog, draft);
+  const saveOff = pending.length === 0 || refused.length > 0 || engineProblem !== null;
   // While a deploy or a stop is under way the manager counts the deployment
   // as not running, which would turn the banner into what Start will use in
   // the middle of Apply's own redeploy. The deploy landing reads the list again.
@@ -120,11 +155,12 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
   };
 
   const save = async () => {
-    if (disabled || pending.length === 0 || refused.length > 0) return;
+    if (disabled || saveOff) return;
     setBusy('saving');
     setSaveProblem(null);
     try {
       await saveDeploymentSettings(profile.name, saveOf(catalog, draft));
+      onSaved();
       setApplyOutcome(null);
       toast(savedText(catalog.running), 'success');
       await load.reload();
@@ -189,13 +225,27 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
         onValue={(key, value) => edit((current) => withValue(current, catalog, key, value))}
         onReset={(key) => edit((current) => withReset(current, catalog, key))}
         onUndo={(key) => edit((current) => withoutEdit(current, key))}
+        engine={{ fields: engineFieldsOf(catalog), ownConfig: profile.has_engine_config }}
+        reveal={reveal}
       />
+
+      {engineProblem && (
+        <Alert severity="warning" sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}>
+          {engineProblem}
+        </Alert>
+      )}
+
+      {storedProblem && (
+        <Alert severity="error" sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}>
+          {storedEngineProblemText(storedProblem)}
+        </Alert>
+      )}
 
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
         <Button
           variant="contained"
           size="small"
-          disabled={disabled || pending.length === 0 || refused.length > 0}
+          disabled={disabled || saveOff}
           onClick={() => void save()}
         >
           Save

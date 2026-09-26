@@ -69,6 +69,34 @@ export function buttonWithText(text) {
 }
 
 /**
+ * An expression answering whether the page paints the element `finder`
+ * answers inside the viewport, at the top edge and at the bottom edge of
+ * where it is laid out. Its box can be in view while none of it is painted
+ * there: a fold that is still opening clips what it holds, and a bar fixed
+ * over the page covers what scrolls under it.
+ */
+export function paintedInView(finder) {
+  return `(() => {
+    const element = ${finder};
+    const box = element?.getBoundingClientRect();
+    if (!box || box.top < 0 || box.bottom > innerHeight) return false;
+    const paintedAt = (y) => element.contains(document.elementFromPoint(box.left + box.width / 2, y));
+    return paintedAt(box.top + 1) && paintedAt(box.bottom - 1);
+  })()`;
+}
+
+/**
+ * An expression answering whether nothing inside the element `finder` answers
+ * is animating, which is when what the page shows there stays where it is.
+ */
+export function stillWithin(finder) {
+  return `(() => {
+    const element = ${finder};
+    return Boolean(element) && document.getAnimations().every((animation) => !element.contains(animation.effect?.target ?? null));
+  })()`;
+}
+
+/**
  * Clicks what `finder` answers, the moment it answers an enabled element.
  *
  * A wait that asks whether a control is there followed by an evaluate that

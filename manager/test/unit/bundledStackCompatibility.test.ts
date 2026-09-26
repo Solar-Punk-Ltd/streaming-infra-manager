@@ -141,7 +141,7 @@ describe('the bundled swarm-hls-stream contract', () => {
     );
   });
 
-  it("reads the bundled template as SRS waiting the SRT latency setting on ingest, so the drawer shows the setting and not SRS's own 120", () => {
+  it("reads the bundled template as SRS waiting the SRT latency setting on ingest, so the Engine card shows the setting and not SRS's own 120", () => {
     const fields = engineSettingsFieldsFor(SRS_SERVICE, { abr: false });
     const template = engineTemplateIn(STACK, SRS_SERVICE).text;
     const latencyAlone = template

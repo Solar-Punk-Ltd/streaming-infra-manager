@@ -2,15 +2,24 @@ import {
   type DeploymentSettingEntry,
   type DeploymentSettingsApplied,
   type DeploymentSettingsCatalog,
+  type EngineDefaultSource,
+  engineOfServices,
+  type EngineSettingField,
+  isNotReadOwner,
   SETTING_OWNER_LABELS,
   type SettingOwner,
   type StackSettingField,
 } from '@streaming-infra-manager/common';
 
+import { LIVE_PUBLISHER_DISCONNECTED } from '../engineText';
+
 /**
- * Everything the deployment settings editor says in words. The editor reads
- * these rather than writing sentences inline, so each one is pinned by a test
- * and a change of wording is a change here.
+ * The sentences the deployment settings editor says. The editor reads these
+ * rather than writing them inline, so each one is pinned by a test and a
+ * change of wording is a change here. Its short labels, placeholders and field
+ * captions, the empty list's line in `SettingsList` and the two hooks' read
+ * failures are written where they are used, and the sentence about a live
+ * publisher is `engineText.ts`'s, shared with the config file confirmations.
  */
 
 /**
@@ -22,7 +31,7 @@ export type SettingsEditTarget = 'deployment' | 'new-deployment';
 
 /** The line over the list: what a save does, and what it does not. */
 export const WHAT_SAVING_DOES =
-  "Every key this deployment's version declares, with the version's value as the default. Saving stores the values and restarts nothing. The running containers keep theirs until you apply them.";
+  "Every key this deployment's version declares and every engine setting it reads, each with its default beside it. Saving stores the values and restarts nothing. The running containers keep theirs until you apply them.";
 
 /** Said beside Apply while the draft holds changes, which Apply does not carry. */
 export const UNSAVED_NOT_APPLIED_NOTE = 'Changes you have not saved are not part of it.';
@@ -43,8 +52,16 @@ export function recreatesText(services: readonly string[] | null): string {
   return `recreates ${wordList(services)}`;
 }
 
-/** Why a key has no field of its own here: one of the deployment's controls decides it. */
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Why a key has no field of its own here: one of the deployment's controls
+ * decides it, or it is an engine setting this deployment does not read.
+ */
 export function ownerSentence(owner: SettingOwner): string {
+  if (isNotReadOwner(owner)) return `${capitalized(SETTING_OWNER_LABELS[owner])}, so it cannot be set here.`;
   return `Decided by ${SETTING_OWNER_LABELS[owner]}. It cannot be set here.`;
 }
 
@@ -63,6 +80,58 @@ export function defaultText(entry: DeploymentSettingEntry): string {
   }
   if (!entry.versionSet) return "Default: not set, so the stack's own default applies";
   return entry.versionValue === '' || entry.versionValue === null ? 'Default: empty' : `Default: ${entry.versionValue}`;
+}
+
+/** Where an engine setting's default comes from, as the Engine card names it. */
+const ENGINE_DEFAULT_ORIGIN: Readonly<Record<EngineDefaultSource, string>> = {
+  host: 'set on this host',
+  stack: "the version's own",
+  manager: "the manager's own",
+};
+
+/**
+ * What an engine setting goes back to on a reset: what an unset one falls
+ * back to on the deployment's host, in the field's unit, and where that comes
+ * from, a default the manager owns named as the manager's.
+ */
+export function engineDefaultText(entry: DeploymentSettingEntry, field: EngineSettingField): string {
+  const value = entry.versionValue ?? field.defaultValue;
+  const unit = field.unit ? ` ${field.unit}` : '';
+  const origin = ENGINE_DEFAULT_ORIGIN[entry.engineSetting?.defaultSource ?? 'stack'];
+  return `Default: ${value}${unit}, ${origin}`;
+}
+
+/**
+ * What an engine setting's number field takes, in its unit, for the line
+ * under it, or null for a list, which shows its choices. The unit beside the
+ * field is drawn and not read out, so this line is where a screen reader
+ * hears it.
+ */
+export function engineFieldHint(field: EngineSettingField): string | null {
+  if (field.kind === 'choice') return null;
+  const what = field.kind === 'integer' ? 'A whole number' : 'A number';
+  const unit = field.unit === null ? '' : field.unit.startsWith('per ') ? ` ${field.unit}` : ` of ${field.unit}`;
+  const decimals = field.kind === 'number' ? ' Use a period for decimals.' : '';
+  return `${what}${unit}${boundsText(field.min, field.max)}.${decimals}`;
+}
+
+/**
+ * Said above Save while the next deploy would refuse the engine settings the
+ * deployment stores, before the manager's own reason, which says what to change.
+ */
+export function storedEngineProblemText(problem: string): string {
+  return `The engine settings saved for this deployment cannot be deployed, so Apply is refused and any other deploy fails until they change. ${problem}`;
+}
+
+/**
+ * Said under an engine setting the config the engine runs no longer reads:
+ * the deployment's own config file, or the version's template where it runs
+ * none of its own.
+ */
+export function notInConfigNote(ownConfig: boolean): string {
+  return ownConfig
+    ? "The deployment's own config file no longer reads this setting, so a value here has no effect until the file reads it again."
+    : "This version's config does not read this setting, so a value here has no effect on this version.";
 }
 
 /** Where a secret's value comes from, in place of the value, which is never shown. */
@@ -104,7 +173,11 @@ export interface DriftNotice {
   offersApply: boolean;
 }
 
-/** The banner over the list, or null when the containers have every saved setting. */
+/**
+ * The banner over the list, or null when the containers have every saved
+ * setting. An Apply that recreates the engine says it drops a live publisher,
+ * because the SRT ingest card sends an operator here mid-broadcast.
+ */
 export function driftNotice(catalog: DeploymentSettingsCatalog): DriftNotice | null {
   const { keys, services, fullRedeploy } = catalog.drift;
   const count = keys.length;
@@ -116,7 +189,9 @@ export function driftNotice(catalog: DeploymentSettingsCatalog): DriftNotice | n
     ? 'Apply redeploys every service of this deployment.'
     : `Apply recreates ${wordList(services)}.`;
   const behind = count === 1 ? '1 setting is behind' : `${count} settings are behind`;
-  return { text: `${behind} the running containers: ${wordList(keys)}. ${what}`, offersApply: true };
+  const text = `${behind} the running containers: ${wordList(keys)}. ${what}`;
+  const recreatesEngine = fullRedeploy || engineOfServices(services) !== null;
+  return { text: recreatesEngine ? `${text} ${LIVE_PUBLISHER_DISCONNECTED}` : text, offersApply: true };
 }
 
 /**

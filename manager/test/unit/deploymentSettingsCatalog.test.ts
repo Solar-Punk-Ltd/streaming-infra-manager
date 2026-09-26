@@ -13,9 +13,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { effectiveEngineDefaults } from '@streaming-infra-manager/common';
+
 import type { ContainerRow } from '../../src/domain/ContainerRepository.js';
 import { buildContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
-import { deploymentSettingsCatalogOf, type CatalogInput } from '../../src/domain/settings/deploymentSettingsCatalog.js';
+import {
+  deploymentSettingsCatalogOf,
+  type CatalogInput,
+  type DeploymentEngineSettings,
+} from '../../src/domain/settings/deploymentSettingsCatalog.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import { ALLOCATION_CONTRACT } from '../support/allocationContract.js';
 
@@ -90,6 +96,18 @@ function record(service: string, env: Record<string, string>): ContainerRow {
   };
 }
 
+/** An SRS deployment without the ABR ladder that stores no engine setting, on a host whose base env sets none. */
+function srsSettings(over: Partial<DeploymentEngineSettings> = {}): DeploymentEngineSettings {
+  return {
+    engine: 'srs',
+    abr: false,
+    stored: {},
+    defaults: effectiveEngineDefaults('srs', {}, { HLS_FRAGMENT: '0.5', HLS_WINDOW: '15' }),
+    notInConfig: [],
+    ...over,
+  };
+}
+
 function input(over: Partial<CatalogInput> = {}): CatalogInput {
   return {
     profile: makeProfile({ name: 'stage', status: 'RUNNING' }),
@@ -101,6 +119,8 @@ function input(over: Partial<CatalogInput> = {}): CatalogInput {
     baseEnvText: 'UPLOADER_START_GATES=chequebook-warn\nADMIN_API_URL=\nADMIN_API_TOKEN=\nRPC_ENDPOINT=https://rpc.example.org/v3/synthetic-provider-key\nLOG_LEVEL=debug\n',
     engineEnvText: 'LOG_LEVEL=info\n',
     stored: { plain: { ADMIN_API_URL: 'http://admin.internal' }, secretKeys: ['ADMIN_API_TOKEN'] },
+    engineSettings: srsSettings(),
+    engineSettingsProblem: null,
     revision: 3,
     nextEnv: RUNNING_ENV,
     records: [record('stream-uploader', RUNNING_ENV), record('bee-uploader', RUNNING_ENV)],
@@ -117,7 +137,7 @@ const entryOf = (catalog: ReturnType<typeof deploymentSettingsCatalogOf>, key: s
 };
 
 describe('the keys a deployment lists', () => {
-  it('lists the root sample first and the engine sample after, a key both declare once', () => {
+  it('lists the root sample first, the engine sample after, a key both declare once, then the engine settings neither declares', () => {
     const keys = deploymentSettingsCatalogOf(input()).entries.map((entry) => entry.key);
 
     assert.deepEqual(keys, [
@@ -130,6 +150,9 @@ describe('the keys a deployment lists', () => {
       'LOG_LEVEL',
       'COMPOSE_NETWORK',
       'SRT_LATENCY',
+      'HLS_FRAGMENT',
+      'HLS_SEGMENT_MAX',
+      'HLS_WINDOW',
     ]);
   });
 
@@ -174,13 +197,6 @@ describe('where each value comes from', () => {
     assert.equal(entry.source, 'unset');
     assert.equal(entry.value, null);
     assert.equal(entry.sampleValue, '60000');
-  });
-
-  it('names an engine setting as decided by the engine settings', () => {
-    const entry = entryOf(deploymentSettingsCatalogOf(input()), 'SRT_LATENCY');
-
-    assert.equal(entry.source, 'manager');
-    assert.equal(entry.owner, 'engine-settings');
   });
 
   it('takes the root file over the engine file, the way the deploy script does', () => {
@@ -260,5 +276,112 @@ describe('what the running containers are behind on', () => {
     assert.equal(catalog.running, false);
     assert.equal(entryOf(catalog, 'LOG_LEVEL').running, 'not-running');
     assert.deepEqual(catalog.drift.keys, ['LOG_LEVEL']);
+  });
+});
+
+describe("the deployment's own engine settings", () => {
+  it('answers the engine the deployment runs and whether it encodes the ABR ladder', () => {
+    const plain = deploymentSettingsCatalogOf(input());
+    const ladder = deploymentSettingsCatalogOf(input({ engineSettings: srsSettings({ abr: true }) }));
+
+    assert.deepEqual({ engine: plain.engine, abr: plain.abr }, { engine: 'srs', abr: false });
+    assert.equal(ladder.abr, true);
+  });
+
+  it('lists each one the deployment reads as its own to set, whether a sample declares it or not', () => {
+    const catalog = deploymentSettingsCatalogOf(input());
+
+    for (const key of ['HLS_FRAGMENT', 'HLS_SEGMENT_MAX', 'HLS_WINDOW', 'SRT_LATENCY']) {
+      const entry = entryOf(catalog, key);
+      assert.deepEqual({ owner: entry.owner, declared: entry.declared, secret: entry.secret }, { owner: null, declared: true, secret: false }, key);
+      assert.equal(entry.field, null, `${key} takes its field from common, not from the answer`);
+    }
+  });
+
+  it('takes the value stored for one from the engine settings', () => {
+    const entry = entryOf(deploymentSettingsCatalogOf(input({ engineSettings: srsSettings({ stored: { HLS_WINDOW: '20' } }) })), 'HLS_WINDOW');
+
+    assert.deepEqual(
+      { stored: entry.stored, storedValue: entry.storedValue, source: entry.source },
+      { stored: true, storedValue: '20', source: 'deployment' },
+    );
+  });
+
+  it('names what an unset one falls back to on this host as its default, and where that comes from', () => {
+    const defaults = effectiveEngineDefaults('srs', { HLS_FRAGMENT: '1.5' }, { HLS_FRAGMENT: '0.5', HLS_WINDOW: '15' });
+    const catalog = deploymentSettingsCatalogOf(input({ engineSettings: srsSettings({ defaults }) }));
+    const fragment = entryOf(catalog, 'HLS_FRAGMENT');
+    const window = entryOf(catalog, 'HLS_WINDOW');
+
+    assert.deepEqual(
+      { versionSet: fragment.versionSet, versionValue: fragment.versionValue, source: fragment.source, facts: fragment.engineSetting },
+      { versionSet: true, versionValue: '1.5', source: 'version', facts: { defaultSource: 'host', notInConfig: false } },
+    );
+    assert.deepEqual(
+      { versionValue: window.versionValue, source: window.source, facts: window.engineSetting },
+      { versionValue: '15', source: 'version', facts: { defaultSource: 'stack', notInConfig: false } },
+    );
+  });
+
+  it("names the manager's own SRT latency default as the manager's, stored or not", () => {
+    const unset = entryOf(deploymentSettingsCatalogOf(input()), 'SRT_LATENCY');
+    const stored = entryOf(deploymentSettingsCatalogOf(input({ engineSettings: srsSettings({ stored: { SRT_LATENCY: '3000' } }) })), 'SRT_LATENCY');
+
+    assert.deepEqual(
+      { source: unset.source, versionValue: unset.versionValue, defaultSource: unset.engineSetting?.defaultSource },
+      { source: 'manager-default', versionValue: '2000', defaultSource: 'manager' },
+    );
+    assert.deepEqual(
+      { source: stored.source, storedValue: stored.storedValue, defaultSource: stored.engineSetting?.defaultSource },
+      { source: 'deployment', storedValue: '3000', defaultSource: 'manager' },
+    );
+  });
+
+  it('says of one that the config the engine runs no longer reads it', () => {
+    const catalog = deploymentSettingsCatalogOf(input({ engineSettings: srsSettings({ notInConfig: ['HLS_WINDOW'] }) }));
+
+    assert.equal(entryOf(catalog, 'HLS_WINDOW').engineSetting?.notInConfig, true);
+    assert.equal(entryOf(catalog, 'HLS_FRAGMENT').engineSetting?.notInConfig, false);
+  });
+
+  it('lists nothing but its own for a key that is no engine setting', () => {
+    assert.equal(entryOf(deploymentSettingsCatalogOf(input()), 'LOG_LEVEL').engineSetting, null);
+  });
+});
+
+describe('the engine settings a deployment does not read', () => {
+  const LADDER_SAMPLE = `${ENGINE_SAMPLE}# === ABR ladder ===\nABR_FPS=30\n`;
+  const OTHER_ENGINE_SAMPLE = `${ROOT_SAMPLE}# === OvenMediaEngine ===\nHLS_SEGMENT_DURATION=2\n`;
+
+  it('keeps a rung setting out of reach of a deployment that does not encode the ladder, and says who reads it', () => {
+    const plain = entryOf(deploymentSettingsCatalogOf(input({ engineSampleText: LADDER_SAMPLE })), 'ABR_FPS');
+    const ladder = entryOf(deploymentSettingsCatalogOf(input({ engineSampleText: LADDER_SAMPLE, engineSettings: srsSettings({ abr: true }) })), 'ABR_FPS');
+
+    assert.deepEqual({ owner: plain.owner, engineSetting: plain.engineSetting }, { owner: 'abr-only', engineSetting: null });
+    assert.equal(ladder.owner, null);
+  });
+
+  it("keeps a setting of the engine it does not run out of reach, and says which engine reads it", () => {
+    const entry = entryOf(deploymentSettingsCatalogOf(input({ rootSampleText: OTHER_ENGINE_SAMPLE })), 'HLS_SEGMENT_DURATION');
+
+    assert.deepEqual({ owner: entry.owner, source: entry.source }, { owner: 'ome-only', source: 'unset' });
+  });
+
+  it('keeps every engine setting out of reach of a deployment that runs no media server', () => {
+    const catalog = deploymentSettingsCatalogOf(input({ engineSettings: null }));
+
+    assert.deepEqual({ engine: catalog.engine, abr: catalog.abr }, { engine: null, abr: false });
+    assert.equal(entryOf(catalog, 'SRT_LATENCY').owner, 'srs-only');
+    assert.equal(catalog.entries.some((entry) => entry.key === 'HLS_WINDOW'), false, 'no engine setting is added for it');
+  });
+
+  it('lists a rung setting stored before the ladder was turned off, so it can be reset', () => {
+    const catalog = deploymentSettingsCatalogOf(input({ engineSettings: srsSettings({ stored: { ABR_FPS: '25' } }) }));
+    const entry = entryOf(catalog, 'ABR_FPS');
+
+    assert.deepEqual(
+      { owner: entry.owner, stored: entry.stored, storedValue: entry.storedValue, declared: entry.declared },
+      { owner: 'abr-only', stored: true, storedValue: '25', declared: false },
+    );
   });
 });

@@ -7,7 +7,7 @@ import test from 'node:test';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { assembleEngineSettingObservations, effectiveEngineDefaults, engineOverviewIdentity, engineSettingsFieldsFor, environmentSettingReadings } from '@streaming-infra-manager/common';
-import { buttonWithText, clickWhenEnabled, fillWhenPresent, launchChrome, PAGE_TEXT, readWhenPresent, waitFor } from './support/chrome.mjs';
+import { launchChrome, PAGE_TEXT, waitFor } from './support/chrome.mjs';
 import { endViteServer } from './support/teardown.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
@@ -43,12 +43,16 @@ async function freePort() {
   return port;
 }
 
-test('engine values, read freshness and editor drafts in the actual browser', { timeout: 150000 }, async t => {
+/**
+ * The Engine card's values and where each came from, read fresh for the
+ * deployment's current revision and never kept from an older one, in a real
+ * Chrome. The card edits nothing: its settings are edited in the Stack
+ * settings card since the drawer went (Levi, 2026-09-26), so nothing here
+ * writes to the manager.
+ */
+test('engine values and their read freshness in the actual browser', { timeout: 150000 }, async t => {
   let profile = structuredClone(base), duration = '4', hold = false, responseStatus = 200, responseIdentity = null;
   const held = [], writes = [], events = new Set(), reads = [];
-  const heldSaves = [];
-  let holdSave = false;
-  let saveRefusal = null;
   const server = await createServer({ root: frontend, configFile: false, cacheDir: viteCacheFor('engine-observations'),
     resolve: { alias: { '@streaming-infra-manager/common': common } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
@@ -57,25 +61,6 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
         const path = req.url?.split('?')[0];
         const json = (body, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
         if (!/^\/(auth|profiles|groups|config|events|metrics|versions)(\/|$)/.test(path)) return next();
-        if (req.method === 'PUT' && path === '/profiles/observed-stream/engine-settings') {
-          let body = '';
-          req.on('data', chunk => { body += chunk; });
-          req.on('end', () => {
-            const settings = JSON.parse(body);
-            writes.push({ path, method: req.method, body: settings });
-            const apply = () => {
-              if (saveRefusal) return json(saveRefusal, 409);
-              const { expectedInstanceId, ...values } = settings;
-              if (expectedInstanceId !== undefined && expectedInstanceId !== profile.instance_id) {
-                return json({ error: 'profile_instance_changed', message: 'This deployment instance changed. Refresh before changing it.' }, 409);
-              }
-              profile = { ...profile, engine_settings: values };
-              json(profile, 202);
-            };
-            if (holdSave) heldSaves.push(apply); else apply();
-          });
-          return;
-        }
         if (req.method !== 'GET') { writes.push({ path, method: req.method }); return json({}, 405); }
         if (path === '/auth/session') return json({ username: 'settings-review', isAdmin: true, expiresAt: '2099-01-01T00:00:00Z' });
         if (path === '/profiles') return json({ profiles: [profile] });
@@ -110,15 +95,9 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
   const browser = await launchChrome(t, origin);
   const evidence = await evidenceDirectory('t11-browser-evidence-');
   const { call, evaluate } = browser;
-  const DURATION_FIELD = `document.querySelector('input[aria-label="Segment duration"]')`;
-  const SETTINGS_PANEL = `[...document.querySelectorAll('h2')].find(h => h.textContent === 'Engine settings for observed-stream')?.closest('.MuiDrawer-paper')`;
   const body = () => evaluate(PAGE_TEXT);
-  const card = () => evaluate(`[...document.querySelectorAll('h3')].find(h => h.textContent === 'OvenMediaEngine')?.closest('.MuiPaper-root')?.innerText ?? ''`);
-  const drawer = () => evaluate(`(${SETTINGS_PANEL})?.innerText ?? ''`);
-  const click = label => clickWhenEnabled(evaluate, buttonWithText(label), `an enabled ${label} button`);
-  const saveDisabled = () => evaluate(`${buttonWithText('Apply and recreate engine')}?.disabled`);
-  const typed = () => readWhenPresent(evaluate, DURATION_FIELD, 'value', 'the segment duration field');
-  const typeDuration = value => fillWhenPresent(evaluate, DURATION_FIELD, value, 'the segment duration field');
+  const ENGINE_CARD = `[...document.querySelectorAll('h3')].find(h => h.textContent === 'OvenMediaEngine')?.closest('.MuiPaper-root')`;
+  const card = () => evaluate(`(${ENGINE_CARD})?.innerText ?? ''`);
   function publish(patch) {
     profile = { ...profile, ...patch };
     for (const res of events) res.write(`event: profile.changed\ndata: ${JSON.stringify({ profile })}\n\n`);
@@ -135,59 +114,42 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await waitFor(body, text => text.includes('segment 4 s'), 'initial observed literal');
     await waitFor(() => events.size, n => n > 0, 'profile event stream');
   }
-  async function openDraft() {
-    await click('Settings');
-    await waitFor(typed, value => value === '7', 'stored override draft');
-    await typeDuration('9');
-    assert.equal(await typed(), '9');
-  }
   async function waitRevision(note) {
     await waitFor(body, text => text.includes(note), 'changed profile event');
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   }
 
-  await t.test('literal value and source agree on the desktop summary, card and drawer, then on a phone', async () => {
+  await t.test('literal value and source agree on the desktop summary and the card, then on a phone', async () => {
     await reset();
     await waitFor(card, text => /4\s+seconds\s+Set in config file/.test(text), 'the card to show the literal value and its source');
     assert.match(await body(), /segment 4 s/);
-    await click('Settings');
-    await waitFor(drawer, text => text.includes('Set in config file'), 'literal editor source');
-    assert.match(await drawer(), /4 seconds/);
-    assert.match(await drawer(), /Changing this override will not change this setting/);
-    assert.doesNotMatch(await drawer(), /dropped the placeholder/);
-    assert.equal(await readWhenPresent(evaluate, DURATION_FIELD, 'placeholder', 'the segment duration placeholder'), 'Config controls value');
     await writeFile(join(evidence, 'desktop.png'), Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-    assert.match(await drawer(), /4 seconds/);
+    assert.match(await card(), /4\s+seconds\s+Set in config file/);
     assert.deepEqual(await waitFor(() => evaluate(`(() => {
-      const panel = ${SETTINGS_PANEL};
-      if (!panel) return null;
-      return { viewport: window.innerWidth, contentWidth: panel.clientWidth, noOverflow: panel.scrollWidth <= panel.clientWidth,
-        controlsFit: [...panel.querySelectorAll('input, button')].every(control => { const rect = control.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; }) };
-    })()`), value => value !== null, 'the settings panel to measure at 390px'),
-      { viewport: 390, contentWidth: 390, noOverflow: true, controlsFit: true });
+      const engine = ${ENGINE_CARD};
+      if (!engine) return null;
+      return { viewport: window.innerWidth, pageFits: document.documentElement.scrollWidth <= window.innerWidth,
+        controlsFit: [...engine.querySelectorAll('button')].every(control => { const rect = control.getBoundingClientRect(); return rect.left >= 0 && rect.right <= window.innerWidth; }) };
+    })()`), value => value !== null, 'the Engine card to measure at 390px'),
+      { viewport: 390, pageFits: true, controlsFit: true });
     await writeFile(join(evidence, 'phone.png'), Buffer.from((await call('Page.captureScreenshot')).data, 'base64'));
   });
 
-  await t.test('same-millisecond config revision hides old evidence while preserving an unsaved draft', async () => {
-    await reset(); await openDraft();
+  await t.test('same-millisecond config revision hides old evidence until the new revision is read', async () => {
+    await reset();
     hold = true; duration = '5';
     publish({ engine_config_revision: 4, notes: 'revision four arrived' });
     await waitRevision(profile.notes);
     assert.doesNotMatch(await card(), /4\s+s/);
-    assert.doesNotMatch(await drawer(), /4 seconds|Default 6/);
-    assert.equal(await typed(), '9');
-    assert.equal(await saveDisabled(), true);
     release();
     await waitFor(body, text => text.includes('segment 5 s'), 'new revision observation');
-    await waitFor(drawer, text => /5 seconds/.test(text), 'the drawer to carry the new revision observation');
-    assert.equal(await typed(), '9');
-    assert.equal(await saveDisabled(), false);
+    await waitFor(card, text => /5\s+seconds/.test(text), 'the card to carry the new revision observation');
   });
 
-  await t.test('a failed reload cannot retain old values or enable Apply', async () => {
-    await reset(); await openDraft();
+  await t.test('a failed reload cannot retain old values', async () => {
+    await reset();
     responseStatus = 503;
     publish({ engine_config_revision: 4, updated_at: '2026-09-09T00:00:01.000Z', notes: 'failed revision arrived' });
     await waitRevision(profile.notes);
@@ -196,9 +158,6 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.doesNotMatch(await card(), /4\s+s/);
     assert.match(await body(), /Synthetic observation unavailable\./);
-    assert.doesNotMatch(await drawer(), /4 seconds|Default 6/);
-    assert.equal(await typed(), '9');
-    assert.equal(await saveDisabled(), true);
   });
 
   await t.test('a response carrying another revision is not shown as current evidence', async () => {
@@ -212,22 +171,6 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.doesNotMatch(await card(), /[45]\s+s/);
     assert.match(await body(), /changed|match/);
-  });
-
-  await t.test('a same-name replacement never adopts an open draft until it is explicitly reopened', async () => {
-    await reset(); await openDraft();
-    duration = '5';
-    publish({ instance_id: 'replacement-instance', engine_config_revision: 0, intent_revision: 0,
-      updated_at: '2026-09-09T00:00:01.000Z', notes: 'replacement arrived' });
-    await waitFor(body, text => text.includes('segment 5 s'), 'replacement observation');
-    assert.equal(await typed(), '9');
-    assert.equal(await saveDisabled(), true);
-    await waitFor(drawer, text => /replaced|different deployment/.test(text), 'the drawer to say the deployment was replaced');
-    await clickWhenEnabled(evaluate, `(${SETTINGS_PANEL})?.querySelector('button[aria-label="close"]')`, 'the settings panel close button');
-    await waitFor(drawer, text => text === '', 'drawer closed');
-    await openDraft();
-    await waitFor(drawer, text => /5 seconds/.test(text), 'the reopened drawer to carry the replacement observation');
-    assert.equal(await saveDisabled(), false);
   });
 
   await t.test('an obsolete response arriving last cannot replace the newer observation', async () => {
@@ -249,16 +192,14 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     await evaluate('window.fetch = window.originalFixtureFetch');
   });
 
-  await t.test('a read deadline aborts a stalled response and leaves Apply disabled', async () => {
-    await reset(); await openDraft();
+  await t.test('a read deadline aborts a stalled response and says so on the card', async () => {
+    await reset();
     hold = true;
     publish({ engine_config_revision: 4, notes: 'deadline request held' });
-    await waitFor(() => held.length, count => count === 2, 'page and drawer reads held');
-    const pendingReads = reads.slice(-2);
-    await waitFor(drawer, text => text.includes('Reading engine settings timed out.'), 'read timeout', 20000);
-    await waitFor(() => pendingReads.every(read => read.closed), Boolean, 'both underlying responses aborted');
-    assert.equal(await typed(), '9');
-    assert.equal(await saveDisabled(), true);
+    await waitFor(() => held.length, count => count === 1, 'the page read held');
+    const pendingRead = reads.at(-1);
+    await waitFor(card, text => text.includes('Reading engine settings timed out.'), 'read timeout', 20000);
+    await waitFor(() => pendingRead.closed, Boolean, 'the underlying response aborted');
     assert.doesNotMatch(await card(), /4\s+seconds/);
     release();
   });
@@ -275,65 +216,18 @@ test('engine values, read freshness and editor drafts in the actual browser', { 
     assert.doesNotMatch(await body(), /Reading engine settings timed out/);
   });
 
-  await t.test('environment defaults and editable deployment overrides remain available', async () => {
+  await t.test('environment defaults and deployment overrides show on the card with where each came from', async () => {
     await reset();
     publish({ has_engine_config: false, engine_settings: {}, notes: 'environment settings active' });
     await waitFor(body, text => text.includes('segment 6 s'), 'host default observation');
     await waitFor(card, text => /6\s+seconds\s+Host default/.test(text), 'the card to show the host default');
-    await click('Settings');
-    await waitFor(() => evaluate(`document.querySelector('input[aria-label="Segment duration"]')?.placeholder`), value => value === '6', 'verified default placeholder');
-    await waitFor(drawer, text => /Default 6 seconds, set on this host/.test(text), 'the drawer to name the host default');
-    await typeDuration('9');
-    assert.equal(await saveDisabled(), false);
     publish({ engine_settings: { HLS_SEGMENT_DURATION: '7' }, notes: 'deployment override active' });
     await waitFor(body, text => text.includes('segment 7 s'), 'deployment override observation');
     await waitFor(card, text => /7\s+seconds\s+Deployment override/.test(text), 'the card to show the deployment override');
-    assert.equal(await typed(), '9');
-    assert.equal(await saveDisabled(), false);
   });
 
   release();
-  assert.deepEqual(writes, []);
-
-  await t.test('a save carries the draft instance even when the server replaces the name before handling it', async () => {
-    await reset(); await openDraft(); holdSave = true;
-    await click('Apply and recreate engine');
-    await waitFor(() => heldSaves.length, count => count === 1, 'save body held before admission');
-    const replacement = { ...profile, instance_id: '22222222-2222-4222-8222-222222222222', engine_settings: { HLS_SEGMENT_DURATION: '6' } };
-    profile = replacement;
-    heldSaves.shift()(); holdSave = false;
-    await waitFor(drawer, text => text.includes('This deployment instance changed.'), 'save ownership refusal');
-    assert.equal(writes.at(-1).body.expectedInstanceId, base.instance_id);
-    assert.deepEqual(profile, replacement);
-    assert.equal(await typed(), '9');
-    assert.doesNotMatch(await body(), /Saved\. Recreating/);
-  });
-
-  await t.test('a current instance can still apply its guarded draft', async () => {
-    await reset(); await openDraft();
-    await click('Apply and recreate engine');
-    await waitFor(body, text => text.includes('Saved. Recreating the engine'), 'current instance save');
-    assert.equal(writes.at(-1).body.expectedInstanceId, base.instance_id);
-    assert.equal(profile.engine_settings.HLS_SEGMENT_DURATION, '9');
-    assert.equal('expectedInstanceId' in profile.engine_settings, false);
-  });
-
-  await t.test('a lost active-job409 keeps the same-instance draft and does not report success', async () => {
-    await reset(); await openDraft();
-    const before = structuredClone(profile);
-    saveRefusal = { error: 'engine_settings_changed', name: profile.name,
-      message: 'The deployment changed before these settings could be saved. Refresh and review before applying again.' };
-    try {
-      await click('Apply and recreate engine');
-      await waitFor(drawer, text => text.includes(saveRefusal.message), 'active job save refusal');
-      assert.equal(await typed(), '9');
-      assert.deepEqual(profile, before);
-      assert.equal(writes.at(-1).body.expectedInstanceId, base.instance_id);
-      assert.doesNotMatch(await body(), /Saved\. Recreating/);
-    } finally { saveRefusal = null; }
-  });
-
-  assert.equal(writes.length, 3);
+  assert.deepEqual(writes, [], 'the Engine card writes nothing');
   assert.deepEqual(browser.errors, []);
   assert.deepEqual(browser.blockedRequests, []);
   await writeFile(join(evidence, 'processes.json'), JSON.stringify({ chromePid: browser.pid,

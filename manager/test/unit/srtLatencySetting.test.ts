@@ -103,7 +103,7 @@ describe('GET /profiles/:name/engine for an SRS deployment', () => {
         .body as EngineOverview;
 
       const field = overview.fields.find((candidate) => candidate.key === 'SRT_LATENCY');
-      assert.ok(field, 'the drawer is handed no SRT latency field');
+      assert.ok(field, 'the Engine card is handed no SRT latency field');
       assert.equal(field.unit, 'milliseconds');
     } finally {
       await app.close();

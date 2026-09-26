@@ -18,12 +18,14 @@ import {
   clickWhenEnabled,
   fillWhenPresent,
   pageShows,
+  paintedInView,
   pointToClick,
   readWhenPresent,
+  stillWithin,
 } from './chrome.mjs';
 
-/** The window names these expressions reach for besides `document`, and Node has neither. */
-const PAGE_GLOBALS = ['HTMLInputElement', 'HTMLTextAreaElement'];
+/** The window names these expressions reach for besides `document`, and Node has none of them. */
+const PAGE_GLOBALS = ['HTMLInputElement', 'HTMLTextAreaElement', 'innerHeight'];
 
 /** Runs one of these expressions over a stand-in page, which is all they touch. */
 const inPage = (expression, document, globals = {}) =>
@@ -73,6 +75,49 @@ describe('the button an expression names', () => {
 
   it('takes nothing when no button says it', () => {
     assert.equal(inPage(buttonWithText('Sign out'), document), undefined);
+  });
+});
+
+describe('an element the page paints where it is laid out', () => {
+  const title = { name: 'the row title' };
+  const row = {
+    getBoundingClientRect: () => ({ left: 0, width: 200, top: 100, bottom: 300 }),
+    contains(node) { return node === this || node === title; },
+  };
+  const paintingAt = (paint) => ({ row, missing: null, elementFromPoint: (_x, y) => paint(y) });
+  const TALL = { innerHeight: 900 };
+
+  it('answers true when the page paints the element at its top edge and at its bottom edge', () => {
+    assert.equal(inPage(paintedInView('document.row'), paintingAt(() => title), TALL), true);
+  });
+
+  it('answers false while something else is painted over its top, as a fold that is still opening leaves it', () => {
+    const heading = { name: 'the section heading' };
+    assert.equal(inPage(paintedInView('document.row'), paintingAt((y) => (y < 200 ? heading : title)), TALL), false);
+  });
+
+  it('answers false when the element reaches past the viewport, and when there is none', () => {
+    assert.equal(inPage(paintedInView('document.row'), paintingAt(() => title), { innerHeight: 250 }), false);
+    assert.equal(inPage(paintedInView('document.missing'), paintingAt(() => title), TALL), false);
+  });
+});
+
+describe('an element with nothing inside it animating', () => {
+  const fold = { name: 'a fold opening' };
+  const card = { contains(node) { return node === this || node === fold; } };
+  const animating = (...targets) => ({ card, missing: null, getAnimations: () => targets.map((target) => ({ effect: target && { target } })) });
+
+  it('answers true when nothing animates, or only something outside it, or an animation with no effect', () => {
+    assert.equal(inPage(stillWithin('document.card'), animating()), true);
+    assert.equal(inPage(stillWithin('document.card'), animating({ name: 'a spinner elsewhere' }, null)), true);
+  });
+
+  it('answers false while something inside it animates', () => {
+    assert.equal(inPage(stillWithin('document.card'), animating({ name: 'a spinner elsewhere' }, fold)), false);
+  });
+
+  it('answers false when there is no such element', () => {
+    assert.equal(inPage(stillWithin('document.missing'), animating()), false);
   });
 });
 
