@@ -291,9 +291,10 @@ intent, the dialog, the history, the recovery actions, the two API surfaces and
 the polling itself. A ninth file, `transfer-fixture.test.mjs`, starts no
 browser: it checks what the browser fixtures leave on the machine. The unit
 suites cover the poller, the receipt check, the receipt inspector, the routes,
-the schemas, submission, recovery and the qualification catalog. All of them
-pass on a laptop, and all of them are in the jobs the checks workflow declares
-for a pull request. The last full run recorded on the branch, taken at
+the schemas, submission, recovery, the qualification catalog, the automatic
+image check, the default Docker routes, the node's own chain endpoint and the
+answer for every refusal cause. All of them pass on a laptop, and all of them
+are in the jobs the checks workflow declares for a pull request. The last full run recorded on the branch, taken at
 `e857994`, is in
 [../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). No job
 of that workflow had run on a GitHub runner when this page was written.
