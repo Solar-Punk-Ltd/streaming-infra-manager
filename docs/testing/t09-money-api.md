@@ -165,7 +165,7 @@ survives, a spent budget that leaves the chain to the operator, a restart that
 resumes a live budget and adopts nothing after it, exact replay, a start that
 fails partway and leaves no schema behind, a close that finishes every step
 before reporting the first failure, and the removal of the temporary socket
-directory. Two more, added 2026-09-26, set neither `CHEQUEBOOK_RPC_ENDPOINTS` nor
+directory. The other two, added 2026-09-26, set neither `CHEQUEBOOK_RPC_ENDPOINTS` nor
 `CHEQUEBOOK_DOCKER_TRANSPORTS` and seed no catalog record for the synthetic
 image: one checks the image automatically, stores the pass, transfers and polls
 to settlement through the node's own endpoint, and one refuses an image whose
