@@ -21,7 +21,7 @@ async function body(response: Response): Promise<unknown> {
   catch { throw new TransferApiError('invalid_response'); }
 }
 
-/** The cause a 503 names, only when it is one from the shared closed list. Nothing else in the body is read. */
+/** The cause and check a preparation 503 names, only when both come from the shared closed lists. The body's message is never read. */
 function preparationRefusal(status: number, value: unknown): ChequebookRefusal | null {
   if (status !== 503 || !value || typeof value !== 'object' || !('error' in value) || value.error !== 'chequebook_preparation_unavailable') return null;
   const refusal = { cause: 'cause' in value ? value.cause : undefined, check: 'check' in value ? value.check : undefined };
