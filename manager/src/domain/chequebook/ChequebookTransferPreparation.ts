@@ -1,6 +1,7 @@
 import { ChequebookProfileChangedError } from '../errors/ChequebookProfileChangedError.js';
-import { parsePlur, type ChequebookOperation, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
+import { parsePlur, type ChequebookOperation, type ChequebookRefusalCause, type ChequebookTransferContext, type ChequebookTransferIntent } from '@streaming-infra-manager/common';
 import { ChequebookPreparationError } from '../errors/ChequebookPreparationError.js';
+import { ChequebookPreflightRefusedError } from '../errors/ChequebookPreflightRefusedError.js';
 import type { ChequebookChainRegistry } from './ChequebookChainRegistry.js';
 import type { PreparedChequebookTransfer } from './ChequebookSubmission.js';
 import { normalizeTransferContext, normalizeTransferIntent, sameTransferIntent } from './operationIdentity.js';
@@ -26,19 +27,27 @@ export interface OwnedTransferPreparationOptions extends DockerBeeAcquisitionOpt
   maxResponseBytes?: number;
 }
 export type CaptureTransferTarget = (profileName: string, profileInstanceId: string) => Promise<FrozenChequebookTarget>;
+
+/** The Docker acquisition budgets an owned Bee session needs: its own read and send deadlines on top of the connection's. */
+export function ownedAcquisitionBudgets(options: OwnedTransferPreparationOptions): Readonly<Required<DockerBeeAcquisitionOptions>> {
+  const sessionOptions = normalizePinnedBeeSessionOptions(options);
+  return normalizeDockerBeeAcquisitionOptions({ ...options, preflightTimeoutMs: sessionOptions.preflightTimeoutMs, postTimeoutMs: sessionOptions.postTimeoutMs });
+}
 export type AcquireBoundBeeStream = (target: FrozenChequebookTarget, budgets: Readonly<DockerBeeAcquisitionOptions>, lifetime: AbortSignal) => Promise<AcquiredDockerBeeStream>;
 interface PreparationStep { readonly signal: AbortSignal; readonly deadline: number }
 interface TransferTargetLease {
   readonly session: BeeTransferSession;
   readonly submissionTarget?: FrozenChequebookTarget;
+  /** What the node's container was started with for its chain, read on the connection this lease owns. */
+  readonly chainEndpoint: string | null;
   recheck(step: PreparationStep): Promise<void>;
   dispose(): void;
 }
 type AcquireTransferTarget = (intent: ChequebookTransferIntent, step: PreparationStep, lifetime: AbortSignal) => Promise<TransferTargetLease>;
-type TransferChains = Pick<ChequebookChainRegistry, 'forChain'>;
+type TransferChains = Pick<ChequebookChainRegistry, 'forPreparedNode'>;
 
 function address(value: unknown): string {
-  if (typeof value !== 'string' || !/^0x[0-9a-f]{40}$/i.test(value)) throw new ChequebookPreparationError();
+  if (typeof value !== 'string' || !/^0x[0-9a-f]{40}$/i.test(value)) throw new ChequebookPreparationError('bee_unreadable');
   return value.toLowerCase();
 }
 
@@ -54,6 +63,12 @@ async function checked<T>(action: () => Promise<T>, signal: AbortSignal, deadlin
   return result;
 }
 
+/** Runs one step whose failures mean `cause` unless the failure already says why. */
+async function refusing<T>(cause: ChequebookRefusalCause, action: () => Promise<T>): Promise<T> {
+  try { return await action(); }
+  catch (error) { throw ChequebookPreparationError.keeping(error, cause); }
+}
+
 /** Fresh identity is read on the same connection that may later carry the single POST. */
 export async function readBeeTransferIdentity(session: Pick<BeeTransferSession, 'getAddresses' | 'getWallet' | 'getChequebookAddress'>, signal: AbortSignal, deadline = Infinity) {
   const addresses = await checked(() => session.getAddresses(), signal, deadline);
@@ -62,9 +77,9 @@ export async function readBeeTransferIdentity(session: Pick<BeeTransferSession, 
   const nodeAddress = address(addresses.ethereum);
   const chequebookAddress = address(chequebook.chequebookAddress);
   if (nodeAddress !== address(wallet.walletAddress) || chequebookAddress !== address(wallet.chequebookContractAddress) ||
-      !Number.isSafeInteger(wallet.chainID) || !wallet.chainID) throw new ChequebookPreparationError();
+      !Number.isSafeInteger(wallet.chainID) || !wallet.chainID) throw new ChequebookPreparationError('bee_unreadable');
   const tokenAddress = tokenAddressForChain(wallet.chainID);
-  if (!tokenAddress) throw new ChequebookPreparationError();
+  if (!tokenAddress) throw new ChequebookPreparationError('unsupported_chain');
   return { chainId: wallet.chainID, nodeAddress, chequebookAddress, tokenAddress, wallet };
 }
 
@@ -94,13 +109,14 @@ class TransferPreparation {
         lease = acquired;
         requireActiveStep(step.signal, step.deadline);
         const pinnedSession = acquired.session;
-        const identity = await readBeeTransferIdentity(pinnedSession, step.signal, step.deadline);
-        const reader = await checked(() => this.chains.forChain(identity.chainId, step.signal), step.signal, step.deadline);
-        const start = await checked(() => reader.blockHeader('latest', step.signal), step.signal, step.deadline);
-        if (!start) throw new ChequebookPreparationError();
+        const identity = await refusing('bee_unreadable', () => readBeeTransferIdentity(pinnedSession, step.signal, step.deadline));
+        const reader = await refusing('chain_unreachable', () => checked(() => this.chains.forPreparedNode(identity.chainId, identity.nodeAddress,
+          acquired.chainEndpoint, step.signal), step.signal, step.deadline));
+        const start = await refusing('chain_unreachable', () => checked(() => reader.blockHeader('latest', step.signal), step.signal, step.deadline));
+        if (!start) throw new ChequebookPreparationError('chain_unreachable');
         const number = BigInt(start.number);
-        const nonce = await checked(() => reader.transactionCount(identity.nodeAddress, number, step.signal), step.signal, step.deadline);
-        const confirmed = await checked(() => reader.blockHeader(number, step.signal), step.signal, step.deadline);
+        const nonce = await refusing('chain_unreachable', () => checked(() => reader.transactionCount(identity.nodeAddress, number, step.signal), step.signal, step.deadline));
+        const confirmed = await refusing('chain_unreachable', () => checked(() => reader.blockHeader(number, step.signal), step.signal, step.deadline));
         if (!confirmed || confirmed.number !== start.number || confirmed.hash !== start.hash) throw new ChequebookPreparationError();
         const context = normalizeTransferContext({ ...identity, startBlockNumber: start.number, startBlockHash: start.hash,
           nonceLowerBound: nonce, nonceQueryTag: `0x${number.toString(16)}` });
@@ -121,14 +137,16 @@ class TransferPreparation {
                 const fresh = await readBeeTransferIdentity(pinnedSession, preflight.signal, preflight.deadline);
                 if (!sameIdentity(context, fresh)) throw new ChequebookPreparationError();
                 const gas = parsePlur(fresh.wallet.nativeTokenBalance);
-                if (gas === null || gas < 1n) throw new ChequebookPreparationError();
+                if (gas === null) throw new ChequebookPreparationError('bee_unreadable');
+                if (gas < 1n) throw new ChequebookPreflightRefusedError('preflight_no_gas');
                 const amount = BigInt(intent.amountPlur);
                 const available = intent.direction === 'deposit' ? parsePlur(fresh.wallet.bzzBalance) :
                   parsePlur((await checked(() => pinnedSession.getChequebookBalance(), preflight.signal, preflight.deadline)).availableBalance);
-                if (available === null || available < amount) throw new ChequebookPreparationError();
+                if (available === null) throw new ChequebookPreparationError('bee_unreadable');
+                if (available < amount) throw new ChequebookPreflightRefusedError('preflight_insufficient_balance');
                 pinnedSession.assertUsable();
               });
-            } catch { dispose(); throw new ChequebookPreparationError(); }
+            } catch (error) { dispose(); throw error instanceof ChequebookPreflightRefusedError ? error : new ChequebookPreparationError(); }
           },
           send: async operation => {
             if (disposed) throw new ChequebookPreparationError();
@@ -138,7 +156,7 @@ class TransferPreparation {
           },
         });
       });
-    } catch (error) { dispose(); throw error instanceof ChequebookProfileChangedError ? error : new ChequebookPreparationError(); }
+    } catch (error) { dispose(); throw error instanceof ChequebookProfileChangedError ? error : ChequebookPreparationError.keeping(error); }
   }
 
   private async bounded<T>(action: (step: PreparationStep) => Promise<T>): Promise<T> {
@@ -174,7 +192,7 @@ export class ChequebookTransferPreparation extends TransferPreparation {
       if (target.profileInstanceId !== intent.profileInstanceId) throw new ChequebookProfileChangedError();
       requireActiveStep(step.signal, step.deadline);
       const session = createSession(target.url);
-      return { session, dispose: () => session.dispose(), recheck: async currentStep => {
+      return { session, chainEndpoint: null, dispose: () => session.dispose(), recheck: async currentStep => {
         const current = await checked(() => resolveTarget(intent.profileName), currentStep.signal, currentStep.deadline);
         if (current.profileInstanceId !== intent.profileInstanceId || current.topology !== target.topology || current.revision !== target.revision || current.url !== target.url) throw new ChequebookPreparationError();
       } };
@@ -187,7 +205,7 @@ export class ChequebookTransferPreparation extends TransferPreparation {
     try {
       const copied = structuredClone(options);
       const sessionOptions = normalizePinnedBeeSessionOptions(copied);
-      const budgets = normalizeDockerBeeAcquisitionOptions({ ...copied, preflightTimeoutMs: sessionOptions.preflightTimeoutMs, postTimeoutMs: sessionOptions.postTimeoutMs });
+      const budgets = ownedAcquisitionBudgets(copied);
       return new TransferPreparation(async (intent, step, lifetime) => {
         const target = frozenTarget(await checked(() => captureTarget(intent.profileName, intent.profileInstanceId), step.signal, step.deadline), intent);
         requireActiveStep(step.signal, step.deadline);
@@ -197,11 +215,11 @@ export class ChequebookTransferPreparation extends TransferPreparation {
           requireBeeBindingTarget(structuredClone(acquired.binding), target);
           requireActiveStep(step.signal, step.deadline);
           const session = PinnedBeeSession.fromStream(acquired.stream, sessionOptions);
-          return { session, submissionTarget: target, dispose: () => session.dispose(), recheck: async currentStep => {
+          return { session, submissionTarget: target, chainEndpoint: acquired.chainEndpoint, dispose: () => session.dispose(), recheck: async currentStep => {
             const current = frozenTarget(await checked(() => captureTarget(intent.profileName, intent.profileInstanceId), currentStep.signal, currentStep.deadline), intent);
-            if (!sameFrozenTarget(target, current)) throw new ChequebookPreparationError();
+            if (!sameFrozenTarget(target, current)) throw new ChequebookPreparationError('target_changed');
           } };
-        } catch { acquired.stream.destroy(); throw new ChequebookPreparationError(); }
+        } catch (error) { acquired.stream.destroy(); throw ChequebookPreparationError.keeping(error, 'bee_unreadable'); }
       }, chains, { timeoutMs: copied.timeoutMs });
     } catch { throw new ChequebookPreparationError(); }
   }

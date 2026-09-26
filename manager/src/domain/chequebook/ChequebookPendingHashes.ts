@@ -2,10 +2,10 @@ import type { ChequebookTransferContext, ChequebookOperation } from '@streaming-
 import { performance } from 'node:perf_hooks';
 import { ChainReadError } from '../errors/ChainReadError.js';
 import { PinnedBeeSession, normalizePinnedBeeSessionOptions, type BeeTransferSession } from './PinnedBeeSession.js';
-import { readBeeTransferIdentity, type ResolveConfiguredBeeTarget, type CaptureTransferTarget, type AcquireBoundBeeStream, type OwnedTransferPreparationOptions } from './ChequebookTransferPreparation.js';
+import { ownedAcquisitionBudgets, readBeeTransferIdentity, type ResolveConfiguredBeeTarget, type CaptureTransferTarget, type AcquireBoundBeeStream,
+  type OwnedTransferPreparationOptions } from './ChequebookTransferPreparation.js';
 import { recoveryHashes } from './recoveryObservation.js';
 import { requireBeeBindingTarget } from './DockerBeeBinding.js';
-import { normalizeDockerBeeAcquisitionOptions } from './acquireDockerBeeStream.js';
 
 type PendingSession = Pick<BeeTransferSession, 'getAddresses' | 'getWallet' | 'getChequebookAddress' | 'dispose'> & { getPendingTransactions(): Promise<unknown> };
 type SavedIdentity = ChequebookTransferContext & Pick<ChequebookOperation, 'profileName' | 'profileInstanceId'>;
@@ -79,7 +79,7 @@ export class ChequebookPendingHashes extends PendingHashesReader {
     try {
       const copied = structuredClone(options);
       const sessionOptions = normalizePinnedBeeSessionOptions(copied);
-      const budgets = normalizeDockerBeeAcquisitionOptions({ ...copied, preflightTimeoutMs: sessionOptions.preflightTimeoutMs, postTimeoutMs: sessionOptions.postTimeoutMs });
+      const budgets = ownedAcquisitionBudgets(copied);
       return new PendingHashesReader(async (operation, signal, deadline) => {
         requireActive(signal, deadline);
         if (!operation.profileInstanceId) throw new ChainReadError();

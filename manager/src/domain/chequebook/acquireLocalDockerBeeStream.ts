@@ -6,13 +6,16 @@ import { DockerBeeAcquisitionError } from '../errors/DockerBeeAcquisitionError.j
 import { targetLockIdentity, type FrozenChequebookTarget } from './FrozenChequebookTarget.js';
 import { acquireDockerBeeStream, normalizeDockerBeeAcquisitionOptions,
   type AcquiredDockerBeeStream, type DockerBeeAcquisitionOptions, type QualifiedBeeBridgeExecution } from './acquireDockerBeeStream.js';
+import { isAutomaticBeeBridgeQualification, type AutomaticBeeBridgeQualification } from './automaticBeeBridgeQualification.js';
 
 /** A trusted runtime locator. The connection must separately prove the captured daemon identity. */
 export interface LocalDockerLocator { readonly kind: 'unix'; readonly alias: string; readonly socketPath: string }
 export type ResolveLocalDockerLocator = (alias: string) => Promise<LocalDockerLocator>;
 export interface OwnedUnixConnection { readonly stream: Duplex; readonly connected: Promise<void> }
-/** Ownership begins synchronously, before readiness is awaited. No retry or second socket is allowed. */
-export type ConnectUnixDocker = (socketPath: string) => OwnedUnixConnection;
+/** A probe connection reads the image and runs the bridge check, and closes. The bridge connection carries the transfer. */
+export type DockerConnectionRole = 'probe' | 'bridge';
+/** Ownership begins synchronously, before readiness is awaited. No retry, and at most one connection per role. */
+export type ConnectUnixDocker = (socketPath: string, role?: DockerConnectionRole) => OwnedUnixConnection;
 type CreateUnixSocket = (options: { path: string }) => Duplex;
 const ignoreLateError = () => {};
 
@@ -40,6 +43,16 @@ export function openUnixDockerConnection(socketPath: string, createSocket: Creat
   }
 }
 
+/** What is left of the acquisition allowance, refusing once nothing is. */
+function remaining(deadline: number): number {
+  const milliseconds = Math.floor(deadline - performance.now());
+  if (milliseconds < 1) throw new DockerBeeAcquisitionError();
+  return milliseconds;
+}
+
+/** The native connector every role uses. */
+export const connectNativeUnixDocker: ConnectUnixDocker = socketPath => openUnixDockerConnection(socketPath);
+
 function capturedLocator(value: LocalDockerLocator, alias: string): Readonly<LocalDockerLocator> {
   const result = structuredClone(value);
   if (result?.kind !== 'unix' || result.alias !== alias || typeof result.socketPath !== 'string' ||
@@ -47,11 +60,12 @@ function capturedLocator(value: LocalDockerLocator, alias: string): Readonly<Loc
   return Object.freeze(result);
 }
 
-/** Inactive adapter. Resolution, one connection and the handshake share one acquisition allowance. */
+/** Inactive adapter. Resolution, the probe's connection on an automatic route, the bridge's connection and their handshakes share one acquisition allowance. */
 export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarget, resolveLocator: ResolveLocalDockerLocator,
-  options: DockerBeeAcquisitionOptions = {}, qualifyImage: QualifiedBeeBridgeExecution = () => false,
-  signal?: AbortSignal, connectUnix: ConnectUnixDocker = openUnixDockerConnection, acquisitionDeadlineCap?: number): Promise<AcquiredDockerBeeStream> {
+  options: DockerBeeAcquisitionOptions = {}, qualifyImage: QualifiedBeeBridgeExecution | AutomaticBeeBridgeQualification = () => false,
+  signal?: AbortSignal, connectUnix: ConnectUnixDocker = connectNativeUnixDocker, acquisitionDeadlineCap?: number): Promise<AcquiredDockerBeeStream> {
   const startedAt = performance.now();
+  let probeRaw: Duplex | undefined;
   let raw: Duplex | undefined;
   let acquired: AcquiredDockerBeeStream | undefined;
   let timer: NodeJS.Timeout | undefined;
@@ -59,6 +73,7 @@ export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarg
   let rejectCancelled: ((error: Error) => void) | undefined;
   const dispose = () => {
     if (acquired && !acquired.stream.destroyed) acquired.stream.destroy();
+    if (probeRaw && !probeRaw.destroyed) probeRaw.destroy();
     if (raw && !raw.destroyed) raw.destroy();
   };
   const cancel = () => { failed = true; dispose(); rejectCancelled?.(new DockerBeeAcquisitionError()); };
@@ -82,7 +97,21 @@ export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarg
         requireActive();
         const locator = capturedLocator(result, alias);
         requireActive();
-        const connection = connectUnix(locator.socketPath);
+        let qualify: QualifiedBeeBridgeExecution;
+        if (isAutomaticBeeBridgeQualification(qualifyImage)) {
+          const probe = connectUnix(locator.socketPath, 'probe');
+          probeRaw = probe.stream;
+          probeRaw.on('error', ignoreLateError);
+          const probed = Promise.resolve(probe.connected);
+          probed.catch(ignoreLateError);
+          requireActive();
+          await probed;
+          requireActive();
+          qualify = await qualifyImage.probe(probeRaw, target, { ...limits, acquisitionTimeoutMs: remaining(deadline) }, signal, deadline);
+          probeRaw.destroy();
+          requireActive();
+        } else qualify = qualifyImage;
+        const connection = connectUnix(locator.socketPath, 'bridge');
         raw = connection.stream;
         raw.on('error', ignoreLateError);
         const connected = Promise.resolve(connection.connected);
@@ -91,19 +120,17 @@ export async function acquireLocalDockerBeeStream(expected: FrozenChequebookTarg
         await connected;
         requireActive();
         if (raw.destroyed) throw new DockerBeeAcquisitionError();
-        const remainingMs = Math.floor(deadline - performance.now());
-        if (remainingMs < 1) throw new DockerBeeAcquisitionError();
-        acquired = await acquireDockerBeeStream(raw, target, { ...limits, acquisitionTimeoutMs: remainingMs }, qualifyImage, signal, deadline);
+        acquired = await acquireDockerBeeStream(raw, target, { ...limits, acquisitionTimeoutMs: remaining(deadline) }, qualify, signal, deadline);
         requireActive();
         if (acquired.stream.destroyed) throw new DockerBeeAcquisitionError();
         return acquired;
-      } catch { dispose(); throw new DockerBeeAcquisitionError(); }
+      } catch (error) { dispose(); throw DockerBeeAcquisitionError.keeping(error); }
     };
     const result = await Promise.race([work(), cancelled]);
     requireActive();
     return result;
-  } catch {
-    failed = true; dispose(); throw new DockerBeeAcquisitionError();
+  } catch (error) {
+    failed = true; dispose(); throw DockerBeeAcquisitionError.keeping(error);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);

@@ -517,6 +517,25 @@ describe('PUT /versions/:id/settings', () => {
     );
   });
 
+  it('refuses settings of the wrong shape without repeating a value in the refusal', async () => {
+    seedHostFiles();
+    const id = await buildV3();
+    const secret = 'SYNTHETIC-version-secret-0123';
+    const wrongFiles = [
+      { path: '.env', entries: [{ key: 'API_AUTH_TOKEN', value: secret }] },
+      [`.env:API_AUTH_TOKEN=${secret}`],
+      [{ path: '.env', entries: { API_AUTH_TOKEN: secret } }],
+      [{ path: '.env', entries: [`API_AUTH_TOKEN=${secret}`] }],
+    ];
+
+    for (const files of wrongFiles) {
+      const answer = await callJson('PUT', `/versions/${id}/settings`, { expectedGeneration: 2, files });
+
+      assert.equal(answer.status, 400);
+      assert.equal(JSON.stringify(answer.body).includes('SYNTHETIC'), false, 'the refusal repeats the value');
+    }
+  });
+
   it('appends a key the file does not assign yet', async () => {
     seedHostFiles();
     const id = await buildV3();
