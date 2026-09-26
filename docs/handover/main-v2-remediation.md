@@ -1186,8 +1186,7 @@ seconds with a fifteen-second playlist window (d15c5e3). A create body may carry
 engine and sends it (a9a849b).
 
 **Around the code.** The checks workflow checks out the submodule, which four
-unit tests read (bd970b2). The verification box's map names the submodule too,
-in the estate. `AGENTS.md` was rewritten and the three pages under `docs/agents/`
+unit tests read (bd970b2). `AGENTS.md` was rewritten and the three pages under `docs/agents/`
 removed (33656e6). Nandor Komlodi's port of the remote-host Bee deploy fixes
 (11ff5e4, from master's PR 41) was merged as ecaea40 without a conflict.
 
@@ -1206,8 +1205,7 @@ Boot judges an interrupted deployment by whether its containers run rather than
 by whether they exist: the Docker snapshot carries each container's state from
 both readers, a service is up when one of its containers is running, an exited
 or restarting container after a manager restart reads as ERROR naming it, and a
-finished stop reads as STOPPED (4b223ec, e3a4349, e36b8d2, 386d948). The
-verification box's map names the submodule, in the estate. A read-only audit of
+finished stop reads as STOPPED (4b223ec, e3a4349, e36b8d2, 386d948). A read-only audit of
 every living page and of the comments in the files the day changed found
 twenty-one stale statements, three of them P1, two pages still saying the
 profile JSON carried the key and the passphrase. Every one is corrected in the
@@ -1305,13 +1303,13 @@ pushed, not merged). Two reviews, one for correctness and one for security,
 found no P1 and their P2 items are in those commits or recorded below.
 
 **Verified.** Manager unit 2552, common 360, frontend 239, typecheck and build
-clean, on the laptop and on the verification box, where the session branch
-`fix/first-pool-findings` ran at deep depth. The box is red on one thing that
+clean, on the laptop and in a container job, where the session branch
+`fix/first-pool-findings` ran. That container job is red on one thing that
 is not this work: `frontend/test/pool-draft-browser.test.mjs` fails there on
 every commit, a control at c9af798 included, while GitHub's own browser job
 passed that commit and the laptop and the two-core reproduction pass it. It is
 L112 in the estate's verify-e2e plan, with a diagnostic in the test (cabbf13)
-for the next run. The stack branch passed the box at standard depth. GitHub's
+for the next run. The stack branch also passed a full check. GitHub's
 checks run on Levi's push of main-v2.
 
 **Built later the same night.** T23, the execution copy: a build's inventory is
@@ -1338,7 +1336,7 @@ a backoff. `/health` says `waiting_for_node` with the node's URL, attempts and
 last error, and a warned start gate is latched there as `start_gate_warned`.
 Under the warn setting the uploader reads every rung rather than stopping at
 the first one that fails. URLs are stripped from the messages and the timeout
-has a ceiling (60caae7b to 46c9d120, green on the box). In the manager: neither
+has a ceiling (60caae7b to 46c9d120, green in a full check). In the manager: neither
 half of its own start gate refuses a node that says nothing,
 `GET /profiles/:name/uploader-health` maps the uploader's own health to
 one reading, and the deployment page's uploader step says waiting, warned,
@@ -1348,7 +1346,7 @@ common 360, typecheck and builds clean.
 
 **Merged and pinned, 2026-09-17 morning.** The stack branch
 `fix/uploader-start-gates-warn` (32 commits on 7e2de6f7, head 55b22bf1) passed
-the verification box at standard depth twice, at ad5f27d2 and at its head, was
+a full check twice, at ad5f27d2 and at its head, was
 merged fast-forward into main-v3 on Levi's word and is pinned here in 7b2312f.
 Its last seven commits carry decision 7 b: the postage gate refuses a batch the
 node answered about and warns one it could not read, the gate messages state
@@ -1365,7 +1363,7 @@ ruled built as scoped and landed in three halves the same day: the common
 and manager half (`1c26203` to `1c8fc25`, then the review fixes `9b07e56` to
 `b56ae6f`), the frontend half (`08bc01e` to `335b6fb`, then `e1447dc`,
 `dd4ced2`, `0361a33`), and the stack half on the stack's `feat/bee-node-mode`
-(`75f9b1e1`, `251bb1c1`, `5553652c`), each with its box run. Three read-only
+(`75f9b1e1`, `251bb1c1`, `5553652c`), each with its own full check. Three read-only
 reviews found two P1 on the manager half, both fixed: a `$` in a stored
 address that Compose would expand from the deployment's own env file on a
 remote deploy target, and the endpoint URL reaching pages and stored output
@@ -1392,7 +1390,7 @@ next push of main-v2 and deploy. The three decisions listed here on the night
 were answered the same morning: the record refusal stays, recoverable by
 removing the named file (64a7fd0), a chequebook balance nothing can parse warns
 like every other chequebook reading (d4a4e8c), and lists take a stamp reading
-per running node at most every two minutes. The box's map has no entry for
+per running node at most every two minutes. The suite map used for that check has no entry for
 the manager's database suite, one line on his word. The uploader created
 before the fix holds the public-host string: copy the pool string from the
 pool page again and paste it into its "Node pool string" field under Edit,
@@ -1426,9 +1424,9 @@ comments: 22 rows, five P1 (the same floor sentence in five files), six P2
 state, the `$` note gave the opposite of the address rule, the Dockerfile said
 the deploy builds the stack on the host). Everything was accepted and landed
 by two Opus lanes, one per tree, one finding per commit: 42 commits on
-`feat/manager-line` (head `52164ebf`, uploader 1571 and deploy 908 green, box
-run 35227408741 passed) and 34 on `main-v2` before the pin (common 405, manager unit
-2667, frontend unit 311, typecheck green, box run 35227507560 passed at the
+`feat/manager-line` (head `52164ebf`, uploader 1571 and deploy 908 green, a
+full check passed) and 34 on `main-v2` before the pin (common 405, manager unit
+2667, frontend unit 311, typecheck green, a full check passed at the
 pin commit `d54b1c9`), plus one test each: the deploy
 suite now holds the uploader README's environment tables in step with
 `config.ts`, and `managerEnvKeyDocs.test.ts` holds every env key the manager

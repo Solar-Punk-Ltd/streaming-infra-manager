@@ -1,7 +1,7 @@
 /**
  * What a browser that will not start is allowed to cost.
  *
- * On the verification box every Chrome suite reported the same line, sixteen
+ * In a container running as root every Chrome suite reported the same line, sixteen
  * files in a row: "Timed out waiting for Chrome debugging port". Chrome had
  * said why on its own standard error, immediately and in one line, and the
  * launcher spawned it with `stdio: 'ignore'`, so the only thing that reached
@@ -26,8 +26,8 @@ import { browserArguments, browserEnvironment, browserIdentity, launchChrome } f
  * A stand-in that refuses on standard error and exits, which is what a refusing
  * Chrome does.
  *
- * It is the Node binary rather than a script written for the occasion. The
- * verification box mounts its temporary directory `noexec`, so a shell script
+ * It is the Node binary rather than a script written for the occasion. Some
+ * containers mount their temporary directory `noexec`, so a shell script
  * created there cannot be executed at all and the case fails with EACCES before
  * it reaches the behaviour under test. Node is already executable wherever this
  * suite runs, and it refuses Chrome's flags on standard error and exits, which
@@ -69,11 +69,11 @@ test('reports the exit status, because a refusal and a crash are different fault
  * Who runs the browser, and what that costs.
  *
  * Chrome will not run as root unless the sandbox is turned off, which is why
- * every browser suite refused inside the verification box's container. The flag
+ * every browser suite refused inside a container running as root. The flag
  * is the usual answer and it is the worse one: passing it unconditionally drops
- * the sandbox on a laptop that never needed it. The box's browser image ships a
- * `pwuser` account for exactly this case, so where that account exists the
- * browser runs as it and keeps its sandbox in both places.
+ * the sandbox on a laptop that never needed it. A browser image built for
+ * containers ships a `pwuser` account for exactly this case, so where that
+ * account exists the browser runs as it and keeps its sandbox in both places.
  *
  * The decision is separated from the spawning so it can be checked here, where
  * the process is neither root nor inside that image.
@@ -130,7 +130,7 @@ test('leaves the environment alone when the browser runs as us', () => {
  * The flags that belong to a browser in a container, and to no other.
  *
  * With the launcher finally able to say what it saw, the seven files that
- * failed on the box turned out not to be slow: every one had read an empty
+ * failed in that container turned out not to be slow: every one had read an empty
  * page for the whole fifteen seconds. The first load of each suite worked and
  * the reload after it produced nothing at all, which is what a renderer that
  * cannot allocate shared memory looks like from the outside. A container gets

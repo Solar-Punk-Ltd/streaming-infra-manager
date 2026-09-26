@@ -17,7 +17,7 @@ afterEach(async () => {
  *
  * These fakes answer over loopback in about a millisecond, so the budget only
  * ever decides anything when the machine is too busy to get to them. At 500 ms
- * the initializing case crossed it on a loaded verification box runner and
+ * the initializing case crossed it on a loaded, shared runner and
  * reported unknown, which is what an unreachable node looks like: a red run
  * about the runner's load rather than about Bee. The two cases that are about
  * the bound pass their own.

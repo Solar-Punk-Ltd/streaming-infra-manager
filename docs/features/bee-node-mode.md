@@ -118,7 +118,7 @@ each page and the stored profile back. The stack's deploy suite is 889 on its
 branch, where the rendered gateway with neither key was measured byte for
 byte identical to the one before. Two read-only reviews of the manager half,
 one for correctness and one for security, and one of the frontend half. Not
-yet run on the verification box, not yet deployed, and not yet exercised on a
+yet given a full check, not yet deployed, and not yet exercised on a
 real Bee node: a light gateway's chequebook coming up through the two keys is
 proved on the rendered compose command, not on a running node.
 

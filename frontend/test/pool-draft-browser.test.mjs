@@ -75,7 +75,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
           if (writes.length > holdAfterWrite && holdRefresh) {
             // The page marks its own no-store fetches (see the script added before navigation),
             // because whether a browser also sends a Cache-Control header for them is the
-            // browser's choice: the verification box's Chromium sends none, Chrome elsewhere does.
+            // browser's choice: a Linux Chromium build sends none, Chrome elsewhere does.
             const uncached = req.headers['x-test-fresh-read'] === '1' || /no-cache|no-store/.test(req.headers['cache-control'] ?? '');
             readsSeen.push(`${path} fresh-marker=${JSON.stringify(req.headers['x-test-fresh-read'] ?? null)} cache-control=${JSON.stringify(req.headers['cache-control'] ?? null)}`);
             (uncached ? freshMembership : refreshes).push({ path, reply });
@@ -188,7 +188,7 @@ test('pool setup preserves the uploader draft and leaves unrelated creation path
   await createPool();
   await waitFor(body, text => text.includes('Storage pool created and selected'), 'successful return');
   // The count alone cannot tell a wizard that never asked from one that asked
-  // through a path the fixture did not hold, and the verification box failed
+  // through a path the fixture did not hold, and a container run failed
   // exactly here twice on 2026-09-17 while every laptop and two-core run passed.
   await waitFor(() => freshMembership.length, count => count === 2, 'fresh successful membership').catch(async (err) => {
     const page = (await body()).replace(/\s+/g, ' ').slice(0, 600);
