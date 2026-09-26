@@ -842,7 +842,7 @@ answered by the API.
 
 | Method | Path                    | Body            | Answer                                                          |
 | ------ | ----------------------- | --------------- | --------------------------------------------------------------- |
-| GET    | `/versions`             |                 | `[{ id, name, gitRef, commitSha, status, isDefault, tested, builtAt, lastError, contract, deployments }]` |
+| GET    | `/versions`             |                 | `[{ id, name, gitRef, commitSha, status, isDefault, tested, testedInvalidatedAt, builtAt, lastError, contract, deployments, layout, buildId, previousBuildId }]` |
 | POST   | `/versions`             | `{ name, ref }` | SSE build log, then `version.changed` on `/events`.              |
 | POST   | `/versions/:id/update`  |                 | SSE build log. On `bundled` it builds the commit the manager pins, and refuses when it pins none. |
 | POST   | `/versions/:id/default` |                 | 204. Refused for a version still building or not marked tested.  |
