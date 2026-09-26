@@ -66,7 +66,9 @@ engine's own rules, with the host's default for a key nothing stores, so a pair 
 refuse, a force-close ceiling under the segment length or a frame rate and segment length whose
 product is not whole, is refused with that sentence. A save that names no engine setting is not held
 to them. The stack columns, the engine settings and the revision move in one statement, so a save
-lands whole or not at all.
+lands whole or not at all. Turning the ABR ladder off in the deployment's Edit drawer takes the rung
+settings out of the engine settings by key, so a value saved from this card while that edit was on
+its way stays.
 
 A save recreates nothing, and Apply recreates the engine for an engine setting, and the uploader with
 it for the segment length and the OvenMediaEngine poll interval, which the uploader reads too. That
@@ -234,6 +236,3 @@ create sends, so `pnpm -C frontend dev:mock` shows it with no manager.
   falls back to its value rather than to the default named here.
 - A key only some sections of a config file read is not flagged on its row, only one no section
   reads. The Engine card still shows each reading.
-- Turning the ABR ladder off in the Edit drawer drops the rung settings by writing back the engine
-  settings it read, so a save from this card landing in the same moment can be undone by it without
-  a word. It needs both in the same instant, and the page then shows the value that stood.

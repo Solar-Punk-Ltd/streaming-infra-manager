@@ -251,9 +251,12 @@ export class ProfileRepository {
   }
 
   /**
-   * @param engineSettings replaces the column in the same statement, for a
-   *   caller whose edit changes what the stored settings mean. Left out, the
-   *   column keeps what it holds, which is what every ordinary PUT body wants.
+   * @param keptEngineSettingKeys the engine settings the deployment still reads
+   *   after this edit. Given, every other key leaves the column in the same
+   *   statement, for a caller whose edit changes which settings the deployment
+   *   reads. Only keys leave: a value the settings page saved after the caller
+   *   read the row stays. Left out, the column keeps what it holds, which is
+   *   what every ordinary PUT body wants.
    * @param expectedNotesRevision the notes revision the caller's page loaded.
    *   Given, the write happens only while that is still the current one, and
    *   null comes back when it moved, the same as for a row that is gone.
@@ -288,7 +291,7 @@ export class ProfileRepository {
     name: string,
     kind: ProfileKind,
     dataWithOptionalValues: ProfileWriteData = {},
-    engineSettings?: EngineSettings,
+    keptEngineSettingKeys?: readonly string[],
     expectedNotesRevision?: number,
   ): Promise<Profile | null> {
     const {
@@ -315,7 +318,10 @@ export class ProfileRepository {
              rpc_endpoint_source = COALESCE($18::text, rpc_endpoint_source),
              node_mode = COALESCE($19::text, node_mode),
              srt_passphrase = CASE WHEN $14::boolean THEN $15::text ELSE srt_passphrase END,
-             engine_settings = COALESCE($16::jsonb, engine_settings),
+             engine_settings = CASE WHEN $16::text[] IS NULL THEN engine_settings ELSE
+               (SELECT COALESCE(jsonb_object_agg(kept.key, kept.value), '{}'::jsonb)
+                  FROM jsonb_each(engine_settings) AS kept
+                 WHERE kept.key = ANY($16::text[])) END,
              updated_at = NOW()
        WHERE name = $1
          AND ($17::int IS NULL OR notes_revision = $17::int)
@@ -336,7 +342,7 @@ export class ProfileRepository {
         rpcEndpoint ?? null,
         passphrase !== undefined,
         passphrase ?? null,
-        engineSettings === undefined ? null : JSON.stringify(engineSettings),
+        keptEngineSettingKeys ?? null,
         expectedNotesRevision ?? null,
         data.rpc_endpoint_source,
         data.node_mode,

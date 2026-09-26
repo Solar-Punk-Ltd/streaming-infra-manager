@@ -365,7 +365,7 @@ export class InMemoryProfiles {
     name: string,
     kind: ProfileKind,
     data: ProfileWriteData = {},
-    engineSettings?: EngineSettings,
+    keptEngineSettingKeys?: readonly string[],
     expectedNotesRevision?: number,
   ): Promise<Profile | null> {
     if (this.writesRefused.has(name)) {
@@ -411,7 +411,15 @@ export class InMemoryProfiles {
         ? {}
         : { has_srt_passphrase: passphrase !== null }),
       ...(notesChanged ? { notes_revision: row.notes_revision + 1 } : {}),
-      ...(engineSettings === undefined ? {} : { engine_settings: engineSettings }),
+      // Keys leave the settings as they are at this write, the way the real
+      // statement filters the column rather than replacing it.
+      ...(keptEngineSettingKeys === undefined
+        ? {}
+        : {
+            engine_settings: Object.fromEntries(
+              Object.entries(row.engine_settings).filter(([key]) => keptEngineSettingKeys.includes(key)),
+            ),
+          }),
     });
   }
 

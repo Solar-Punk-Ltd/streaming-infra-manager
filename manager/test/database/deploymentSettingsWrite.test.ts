@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { engineSettingsFieldsFor } from '@streaming-infra-manager/common';
 import pg, { type Pool } from 'pg';
 
 import { ProfileRepository } from '../../src/domain/ProfileRepository.js';
@@ -154,6 +155,25 @@ describe('saving a deployment settings, in isolated PostgreSQL', {
 
     assert.equal(late, null);
     assert.deepEqual(await columns(), before);
+  });
+
+  it('keeps what a page saved after an edit that turns the ladder off read the row, and takes the rung settings out', async () => {
+    await pool.query(`UPDATE profiles SET engine_settings = '{"HLS_FRAGMENT":"2","ABR_FPS":"30"}' WHERE name = 'stage'`);
+    const readByTheEdit = (await profiles.findByName('stage'))!;
+    await profiles.updateStackSettings(
+      'stage',
+      { ...NOTHING, engine: { set: { SRT_LATENCY: '3000' }, remove: [] } },
+      { instanceId, expectedRevision: 0 },
+    );
+
+    await profiles.updateEditable(
+      'stage',
+      readByTheEdit.kind,
+      { components: readByTheEdit.components },
+      engineSettingsFieldsFor('srs', { abr: false }).map((field) => field.key),
+    );
+
+    assert.deepEqual((await columns()).engine_settings, { HLS_FRAGMENT: '2', SRT_LATENCY: '3000' });
   });
 
   it('answers the engine settings beside the stack settings, under the one revision', async () => {

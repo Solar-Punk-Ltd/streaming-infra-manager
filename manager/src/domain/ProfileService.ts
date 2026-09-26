@@ -2,7 +2,6 @@ import {
   slotCapFor,
   ABR_NODE_POOL_GROUP_KIND,
   ABR_RUNG_COMPONENTS,
-  applicableEngineSettings,
   assembleEngineSettingObservations,
   assembleBeePublishers,
   type BeePublishersResult,
@@ -163,13 +162,16 @@ const NO_STAMP_PROBE: StampHealthProbe = async (_profile, stampId) =>
   stampHealthFrom(stampId, null);
 const NO_URL_PROBE: PublishUrlProbe = async () => 'unknown';
 
-/** What is left of the stored settings once this profile stops encoding a ladder. */
-function withoutLadderSettings(profile: Profile): EngineSettings {
+/**
+ * The engine settings this profile still reads once it stops encoding a
+ * ladder, or undefined for a profile that runs no engine, whose settings stay
+ * as they are. Keys rather than values, so the write keeps a value the
+ * settings page saved after this edit read the row.
+ */
+function engineSettingKeysWithoutLadder(profile: Profile): readonly string[] | undefined {
   const engine = engineOfServices(defaultServicesFor(profile));
-  if (!engine) return profile.engine_settings;
-  return applicableEngineSettings(engine, profile.engine_settings, {
-    abr: false,
-  });
+  if (!engine) return undefined;
+  return engineSettingsFieldsFor(engine, { abr: false }).map((field) => field.key);
 }
 
 /**
@@ -667,7 +669,7 @@ export class ProfileService {
             : { srt_passphrase: passphraseEdit }),
           components: existing.components,
         },
-        laddersEnded ? withoutLadderSettings(existing) : undefined,
+        laddersEnded ? engineSettingKeysWithoutLadder(existing) : undefined,
         notesRevisionSent,
       );
       if (!written) {
