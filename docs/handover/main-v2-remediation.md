@@ -61,13 +61,13 @@ Rewritten on 2026-09-11. Everything this list used to hold has either been built
 
 Private execution copies were here and landed on 2026-09-11, described in its own section at the end of this file. What that slice leaves for T01 is its own remaining work rather than a dependency: the atomic begin and revert of a config rollout, the creator receipt, and the release of operation holds after a proven watch. Those repository APIs exist and nothing calls them, and none of them is needed for a deployment to stop writing into its build.
 
-T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guided stamp purchase is not wanted for now, on the ground that the purchase already works and already quotes its cost. One thing it would have added is worth remembering if the subject returns. Postage depth is an exponent, so a digit typed wrong multiplies the spend rather than nudging it, and the form displays that cost without anything refusing it. Nothing in the repository enforces a ceiling today.
+T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guided stamp purchase is not wanted for now, on the ground that the purchase already works and already quotes its cost. One thing it would have added is worth remembering if the subject returns. Postage depth is an exponent, so a digit typed wrong multiplies the spend rather than nudging it, and the form displays that cost without anything refusing it. Nothing in the repository enforces a ceiling.
 
 With that closed and private execution copies landed, no engineering slice of this roadmap is outstanding. Everything left needs the host.
 
 What remained of T09 when this was written was real SSH and real image qualification, both of which need a host. The image half ran on 2026-09-14 and `bee-2.8.2-docker-29.1.3` is in the catalogue. Do not populate that catalogue merely because synthetic tests pass: only a recorded run against a real image may add to it.
 
-D14 is open for Levi: whether the version settings page and version management become admin-only. Today any signed-in account can read and set those values, which is what every other version route does.
+D14 is open for Levi: whether the version settings page and version management become admin-only. Any signed-in account can read and set those values, which is what every other version route does.
 
 Two T04b adapter constraints remain explicit. First-use initialization may create PostgreSQL only after the upgrade guard proves the API, PostgreSQL container and PostgreSQL volume absent, followed by a successful empty-schema read. An unavailable existing database is not revision zero. Migrations follow confirmation that the old API stopped. Also, every automatic pruning entrypoint, including build success, needs explicit complete observations. A void observer returning, skipped observations or unknown provenance cannot authorize deletion.
 
@@ -178,8 +178,8 @@ version reads it at all. Then every env file is completed from the sample of the
 version being built: the sample's own line for each key the file lacks, in the
 sample's order, appended and committed as one more revision, which the build then
 captures. A file that does not parse, and a base env that is still short after
-completion, are refused with today's messages. That is the settings model the
-version settings page of D13 will read: one set per version on the host,
+completion, are refused with the messages they already had. That is the settings model the
+version settings page of D13 reads: one set per version on the host,
 committed as revisions in `.config-revision.json` under the same lock the editing
 script takes.
 
@@ -324,7 +324,7 @@ both manager typechecks, the frontend typecheck and `bash -n deploy/deploy.sh`
 clean. Nothing ran against the real host, nothing was pushed, and no `.env` of
 the submodule was read.
 
-Merged into `feat/ai-remediation` as 1a9cfd2 on 2026-09-10, with the brief for the next slice, the version settings page, committed beside it (`../consensus/VERSION-SETTINGS-BRIEF.md`). CI is green on the pushed head. Recorded for T20: `frontend/test/versions-layout.test.mjs`, which holds the bundled card's test, runs in neither `pnpm test` nor the checks workflow yet.
+Merged into `feat/ai-remediation` as 1a9cfd2 on 2026-09-10, with the brief for the next slice, the version settings page, committed beside it (`../consensus/VERSION-SETTINGS-BRIEF.md`). CI is green on the pushed head. Recorded for T20: `frontend/test/versions-layout.test.mjs`, which holds the bundled card's test, ran in neither `pnpm test` nor the checks workflow at that merge. The T20 browser job runs it now.
 
 
 ## The version settings page, 2026-09-10
@@ -428,7 +428,7 @@ one page nit. Four of those low security findings became fixes of their own, two
 were folded into the items beside them, and two were looked at and left alone,
 as were five low correctness findings. One question goes to Levi rather than
 into code: any signed-in account can read and set these values, which is what
-every other route does today, and whether version settings become admin-only is
+every other route did on 2026-09-10, and whether version settings become admin-only is
 his to decide. Everything else in `docs/consensus/VERSION-SETTINGS-FIXES.md` is
 in.
 
@@ -812,10 +812,10 @@ manager unit suite 2317 of 2317 three times through its new runner, the
 database directory 518 of 518 through its runner with no skips, the browser
 suites 166 of 166 through theirs, the native suites 7, common 321, frontend
 unit 100, the three Docker harnesses passing on this laptop (T02 in 3 s on the
-digest `ossrs/srs:6` resolves to today, T03 in 130 s with the ffmpeg wait,
+digest `ossrs/srs:6` resolved to that day, T03 in 130 s with the ffmpeg wait,
 T05a in 110 s), both workflows valid YAML, every typecheck clean, prose clean,
 no submodule or lockfile movement, and no by-product under the submodule after
-the unit runs. Nothing in either workflow has run on a GitHub runner yet: the
+the unit runs. Nothing in either workflow had run on a GitHub runner at that merge: the
 checks workflow runs on the next push of this branch, the Docker-backed one is
 Levi's dispatch. Two decisions are his: the Actions cost of about 25 minutes a
 push with all three jobs required, and a CODEOWNERS entry over
@@ -1057,7 +1057,7 @@ Levi authorised the deploy, the one-way migration and a full pass on the live ho
 
 **What the fixes proved after landing.** Both rulings of the same day hold on the live host. A redeploy that changed only the notes, which is the case that used to leave a blocked attempt and refuse the next deploy, came up running with no blocked attempt at all. Removing the test deployment took its containers, its data directory and all three of its execution copies, and left zero open build holds. The host ended with the five deployments it started with and nothing of the test.
 
-**Not done, and still Levi's.** Nothing was funded and nothing was spent. `review-20260907` holds 5 BZZ in its wallet with an empty chequebook and no stamp, and its earlier fill has no operation record because the table arrived with migration 020 today. The paid part is still T22 and still waits on the D05 numbers.
+**Not done, and still Levi's.** Nothing was funded and nothing was spent. `review-20260907` holds 5 BZZ in its wallet with an empty chequebook and no stamp, and its earlier fill has no operation record because the table arrived with migration 020 that day. The paid part is still T22 and still waits on the D05 numbers.
 
 ## The second live pass, and the first money spent, 2026-09-13
 
@@ -1130,8 +1130,8 @@ therefore remain unproven, and everything up to them is proven.
 
 ## The review rounds on the pinned stack, 2026-09-16
 
-**What this block records.** Three rounds of work on `main-v2` in one day, none of
-it deployed to the live host yet. The stack submodule was pinned first at
+**What this block records.** Three rounds of work on `main-v2` in one day, deployed
+to the live host that evening (below). The stack submodule was pinned first at
 3a831508 and then at 7e2de6f7, the head that closed the stack's own review, with
 the contract reader answering the same sixteen ports at both. Six read-only
 review lanes went over the manager code, the compose wiring, the environment
