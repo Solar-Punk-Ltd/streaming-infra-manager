@@ -83,7 +83,8 @@ export class ChequebookChainRegistry {
    * A remembered endpoint that fails in any way sends the manager to read the
    * node once more, and what it reads replaces the remembered endpoint only
    * after it verified. Until then the remembered one is kept, and its failure is
-   * what is reported when the node cannot be read or names nothing usable.
+   * what is reported when the node cannot be read, names nothing usable, or
+   * names the same endpoint again, which is not tried a second time.
    */
   async forSavedNode(chainId: number, nodeAddress: string, readNodeEndpoint: ReadNodeChainEndpoint, signal?: AbortSignal): Promise<ChequebookChainReader> {
     if (this.#endpoints.has(chainId) || !tokenAddressForChain(chainId)) return this.forChain(chainId, signal);
@@ -100,6 +101,7 @@ export class ChequebookChainRegistry {
       try { endpoint = await readNodeEndpoint(signal); }
       catch (error) { throw unusable(ChainReadError.keeping(error, 'chain_endpoint_missing')); }
       if (!usableChainEndpoint(endpoint)) throw unusable(new ChainReadError('chain_endpoint_missing'));
+      if (rememberedFailure && endpoint === remembered) throw ChainReadError.keeping(rememberedFailure);
       const reader = await this.verified(endpoint, chainId, signal);
       this.#nodeEndpoints.set(key, endpoint);
       return reader;
