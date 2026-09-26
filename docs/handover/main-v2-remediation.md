@@ -1100,8 +1100,8 @@ nginx's default sixty second read timeout, so the browser got a 504 while the
 manager accepted the work and deployed. The wizard then re-checked the name,
 found the deployment that now existed, and said the name is taken. **Fixed**: that
 location carries `proxy_read_timeout 300s` now, beside the ones the chequebook
-routes already had, and the four deployment action routes stream with no timeout
-at all.
+routes already had, and the four deployment action routes stream unbuffered with
+a 24 hour read timeout.
 
 **Nothing can be published until the node is funded.** A real SRT feed was sent
 at the address the deployment page gives. It reached the media server, which
