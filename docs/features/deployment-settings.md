@@ -2,10 +2,10 @@
 
 Status: the store, the record of what each container got, the API, the page that edits them, the
 new-deployment wizard that creates a deployment with them already set, and the engine settings in
-the same list in place of the Engine card's drawer, as of 2026-09-26, built on
-`feat/deployment-settings-engine` up to `02f699d4`. The web2 admin keys are typed fields with a
-rule of their own, with a group of their own in the wizard and Test connection on the card, as of
-2026-09-26 on `feat/admin-link-out-of-the-box`.
+the same list in place of the Engine card's drawer are on `main`, merged in pull requests #55 to
+#58 and #62. The web2 admin keys are typed fields with a rule of their own, with a group of their
+own in the wizard and Test connection on the card, merged in #64 and #65. All of it as of
+2026-09-26 at `04c4165`.
 
 ## What this is
 
@@ -165,8 +165,8 @@ all described in `manager/README.md` under "A deployment's own settings".
 ## The page
 
 A deployment's page shows these settings in a **Stack settings** card after the Engine card, the
-whole width of the main column. The Engine card's own settings drawer went on 2026-09-26. The card
-keeps its list of what the engine runs with and where each value came from, and its **Settings**
+whole width of the main column. The Engine card has no settings drawer of its own. It keeps its
+list of what the engine runs with and where each value came from, and its **Settings**
 button brings this card into view with the engine settings open and the first one focused. The SRT
 ingest card's step to raise the SRT latency brings the card into view at that setting, focused.
 

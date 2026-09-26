@@ -9,19 +9,17 @@ Four jobs, all on `ubuntu-latest`, the fourth, `images`, since 2026-09-25. Decis
 requirement on is a repository setting Levi makes after the workflow has run
 once, and he keeps a bypass. Main-branch pushes still require Levi's explicit instruction.
 
-The 2026-09-19 release transition keeps both `main` and `main-v2` in the workflow
-triggers so the candidate is checked before consolidation and the final `main`
-continues to run every job. Levi explicitly authorized this consolidation.
+The workflow triggers name both `main` and `main-v2`, a branch name kept there
+from the 2026-09-19 release transition.
 
-**Where this stands, 2026-09-16, on `main-v2`.** This page was written at
-`6dc33d1` on `feat/ai-remediation`, the head of pull request #40, which landed.
-The required-checks setting is not on yet, because it waits on a first run.
+**Where this stands.** This page was first written at `6dc33d1` on
+`feat/ai-remediation`, the head of pull request #40, which was merged.
 Every number below says where it was measured, on this laptop, in a Debian
 container or on a runner. Everything else here describes what the workflow files
 declare, which is a different thing from what a runner has done.
 
 **The file counts in this page drift, because suites are added.** Those below
-were measured on 2026-09-16. Re-measure rather than trusting them: the SQL
+were counted on 2026-09-26 at `04c4165`. Re-measure rather than trusting them: the SQL
 suites are `find manager/test/database -name '*.test.ts'`, and the browser
 suites are `find frontend/test -name '*.test.mjs'`.
 
@@ -30,8 +28,8 @@ suites are `find frontend/test -name '*.test.mjs'`.
 Check out the repository with the stack submodule, install from the frozen
 lockfile, build common, type checks in every package with the test files
 included, the unit suites of common, manager and frontend, the native transport
-suites, the frontend build. The submodule is there because four manager unit
-tests compare the guides and the contract fixtures against the branch the pin
+suites, the frontend build. The submodule is there because manager unit
+tests compare the stack's guides, samples and contract fixtures against the branch the pin
 names, and a checkout without it fails them for a reason unrelated to the code
 (run 35069103361, 2026-09-16). The submodule URL is HTTPS and the stack
 repository is public, so the default token fetches it.
@@ -83,7 +81,7 @@ runner: diagnose it, never retry it.
 
 ### database
 
-The 34 SQL suites in `manager/test/database/` (2026-09-16), each against the
+The 42 SQL suites in `manager/test/database/` (2026-09-26), each against the
 task database it owns, through `manager/test/database/run-all.mjs`.
 
 Every one of those files gates itself on a task port variable and skips
@@ -97,7 +95,7 @@ a skipped test, a suite that skipped itself whole, a run that took no test at
 all, a missing summary, a signal and a non-zero exit.
 
 Those last four matter because the counts alone cannot tell a full run from an
-empty one. A suite skipped at the describe level registers no test, so 34
+empty one. A suite skipped at the describe level registers no test, so 42
 skipped files come back as 0 tests, 0 failed, 0 skipped with a `# SKIP` marker
 on each result line, and a glob that matches no file prints the same clean
 zero. The rules that read those markers live in
@@ -118,8 +116,8 @@ image's own `createdb`, so the runner needs no client of its own and a service
 that did not come up fails in seconds.
 
 What it proves: every one of those tests runs against a real PostgreSQL, and
-none of them was skipped or quietly never started. The count was 526 when this
-was measured on 2026-09-16 against a disposable Postgres, and it grows with the suites.
+none of them was skipped or quietly never started. The count was 526 across 34
+files when this was measured on 2026-09-16 against a disposable Postgres, and it grows with the suites.
 
 What it does not prove: anything about a deployment database. Every suite
 connects to `127.0.0.1` and creates a schema of its own with synthetic rows.
@@ -137,9 +135,9 @@ that fails half the time is worth more than the difference.
 
 ### browser
 
-The 32 suites under `frontend/test/` (2026-09-16), of which 18 drive a real
-headless Chrome, 9 of those against a real Vite they start themselves and the
-rest against a fixture server, and 14 need no browser. They live outside `pnpm test`, which only takes `src`,
+The 43 suites under `frontend/test/` (2026-09-26), of which 24 drive a real
+headless Chrome, 14 of those against a real Vite they start themselves and the
+rest against a fixture server or no page at all, and 19 need no browser. They live outside `pnpm test`, which only takes `src`,
 so they ran nowhere on a pull request.
 `pnpm --filter @streaming-infra-manager/frontend-prototype test:browser` takes
 all of them, through `frontend/test/run-all.mjs`.
@@ -189,7 +187,7 @@ itself when the pid that started it is gone. **The runner bounds each suite
 file at 600 seconds**, in a child of its own, kills it with its process group
 if it outruns that, and refuses the run naming the file. A suite that hangs is
 a named failure rather than a cancelled job that says nothing about the other
-thirty-one files.
+forty-two files.
 
 Checked on Linux before any of it went anywhere: the whole set in a Debian
 container against Chromium 152.0.7977.82, which is the version the runner's
@@ -262,8 +260,8 @@ running and its socket open, and the file never exited. On 2026-09-11
 reported its cases, and was killed by the runner with its process group ten
 minutes later. Ten billed minutes for one failing case.
 
-`endViteServer` in `frontend/test/support/teardown.mjs` is the answer, and 8 of
-the 9 suites that own a Vite server go through it. The exception is
+`endViteServer` in `frontend/test/support/teardown.mjs` is the answer, and 14 of
+the 15 suites that own a Vite server go through it. The exception is
 `frontend/test/version-approval.test.mjs`, which still closes its own server in
 a `t.after` of its own, which is the shape this paragraph describes as the bug.
 It has not bitten yet and it is the one file left to move. It never throws, so the Chrome teardown behind it
@@ -300,7 +298,7 @@ build the stack a deployment runs, and says nothing about the host's Docker.
 Why it exists: every other job runs the code from `pnpm install` on the
 runner, and so does the Docker-backed workflow's integration job, so until
 2026-09-25 nothing built these two images before a deploy did. That day `v2.2`
-passed every check and its deploy to 157.90.34.105 stopped at the web image,
+passed every check and its deploy stopped at the web image,
 `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`: `frontend/Dockerfile` installed pnpm 9,
 which never reads the overrides #46 put in `pnpm-workspace.yaml`. #53 fixed the
 Dockerfile, and `manager/test/unit/imagePnpm.test.ts` names that one cause in
@@ -317,11 +315,11 @@ here, so the estimate below is built on the slow end rather than the lucky one:
 | --- | --- |
 | common build | 1 s |
 | type checks, every package | 6 s |
-| unit suites, common 354, manager 2474, frontend 153 (2026-09-16) | 25 s |
+| unit suites, common 354, manager 2474, frontend 153 when timed (2026-09-16), 551, 3183 and 629 on 2026-09-26 | 25 s |
 | native transport suites, 7 | 3 s |
 | frontend build | 6 s |
 | SQL suites, one file at a time. 526 cases across 34 files, measured 2026-09-16 against a disposable Postgres | 235 s |
-| browser suites, one child per file. Case count last measured 208 on 2026-09-10 across 27 files, and there are 37 now (2026-09-25) | 360 s |
+| browser suites, one child per file. Case count last measured 208 on 2026-09-10 across 27 files, and there are 43 now (2026-09-26) | 360 s |
 
 The jobs run in parallel in wall-clock time but GitHub bills each one
 separately, so a push costs the sum. A standard GitHub-hosted Linux runner on
@@ -332,13 +330,12 @@ common build per job.
 
 That puts `checks` at about 3 minutes, `database` at about 9, and `browser` at
 about 13. **Estimate about 25 Actions minutes per push, somewhere between 19
-and 30.** The browser job is more than half of it. The first real run replaces
-this estimate with a measurement.
+and 30.** The browser job is more than half of it.
 
-**A decision that is Levi's, not this page's.** Whether all three jobs stay
+**A decision that is Levi's, not this page's.** Whether every job stays
 required on every push, or the browser job moves to a schedule or a manual
-dispatch, is a spend question. Keeping all three required is what the D06
-agreement says and what this slice built. Moving the browser job off every
+dispatch, is a spend question. Keeping all of them required is what the D06
+agreement says. Moving the browser job off every
 push would take roughly half the minutes back and would mean a pull request
 can go green while every Chrome suite has not run on it.
 
@@ -355,13 +352,10 @@ core. The estimate stays for the reasoning, the measurement is the number.
 `workflow_dispatch` only, four jobs, so one failure never hides another and
 each shows by name in the run.
 
-**Never dispatched, and every run it has had failed.** Checked on GitHub on
-2026-09-16: the workflow has five runs, all of them triggered by push events
-between 2026-09-10 and 2026-09-11, and all five failed. There has been no run
-since 2026-09-11, and no `workflow_dispatch` is recorded at all. So no job in it
-has ever completed on a runner, and the four container harnesses it names have
-never executed anywhere but a laptop. The first real run is Levi's, and it is
-the check of the workflow itself: paths, timings and image pulls may need a fix.
+**Its first five runs failed.** Checked on GitHub on 2026-09-16, the workflow
+had five runs, all of them triggered by push events between 2026-09-10 and
+2026-09-11, and all five failed for the reason below. Its first dispatch was run
+35444459944 on 2026-09-19, described under the integration job.
 
 **It could not have run before 2026-09-11.** From the day the file was written
 it set two of the integration job's paths from `${{ runner.temp }}` in a
@@ -556,9 +550,8 @@ request.
 
 ## Pinning
 
-Actions are pinned by commit with the tag in a comment. **No action was added
-or moved in this slice**, so no new provenance check was owed. The three
-existing pins are unchanged:
+Actions are pinned by commit with the tag in a comment. Both workflows use
+the same three pins:
 
 | Action | Pin |
 | --- | --- |

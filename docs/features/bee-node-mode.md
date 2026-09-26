@@ -11,11 +11,10 @@ Status, 2026-09-17. Row T27 of `docs/consensus/issues/`, ruled by Levi that
 day: the mode and the endpoint are chosen when a node is created, the node's
 page shows both, an ultra-light node has no funding or stamp steps, and funding
 stays as it is, by hand, with no wallet held by the manager. The manager and
-frontend halves are on `main-v2`, reviewed and fixed the same day (the brief and
+frontend halves are on `main`, reviewed and fixed the same day (the brief and
 the fixes file are under `docs/consensus/`). The stack half was merged into the
-manager's line of the stack, `feat/manager-line`, at 5553652c and pinned the
-same day, so a gateway created light is light once that pin is deployed. Until
-the host runs that pin, its choice is recorded and written but read by nothing. Written at
+manager's line of the stack, `feat/manager-line`, at 5553652c, and that line is
+in the stack's releases from `v3.1` on, which the bundled `v3.4` builds on. Written at
 `b56ae6f` on `main-v2` with the stack pinned at `55b22bf1`, and re-read on the evening of
 2026-09-17 in the docs and comment review, with the stack pinned at `52164ebf`, the head of
 `feat/manager-line` after that review's 42 stack commits.
@@ -47,7 +46,7 @@ fix. `rpc_endpoint_source` is `manager`, `stack` or `custom`, and the deployment
 deployments with a URL became `custom` and the rest `stack`, which is what they
 were running.
 
-Status, 2026-09-19, based on `a5b4253` and fixed on
+Status, 2026-09-19, based on `a5b4253` and fixed in the since merged
 `fix/main-v2-rpc-privacy`: a custom URL is private deployment input. Profile
 responses and deployment events expose only `has_rpc_endpoint` and
 `rpc_endpoint_host`. The host contains no userinfo, path, query or fragment.
@@ -57,7 +56,7 @@ public host metadata.
 The repository reads the full URL separately only for endpoint redaction and
 for a claimed deployment that is about to write its env file.
 
-An edit page starts its custom endpoint field empty. Leaving an existing custom
+The edit drawer starts its custom endpoint field empty. Leaving an existing custom
 choice unchanged omits the URL from the request and preserves the stored URL.
 Typing a replacement sends that replacement. Choosing the manager or stack
 source clears the stored custom URL, including when an API client sends only
@@ -81,8 +80,9 @@ in the host's env as a 1Password reference.
 
 When a deployment starts, the manager resolves the source: `manager` writes its
 configured URL as `RPC_ENDPOINT`, `custom` writes the deployment's own URL, and
-`stack` writes no line. For a light gateway it also writes the two gateway
-settings above.
+`stack` writes no line. For a deployment that owns the viewer gateway it also
+writes the two gateway settings above, that endpoint and SWAP on for a light
+gateway, an empty endpoint and SWAP off for an ultra-light one.
 
 ## What the wizard offers
 
@@ -111,7 +111,7 @@ by the manager in this row.
 ## Verified
 
 Common 405, manager unit 2666, manager database 540 on a disposable Postgres,
-frontend unit 311 and browser 259 through the laptop lane on 2026-09-17, with
+frontend unit 311 and browser 259 on a laptop on 2026-09-17, with
 a browser walkthrough that creates a viewer gateway in each mode and a stream
 on the manager's endpoint against the offline mock and reads both entries off
 each page and the stored profile back. The stack's deploy suite is 889 on its

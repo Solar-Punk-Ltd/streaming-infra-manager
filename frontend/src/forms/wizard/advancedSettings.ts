@@ -21,7 +21,7 @@ import {
 /**
  * The wizard's Advanced settings: every key the chosen version declares, for
  * the deployment it is about to create, with the version's value as the
- * default (Levi, 2026-09-25). The typed values live in
+ * default. The typed values live in
  * `WizardState.stackSettings`, and the list they are checked against is read
  * by the dialog for the choices on screen. For a deployment that runs an
  * uploader, the two web2 admin keys point at the Web2 admin group instead,

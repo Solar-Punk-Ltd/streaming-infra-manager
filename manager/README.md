@@ -137,13 +137,14 @@ All command endpoints stream output as Server-Sent Events
 | GET    | `/profiles/:name` | none                                              | Single profile.                                               |
 | DELETE | `/profiles/:name` | none                                              | Releases the slot.                                            |
 | PUT    | `/profiles/:name` | the editable fields                               | Full edit. 202 and the profile.                               |
-| PATCH  | `/profiles/:name/notes` | `{ notes, revision }`                       | Notes alone, without a redeploy.                              |
+| PATCH  | `/profiles/:name/notes` | `{ notes, notes_revision }`                 | Notes alone, without a redeploy.                              |
 | GET    | `/profiles/:name/srt-passphrase` | none | `{ srt_passphrase }`, `no-store`. The deployment's own SRT passphrase, which the row no longer carries. Every read is logged with the signed-in user's name. |
 | GET    | `/profiles/:name/uploader-health` | none | `{ state, reasons, waitingSince?, node?, startGateWarnings? }`. What this deployment's own `stream-uploader` says about itself, read off its API port. `state` is one of `ok`, `waiting_for_node`, `warned`, `unhealthy`, `unreachable` or `not_deployed`. |
 | GET    | `/profiles/:name/srt-ingest` | none | `{ state, windowSeconds, reports?, connections?, counts?, percent?, verdict? }`. SRS's own count of the SRT link's packets over the last minute, read out of the engine's log. `state` is one of `measured`, `no_reports`, `not_running`, `unreadable` or `not_srs`, and `verdict` is `healthy`, `degraded` or `bad`. |
 
 `POST /profiles` takes `name` and `kind`, one of `streamer`, `viewer`, `custom`
-or `abr-uploader`. Everything else is optional: `components`, `host`, `notes`,
+or `abr-uploader`, with `custom` when `kind` is left out. Everything else is
+optional: `components`, `host`, `notes`,
 `stack_version_id`, `feed_owner`, `feed_topic`, `private_key`, `public_key`,
 `stamp_id`, `srt_passphrase`, `bee_url`, `bee_publishers`, `rpc_endpoint`,
 `rpc_endpoint_source`, `node_mode`, `engine_settings`, `stack_settings` and
@@ -204,8 +205,7 @@ rather than storing keys nothing would read.
 
 `stack_settings` is create-only too, and `POST /groups` takes it on the same
 terms: a list of `{ key, value }`, each value text, that the new deployment
-starts with instead of its version's values (2026-09-26,
-`feat/deployment-settings-wizard`). It is held to the rules a save of the
+starts with instead of its version's values (2026-09-26, #58). It is held to the rules a save of the
 deployment's own settings is held to, against the list `GET
 /versions/:id/settings-catalog` answers for a deployment of the kind, services
 and host the body describes: a key the version does not declare, a key one of
@@ -466,8 +466,8 @@ bridge script, so every later transfer through them skips the check, and the
 transfer's own connection must find the stored pass before it runs the bridge.
 A failure is stored with the check that failed, refuses the transfer with that
 check named, and is checked again on the next attempt. The image checked by
-hand on 2026-09-14, `ethersphere/bee:2.8.2` on Docker 29.1.3 as `157.90.34.105`
-runs it, stays in the code as the seed and needs no check.
+hand on 2026-09-14, `ethersphere/bee:2.8.2` on Docker 29.1.3, stays in the code
+as the seed and needs no check.
 `manager/scripts/qualify-bee-bridge.mjs` runs the same check by hand.
 To read the record:
 
@@ -694,12 +694,12 @@ things an operator does to it by hand.
 
 | Method | Path | Body | Answer |
 | ------ | ---- | ---- | ------ |
-| GET | `/profiles/:name/engine` | none | `{ engine, abr, settings, defaults, fields, live, liveUnavailableReason, notInConfig }` |
+| GET | `/profiles/:name/engine` | none | `{ identity, engine, abr, settings, defaults, defaultSources, observations, effective, fields, live, liveUnavailableReason, notInConfig }` |
 | PUT | `/profiles/:name/engine-settings` | `{ HLS_FRAGMENT?, HLS_SEGMENT_MAX?, HLS_WINDOW?, SRT_LATENCY?, ABR_*? }` for SRS, `{ HLS_SEGMENT_DURATION?, HLS_SEGMENT_COUNT?, OME_HLS_POLL_INTERVAL_MS? }` for OME, the whole set, and `expectedInstanceId?`. `{}` puts every setting back to its default | 202 and the profile. For scripts: saves and recreates in one call, the engine container and the uploader with it when a key the uploader also reads changed. 400 `validation_error` naming a key neither engine reads, never its value, with nothing stored, because the body replaces the whole set and a misspelled key would have reset the setting it meant. 409 `engine_settings_changed` when a save of the deployment's settings landed after it read them |
 | POST | `/profiles/:name/containers/:service/restart` | none | 202. `srs`, `ome`, `stream-uploader` and `bee-uploader` only |
 | GET | `/profiles/:name/containers/:service/logs?tail=200` | none | `text/plain`, at most 2000 lines |
 | GET | `/profiles/:name/engine/config` | none | `text/plain`, `no-store`. The config the running container generated |
-| GET | `/profiles/:name/engine-config` | none | `{ engine, supported, unsupportedReason, config, template, placeholders, error, references }`, `no-store` |
+| GET | `/profiles/:name/engine-config` | none | `{ engine, supported, unsupportedReason, config, template, placeholders, state, error, references }`, `no-store` |
 | PUT | `/profiles/:name/engine-config` | `{ config }` | 202 and the profile, or 400 with the engine's own reason. Recreates the engine and watches it |
 | DELETE | `/profiles/:name/engine-config` | none | 202 and the profile. Back to the version's template |
 
@@ -783,9 +783,11 @@ way a settings save claims it, the file stored, the engine recreated, and the
 container inspected every two seconds for twenty. An engine that is not a
 running container with no restarts by then gets the previous file back, is
 recreated again, and `engine_config_error` on the profile says why, with the
-engine's last log lines. The watch lives in the manager process: a manager
-restart during those twenty seconds leaves the new file applied and nothing
-reverted.
+engine's last log lines. A manager restarted during a rollout settles it at
+boot. A running engine with no restarts is watched again in full, one that
+shows it failed gets the previous file back, and one the manager cannot tell
+about is marked interrupted, with `POST /profiles/:name/engine-config/verify`
+and `POST /profiles/:name/engine-config/restore-previous` as the two ways out.
 
 Where every directive is documented: SRS's annotated
 [full.conf](https://github.com/ossrs/srs/blob/develop/trunk/conf/full.conf)
@@ -840,7 +842,7 @@ answered by the API.
 
 | Method | Path                    | Body            | Answer                                                          |
 | ------ | ----------------------- | --------------- | --------------------------------------------------------------- |
-| GET    | `/versions`             |                 | `[{ id, name, gitRef, commitSha, status, isDefault, tested, builtAt, lastError, contract, deployments }]` |
+| GET    | `/versions`             |                 | `[{ id, name, gitRef, commitSha, status, isDefault, tested, testedInvalidatedAt, builtAt, lastError, contract, deployments, layout, buildId, previousBuildId }]` |
 | POST   | `/versions`             | `{ name, ref }` | SSE build log, then `version.changed` on `/events`.              |
 | POST   | `/versions/:id/update`  |                 | SSE build log. On `bundled` it builds the commit the manager pins, and refuses when it pins none. |
 | POST   | `/versions/:id/default` |                 | 204. Refused for a version still building or not marked tested.  |
@@ -921,7 +923,7 @@ one is generated per deployment as before, and a value already in
 `profiles.stack_secrets` still wins over both, because rotating the token a
 running container was started with is a decision rather than a side effect.
 
-**A deployment's own settings** (2026-09-26, `feat/deployment-settings-store`).
+**A deployment's own settings** (2026-09-26, #55).
 Levi ruled on 2026-09-25 that every key a deployment's version declares is
 editable per deployment, with the version's value as the default. The values
 are stored on the deployment, plain ones in `profiles.stack_settings` and
@@ -936,9 +938,9 @@ directories. A stored value for one of those is left out of the file and named
 in the log. A generated secret is the exception: a value stored for it replaces
 the generated one, which stays kept for when the value is reset. The API that
 lists, saves and applies them is under "A deployment's own settings" above, the
-deployment page edits them in its Stack settings card (2026-09-26,
-`feat/deployment-settings-page`), and the new-deployment wizard sets them
-before the deployment exists (2026-09-26, `feat/deployment-settings-wizard`),
+deployment page edits them in its Stack settings card (2026-09-26, #57), and
+the new-deployment wizard sets them before the deployment exists (2026-09-26,
+#58),
 which `docs/features/deployment-settings.md` describes.
 
 Every successful deploy records, per container it started, what that container
@@ -1042,7 +1044,7 @@ Notes:
   from `/host/proc/1/net/dev`, the host init process's network view. Adding the
   mounts requires a redeploy.
 
-Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 viewer`
+Test without the UI (over the SSH tunnel, `ssh -L 8080:localhost:8080 <server>`
 exposes the web port, which is the way to the API under compose too, because the
 api container publishes no port of its own. The port below is the `pnpm dev`
 one, so read `8080` for `9876` when the manager runs under compose):

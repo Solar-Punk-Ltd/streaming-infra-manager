@@ -295,8 +295,9 @@ op read "op://<vault>/<item>/password" | \
   docker compose exec -T api node dist/cli.js user:add <username> --password-stdin
 ```
 
-Every later user is added from the Access page in the UI. Anyone signed in can
-add or remove a user, and nobody can remove themselves or the last one left.
+Every later user is added from the Access page in the UI. Only an admin can
+add or remove a user, and nobody can remove themselves, the last user or the
+last admin.
 
 ## Accessing
 
@@ -399,9 +400,11 @@ leaves the host firewall of step 3 to close those ports.
 
 Commit the edit, Update the bundled version from the Versions page so the next
 build captures it, then redeploy the deployments that should pick it up. A node
-or an engine takes its new binding on its next deploy and not before: the
+or an engine takes its new binding on its next deploy and not before. The
 manager copies that base file fresh into each deployment's own `.env.<name>`
-every time it deploys, which is how a value set once reaches all of them.
+every time it deploys, with the deployment's own stored settings over it, so a
+value set once reaches every deployment that stores no value of its own for
+that key.
 
 ### 3. Generate and review the host firewall
 

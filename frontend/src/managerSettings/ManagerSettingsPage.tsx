@@ -5,7 +5,7 @@ import { useManagerAdminLink } from '../adminLink/useManagerAdminLink';
 
 /**
  * Settings of the manager itself rather than of one deployment or version:
- * today the web2 admin link every new uploader deployment starts with.
+ * the web2 admin link every new uploader deployment starts with.
  */
 export function ManagerSettingsPage() {
   const load = useManagerAdminLink();

@@ -80,7 +80,8 @@ the only source there is.
   ssh path `TargetDocker` already takes for its snapshots and published ports,
   and there `grep -E` holds each line to the report's whole shape, from start to
   end with colour codes allowed, on the remote host
-  (`TRANSPORT_STATS_HOST_PATTERN`, `manager/src/domain/ports/remoteLogLines.ts`).
+  (`TRANSPORT_STATS_HOST_PATTERN` in `manager/src/domain/srtIngest/transportStatsLine.ts`, the
+  command in `manager/src/domain/ports/remoteLogLines.ts`).
   So no other line of the log crosses the connection, not even a hook line
   whose publisher chose a stream id that quotes the report. A filter on the
   marker text alone let such a line through, token and all, until Copilot's
@@ -166,7 +167,7 @@ broadcast. It reads SRT only, so a publisher on RTMP has no card numbers.
 
 ## Limits
 
-These are P3 by the estate's scale: rare, with no damage path, recorded once.
+These are P3: rare, with no damage path, recorded once.
 
 - **A crafted stream id can put fake numbers on the card.** A publisher chooses
   its SRT stream id and SRS quotes it into its log. An id carrying a newline and

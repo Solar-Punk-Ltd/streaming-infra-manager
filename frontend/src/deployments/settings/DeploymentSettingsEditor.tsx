@@ -90,13 +90,13 @@ function rowStatesOf(catalog: DeploymentSettingsCatalog, draft: DeploymentSettin
 
 /**
  * Every key a deployment's stack version declares, editable for this
- * deployment with the version's value as the default (Levi, 2026-09-25).
+ * deployment with the version's value as the default.
  *
  * A component of its own, which the Stack settings card frames and nothing
  * more. A save stores and restarts nothing, and the banner above the list says
  * what the running containers are behind on and offers Apply. The deployment's
- * engine settings are in the same list (Levi, 2026-09-26), shown as the Engine
- * card's drawer showed them, and a pair of them the engine would refuse is
+ * engine settings are in the same list, each named by its label from the
+ * engine's field list, and a pair of them the engine would refuse is
  * named once above Save, which it keeps off. Stored engine settings the next
  * deploy would refuse are named there too and keep no save back, so the save
  * that fixes them, or one of other keys, still goes through. The manager

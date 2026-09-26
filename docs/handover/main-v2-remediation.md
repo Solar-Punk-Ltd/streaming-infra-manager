@@ -6,9 +6,9 @@ Cross-provider review, OpenAI-hosted Codex, GPT-6 Astra.
 
 Levi requested: "okay merge everything to main-v2 locally and create handover". All 22 remediation task heads are now ancestors of local `main-v2`. Their complete histories, original branches and task worktrees are preserved. This consolidates implementation checkpoints. It does not complete the 25-row roadmap or establish deployment readiness.
 
-The reviewed baseline was `d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64`. It is where `main-v2` still points, locally and on the remote, so the baseline is preserved by the branch itself. The local backup branch `codex/main-v2-before-remediation-20260909` this line originally named is gone from this checkout, and so are the 22 task branches, but every head they pointed at is still reachable through the merge commits and every one of them is in [main-v2-merge-manifest.json](main-v2-merge-manifest.json). Thirteen explicit merge commits brought in the 22 heads because several task branches already contained dependencies.
+The reviewed baseline was `d046ebf237f0e93dd5a41d72d6d1df9c0cd8af64`. It was where `main-v2` pointed on the remote when this merge was made. The local backup branch `codex/main-v2-before-remediation-20260909` this line originally named is gone from this checkout, and so are the 22 task branches, but every head they pointed at is still reachable through the merge commits and every one of them is in [main-v2-merge-manifest.json](main-v2-merge-manifest.json). Thirteen explicit merge commits brought in the 22 heads because several task branches already contained dependencies.
 
-This handover supersedes earlier local notes saying main-v2 is unchanged, local merges are forbidden, T01's service callers are still unwired, or T09 has no owned factory. The full planning debate and historical evidence remain in `.scratch/main-v2-review-consensus/`. Its `PRD.md` comments were not edited. That scratch directory remains untracked. This handover and its manifest are tracked.
+This handover supersedes earlier local notes saying main-v2 is unchanged, local merges are forbidden, T01's service callers are still unwired, or T09 has no owned factory. The full planning debate is tracked under `docs/consensus/`, copied unchanged from the sessions' scratch notes. Its `PRD.md` comments were not edited. This handover and its manifest are tracked.
 
 No push, GitHub write, repository setting, image pull, installation, real engine build, deployment, SSH or funded-node operation was performed for this consolidation. An initial pnpm typecheck tried its automatic dependency reconciliation and stopped before removing modules. No install completed. Subsequent checks used existing local executables directly. Its small generated store is preserved under the local merge evidence directory.
 
@@ -16,9 +16,9 @@ No push, GitHub write, repository setting, image pull, installation, real engine
 
 Levi explicitly overrode the reviewer-only restriction for the agreed local work. Local worktrees, source and test edits, commits and disposable tests are authorized. He also authorized subagents and this local main-v2 consolidation. Do not ask for the same permission again.
 
-Continue new work on a task branch from the merged main-v2, with tests first, one logical fix per commit and independent review in another worktree. PR bodies remain local drafts under `.scratch/main-v2-review-consensus/prs/`. Preserve existing source branches and other workers' resources. Do not resume an old task checkout and accidentally omit the integration fixes.
+Continue new work on a task branch from the merged main-v2, with tests first, one logical fix per commit and independent review in another worktree. PR bodies are drafts under `docs/consensus/prs/`. Preserve existing source branches and other workers' resources. Do not resume an old task checkout and accidentally omit the integration fixes.
 
-Pushes, GitHub writes, repository settings, host access, real engine builds and pulls, deployments and live money operations still require separate explicit authorization. Do not access Claude memory, estate, beeClients, secrets or the shared development services on ports 5186 and 3035.
+Pushes, GitHub writes, repository settings, host access, real engine builds and pulls, deployments and live money operations still require separate explicit authorization. Do not access secrets or the maintainers' shared development services.
 
 ## Roadmap, all 25 rows
 
@@ -61,17 +61,17 @@ Rewritten on 2026-09-11. Everything this list used to hold has either been built
 
 Private execution copies were here and landed on 2026-09-11, described in its own section at the end of this file. What that slice leaves for T01 is its own remaining work rather than a dependency: the atomic begin and revert of a config rollout, the creator receipt, and the release of operation holds after a proven watch. Those repository APIs exist and nothing calls them, and none of them is needed for a deployment to stop writing into its build.
 
-T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guided stamp purchase is not wanted for now, on the ground that the purchase already works and already quotes its cost. One thing it would have added is worth remembering if the subject returns. Postage depth is an exponent, so a digit typed wrong multiplies the spend rather than nudging it, and the form displays that cost without anything refusing it. Nothing in the repository enforces a ceiling today.
+T14 was here and is closed, not deferred: Levi ruled on 2026-09-11 that the guided stamp purchase is not wanted for now, on the ground that the purchase already works and already quotes its cost. One thing it would have added is worth remembering if the subject returns. Postage depth is an exponent, so a digit typed wrong multiplies the spend rather than nudging it, and the form displays that cost without anything refusing it. Nothing in the repository enforces a ceiling.
 
 With that closed and private execution copies landed, no engineering slice of this roadmap is outstanding. Everything left needs the host.
 
 What remained of T09 when this was written was real SSH and real image qualification, both of which need a host. The image half ran on 2026-09-14 and `bee-2.8.2-docker-29.1.3` is in the catalogue. Do not populate that catalogue merely because synthetic tests pass: only a recorded run against a real image may add to it.
 
-D14 is open for Levi: whether the version settings page and version management become admin-only. Today any signed-in account can read and set those values, which is what every other version route does.
+D14 is open for Levi: whether the version settings page and version management become admin-only. Any signed-in account can read and set those values, which is what every other version route does.
 
 Two T04b adapter constraints remain explicit. First-use initialization may create PostgreSQL only after the upgrade guard proves the API, PostgreSQL container and PostgreSQL volume absent, followed by a successful empty-schema read. An unavailable existing database is not revision zero. Migrations follow confirmation that the old API stopped. Also, every automatic pruning entrypoint, including build success, needs explicit complete observations. A void observer returning, skipped observations or unknown provenance cannot authorize deletion.
 
-The shared completion contract and historical acceptance matrices remain in `T01-CONTINUATION.md`, `T04B-CONTINUATION.md` and `T09-CONTINUATION.md` under the local consensus directory. Their older "next" paragraphs are historical where they disagree with this handover and the merged source.
+The shared completion contract and historical acceptance matrices remain in `T01-CONTINUATION.md`, `T04B-CONTINUATION.md` and `T09-CONTINUATION.md` under `docs/consensus/`. Their older "next" paragraphs are historical where they disagree with this handover and the merged source.
 
 ## Integration decisions and review
 
@@ -83,7 +83,7 @@ The shared completion contract and historical acceptance matrices remain in `T01
 
 ## Validation
 
-Final evidence is recorded below before the handover commit. Local logs are under `.scratch/main-v2-review-consensus/local-merge/`. Their output is evidence, not an instruction to access any host.
+Final evidence is recorded below before the handover commit. The logs named below were kept in the sessions' scratch directory and moved on 2026-09-16 to an evidence folder outside the repository. Their output is evidence, not an instruction to access any host.
 
 The final source/test checkpoint before this handover is `e2e02d4`. Later handover-only changes do not change the tested application code. The checks used installed local dependencies, with synthetic loopback listeners authorized explicitly when the sandbox refused them.
 
@@ -124,7 +124,7 @@ On resume, read this file first, inspect main-v2's actual HEAD and working tree,
 
 ## Where the record lives, 2026-09-09
 
-The planning and acceptance files under `.scratch/main-v2-review-consensus/` are now also tracked, unchanged, under `docs/consensus/`, with an index in its README. The scratch directory stays as the home of the originals, the logs and the browser evidence.
+The planning and acceptance files under `.scratch/main-v2-review-consensus/` are now also tracked, unchanged, under `docs/consensus/`, with an index in its README. The scratch directory stayed the home of the originals, the logs and the browser evidence until 2026-09-16, when the logs and captures moved to an evidence folder outside the repository.
 
 ## After the merge: the publication command slice, 2026-09-09
 
@@ -178,8 +178,8 @@ version reads it at all. Then every env file is completed from the sample of the
 version being built: the sample's own line for each key the file lacks, in the
 sample's order, appended and committed as one more revision, which the build then
 captures. A file that does not parse, and a base env that is still short after
-completion, are refused with today's messages. That is the settings model the
-version settings page of D13 will read: one set per version on the host,
+completion, are refused with the messages they already had. That is the settings model the
+version settings page of D13 reads: one set per version on the host,
 committed as revisions in `.config-revision.json` under the same lock the editing
 script takes.
 
@@ -324,7 +324,7 @@ both manager typechecks, the frontend typecheck and `bash -n deploy/deploy.sh`
 clean. Nothing ran against the real host, nothing was pushed, and no `.env` of
 the submodule was read.
 
-Merged into `feat/ai-remediation` as 1a9cfd2 on 2026-09-10, with the brief for the next slice, the version settings page, committed beside it (`../consensus/VERSION-SETTINGS-BRIEF.md`). CI is green on the pushed head. Recorded for T20: `frontend/test/versions-layout.test.mjs`, which holds the bundled card's test, runs in neither `pnpm test` nor the checks workflow yet.
+Merged into `feat/ai-remediation` as 1a9cfd2 on 2026-09-10, with the brief for the next slice, the version settings page, committed beside it (`../consensus/VERSION-SETTINGS-BRIEF.md`). CI is green on the pushed head. Recorded for T20: `frontend/test/versions-layout.test.mjs`, which holds the bundled card's test, ran in neither `pnpm test` nor the checks workflow at that merge. The T20 browser job runs it now.
 
 
 ## The version settings page, 2026-09-10
@@ -428,7 +428,7 @@ one page nit. Four of those low security findings became fixes of their own, two
 were folded into the items beside them, and two were looked at and left alone,
 as were five low correctness findings. One question goes to Levi rather than
 into code: any signed-in account can read and set these values, which is what
-every other route does today, and whether version settings become admin-only is
+every other route did on 2026-09-10, and whether version settings become admin-only is
 his to decide. Everything else in `docs/consensus/VERSION-SETTINGS-FIXES.md` is
 in.
 
@@ -812,10 +812,10 @@ manager unit suite 2317 of 2317 three times through its new runner, the
 database directory 518 of 518 through its runner with no skips, the browser
 suites 166 of 166 through theirs, the native suites 7, common 321, frontend
 unit 100, the three Docker harnesses passing on this laptop (T02 in 3 s on the
-digest `ossrs/srs:6` resolves to today, T03 in 130 s with the ffmpeg wait,
+digest `ossrs/srs:6` resolved to that day, T03 in 130 s with the ffmpeg wait,
 T05a in 110 s), both workflows valid YAML, every typecheck clean, prose clean,
 no submodule or lockfile movement, and no by-product under the submodule after
-the unit runs. Nothing in either workflow has run on a GitHub runner yet: the
+the unit runs. Nothing in either workflow had run on a GitHub runner at that merge: the
 checks workflow runs on the next push of this branch, the Docker-backed one is
 Levi's dispatch. Two decisions are his: the Actions cost of about 25 minutes a
 push with all three jobs required, and a CODEOWNERS entry over
@@ -862,9 +862,10 @@ same investigation, so nothing was created and nothing is flagged.
 paths, and `docs/agents/domain.md` printed a file tree containing them, so a
 session reading either was told they exist. The three pages under `docs/agents/`
 were deleted and `AGENTS.md` rewritten to say what this repository has.)
-`docs/consensus/issues/` holds one file per agreed row, 25 of them, T01 through
-T22 with T01a and the a/b splits among them, plus its README, and the README's
-order section names all 25.
+On that commit `docs/consensus/issues/` held one file per agreed row, 25 of them,
+T01 through T22 with T01a and the a/b splits among them, plus its README, and
+the README's order section named all 25. Rows T23 to T27 were added on
+2026-09-17.
 
 **One thing the older sections say that is no longer true.** "Preserved local
 state" above lists three review worktrees outside the repository and says the
@@ -876,13 +877,14 @@ commit and named in the merge manifest. The section's own closing rule still
 holds, which is to verify any retained resource by its exact recorded identity
 before using it, and that check now answers no for those trees.
 
-**One thing a document cannot fix.** `.github/workflows/checks.yml` carries a
-comment saying "The twenty-two suites under frontend/test". There are 23, and
-`docs/ci.md` says 23, which is the correct number. The same count is ambiguous
-in the T20 section above, which says twenty. Twenty sit directly in
-`frontend/test`, three more under `frontend/test/support`, and the runner takes
+**One thing a document cannot fix.** `.github/workflows/checks.yml` carried a
+comment saying "The twenty-two suites under frontend/test". There were 23, and
+`docs/ci.md` said 23, which was the correct number. The same count is ambiguous
+in the T20 section above, which says twenty. Twenty sat directly in
+`frontend/test`, three more under `frontend/test/support`, and the runner took
 all 23. Changing a workflow file was out of scope for this slice, so the
-comment is left as it is and recorded here for whoever next touches that file.
+comment was left as it was and recorded here. It has since been rewritten with
+a dated count.
 
 **Verified.** `git diff --check` clean against the branch base, no em-dash and
 no prose semicolon in any changed file, and every relative path in every
@@ -936,8 +938,7 @@ fourteen Chrome suites is a named wait through four shared helpers, and two
 more races surfaced under throttle and are fixed. Qualified on this laptop:
 three consecutive green full runs at four times throttle (208 tests, 27 files,
 544, 473 and 424 seconds), one at six times, and an unthrottled run in 360
-seconds. Recorded as a P2 follow-up under the estate's review-priority rule of
-2026-09-11: a failing suite exits late because five suites close their Vite
+seconds. Recorded as a P2 follow-up on 2026-09-11: a failing suite exits late because five suites close their Vite
 before their Chrome, which costs ten runner minutes only when a suite fails.
 
 **Ruled, 2026-09-11, the three open questions on the checks.** Levi kept all
@@ -983,7 +984,7 @@ run. And a click that times out now says whether the last read saw no element
 or a disabled one, which is the difference between looking at the page and
 looking at the control, and was the whole of the diagnosis.
 
-Recorded as a P3 limit under the review-priority rule, with its reproduction:
+Recorded as a P3 limit, with its reproduction:
 `initialWizardState` reads every context-derived default once, at open, so a
 wizard opened before the profiles, groups or host configuration arrive starts
 with no feed stream picked, no pool picked, and a generated passphrase rather
@@ -1036,15 +1037,15 @@ Levi asked for an end to end pass over everything the manager offers, through a 
 
 *A redeploy that recreates no container leaves a blocked attempt.* An attempt resolves only when every service it touched shows a container id that did not exist before it started. `docker compose up -d --build` recreates a container only when its image or its config changed, so a retry that changes nothing, or a redeploy after an edit the containers do not see, ends blocked and refuses the next deploy until a person types its job id. Reproduced twice: a redeploy after a notes-only edit, and a plain Retry. The guard's premise, that Compose creates every container after every build, holds for a service built from source and not for one on a fixed image, which is what a stream's SRS and Bee node both are. Levi ruled for the second reading: a deploy that finished cleanly and left a container where it was accounts for that service, because Compose reports nothing to do only once its build is over and a container nothing rebuilt cannot carry another project's image. A script that failed, and a boot judging what a gone manager left, still need a new container.
 
-**One thing recorded and left.** The Versions page counts a version's deployments from a list it fetches once, so a version that gains or loses a deployment while the page is open keeps the old number until Refresh is pressed. The count is informational and the server refuses a removal on its own reading, so nothing turns on it. P3 under the review-priority rule.
+**One thing recorded and left.** The Versions page counts a version's deployments from a list it fetches once, so a version that gains or loses a deployment while the page is open keeps the old number until Refresh is pressed. The count is informational and the server refuses a removal on its own reading, so nothing turns on it. Recorded as P3.
 
 **What a laptop cannot reach, and so is not covered here.** The private execution copies, because the bundled version on a developer machine is a legacy tree and legacy versions get no copy by design. The version settings editor, which appears once a version has been built on the host. Everything past the port bind in a deploy, and every path that reads a funded Bee node: balances, the chequebook, buying a stamp, and the uploader that waits for one.
 
 ## The first deploy and migration on the live host, 2026-09-11
 
-Levi authorised the deploy, the one-way migration and a full pass on 157.90.34.105 while he was at the keyboard. The runbook is `../consensus/FIRST-DEPLOY-SESSION.md` and this is what happened against it.
+Levi authorised the deploy, the one-way migration and a full pass on the live host while he was at the keyboard. The runbook is `../consensus/FIRST-DEPLOY-SESSION.md` and this is what happened against it.
 
-**The migration.** `bash deploy/deploy.sh 157.90.34.105` from the branch. Migrations 013 to 031 applied in one run, nineteen of them, one way as D08 decided. The five deployments already there kept running untouched throughout and were all still RUNNING with their containers at the end. The bundled version moved from the flat tree to immutable builds: the host fetched and built the pinned commit 9f1255b itself in twenty nine seconds, and the versions root gained `bundled.repo`, `bundled.builds/9f1255b` and `.executions` beside the existing `main-v3`. The Versions page then said, correctly, that bundled was not tested since that update, and repeated it on the wizard's version picker.
+**The migration.** `bash deploy/deploy.sh <host>` from the branch. Migrations 013 to 031 applied in one run, nineteen of them, one way as D08 decided. The five deployments already there kept running untouched throughout and were all still RUNNING with their containers at the end. The bundled version moved from the flat tree to immutable builds: the host fetched and built the pinned commit 9f1255b itself in twenty nine seconds, and the versions root gained `bundled.repo`, `bundled.builds/9f1255b` and `.executions` beside the existing `main-v3`. The Versions page then said, correctly, that bundled was not tested since that update, and repeated it on the wizard's version picker.
 
 **The version settings page ran for the first time anywhere.** Revision 3 on build 9f1255b, state applied, the host's own carried-over keys present with Remove beside each, the generated secrets masked behind Reveal, `deploy/config.json` and both engine environments below. `main-v3` keeps its Settings disabled because it is still a flat checkout, which is the rule the page states.
 
@@ -1058,12 +1059,12 @@ Levi authorised the deploy, the one-way migration and a full pass on 157.90.34.1
 
 **What the fixes proved after landing.** Both rulings of the same day hold on the live host. A redeploy that changed only the notes, which is the case that used to leave a blocked attempt and refuse the next deploy, came up running with no blocked attempt at all. Removing the test deployment took its containers, its data directory and all three of its execution copies, and left zero open build holds. The host ended with the five deployments it started with and nothing of the test.
 
-**Not done, and still Levi's.** Nothing was funded and nothing was spent. `review-20260907` holds 5 BZZ in its wallet with an empty chequebook and no stamp, and its earlier fill has no operation record because the table arrived with migration 020 today. The paid part is still T22 and still waits on the D05 numbers.
+**Not done, and still Levi's.** Nothing was funded and nothing was spent. `review-20260907` holds 5 BZZ in its wallet with an empty chequebook and no stamp, and its earlier fill has no operation record because the table arrived with migration 020 that day. The paid part is still T22 and still waits on the D05 numbers.
 
 ## The second live pass, and the first money spent, 2026-09-13
 
 Levi asked for everything to be tried. This pass ran against the manager on its
-own public domain, `streamtestinfra.swarmens.limo`, rather than through an SSH
+own public domain rather than through an SSH
 tunnel, so it exercised the same front door an operator uses. It found four
 defects, two of them in paths no laptop can reach, and it stopped at the one
 gate a session must not open by itself.
@@ -1099,8 +1100,8 @@ nginx's default sixty second read timeout, so the browser got a 504 while the
 manager accepted the work and deployed. The wizard then re-checked the name,
 found the deployment that now existed, and said the name is taken. **Fixed**: that
 location carries `proxy_read_timeout 300s` now, beside the ones the chequebook
-routes already had, and the four deployment action routes stream with no timeout
-at all.
+routes already had, and the four deployment action routes stream unbuffered with
+a 24 hour read timeout.
 
 **Nothing can be published until the node is funded.** A real SRT feed was sent
 at the address the deployment page gives. It reached the media server, which
@@ -1131,8 +1132,8 @@ therefore remain unproven, and everything up to them is proven.
 
 ## The review rounds on the pinned stack, 2026-09-16
 
-**What this block records.** Three rounds of work on `main-v2` in one day, none of
-it deployed to the live host yet. The stack submodule was pinned first at
+**What this block records.** Three rounds of work on `main-v2` in one day, deployed
+to the live host that evening (below). The stack submodule was pinned first at
 3a831508 and then at 7e2de6f7, the head that closed the stack's own review, with
 the contract reader answering the same sixteen ports at both. Six read-only
 review lanes went over the manager code, the compose wiring, the environment
@@ -1260,7 +1261,7 @@ about 117 seconds for its execution copy, which hashes all 43,000 files of the
 build twice, once on the source and once on the hard-linked copy, and walks
 their stamps four times, one file at a time, while the same hashing with a C
 tool inside the api container takes 6 seconds. The uploader's deploy was then
-refused: its pool string named every node at `http://157.90.34.105:10015` and
+refused: its pool string named every node at `http://<host>:10015` and
 siblings, composed from `PUBLIC_HOST`, while the T06 bind step puts every local
 Bee API on the Docker bridge address alone, 10.200.0.1 on that host. Nothing
 answered on the public address from the host or from any container, the
@@ -1353,7 +1354,7 @@ node answered about and warns one it could not read, the gate messages state
 the finding and leave the boot to the runner, the five pages that describe the
 mode say so, and a raw NUL byte that had made the postage gate's source binary
 to grep since August is written as its escape. A copy of that head merged with
-Nandi's open pull requests #235 and #236 typechecks and passes the uploader
+Nandi's open pull requests #235 and #236 on the stack's repository typechecks and passes the uploader
 suite with a three-hunk resolution in the uploader's `index.ts` and two README
 rows, kept for whoever merges second and never posted on his pull request.
 
@@ -1434,12 +1435,14 @@ reads to a line in the sample or the README, which is how `MANAGER_HOST`,
 `52164ebf` in `d54b1c9`.
 
 **Open from the review.** Two code observations, not fixed because the pass
-was words only: a bee-uploader's container snapshot never carries the resolved
-`RPC_ENDPOINT` or the gateway's two keys (`buildEffectiveEnv` does not set
-them, `writeProfileEnv` does), recorded as a P3 limit in the T27 fixes file and
+was words only: a bee-uploader's container snapshot never carried the resolved
+`RPC_ENDPOINT` or the gateway's two keys (`buildEffectiveEnv` did not set
+them, `writeProfileEnv` did), recorded as a P3 limit in the T27 fixes file and
 called real by the comment reviewer, and `pnpm stack:start` in
 `manager/package.json` passes a compose profile named `full` that the compose
-file does not declare, so the flag does nothing. Two stack comments the
+file does not declare, so the flag does nothing. The first has since closed:
+the snapshot is built by `effectiveEnvOf` from the env file `writeProfileEnv`
+wrote, so it carries those keys. Two stack comments the
 reviewer could not prove either way are left as they are: the SRS retry window
 "60s" in `config.ts`, and the text shape a wrapped 5xx arrives in, which
 `NodeWait.ts` matches on. And one P2 the stack lane measured rather than read,

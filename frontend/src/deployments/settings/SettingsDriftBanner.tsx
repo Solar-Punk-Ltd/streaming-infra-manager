@@ -4,10 +4,9 @@ import { type DriftNotice, UNSAVED_NOT_APPLIED_NOTE } from './settingsText';
 
 /**
  * What the running containers are behind on, above the list, with Apply
- * beside it while the deployment runs. Levi okayed this warning on
- * 2026-09-25. The button sits under the sentence rather than at the alert's
- * edge, because the sentence names every key and a phone has no room beside
- * it.
+ * beside it while the deployment runs. The button sits under the sentence
+ * rather than at the alert's edge, because the sentence names every key and a
+ * phone has no room beside it.
  */
 export function SettingsDriftBanner({
   notice,

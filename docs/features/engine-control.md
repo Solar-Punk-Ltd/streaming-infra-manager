@@ -1,7 +1,8 @@
 # Engine control: SRS and OvenMediaEngine from the UI
 
-Status: decided 2026-09-05 (D7 backport wanted, D8 SRS first). D12 is on hold, so PR 1 (settings,
-restart, logs, effective config) proceeds and PR 2 (live status) waits for the upstream port change.
+Status: decided 2026-09-05 (D7 backport wanted, D8 SRS first, both in
+[next-features-2026-09.md](next-features-2026-09.md)). PR 1 (settings, restart, logs, effective
+config) is merged and PR 2 (live status) is not built.
 
 PR 1 was built on `feat/engine-control`, went in with pull request #40, and is merged to
 `main-v2`. It was written against the stack as pinned at the time, `main-v2` `ee99c36`. The
@@ -15,7 +16,8 @@ Update 2026-09-09: the bundled stack is now `main-v3` (Levi's ruling: main-v3 is
 main-v2 is obsolete and kept only to test version selection). `main-v3` already publishes
 `SRS_HTTP_API_PORT`, so the D7 backport to `main-v2` described below is no longer needed, and
 PR 2 (live status) waits only on the manager reading that port. The manager still answers
-`live: null` for it, with the reason "not read yet".
+`live: null` for it, with the reason `This stack version publishes the SRS API port. Reading live
+status from it is not built into the manager yet.`
 
 Update 2026-09-23, on `fix/srt-latency-setting` off `main` at `87673c9`, commits `5a5373d`,
 `6a37c2a` and `f42fba2`: `SRT_LATENCY` is an SRS setting like the others. On 2026-09-22 an outside
@@ -106,17 +108,17 @@ splice safely.
 Those environment variables reach the container from compose interpolation of three files the
 deploy script assembles: the profile's `.env.<profile>` (written fresh by the manager on every
 deploy from the database, the root file wins on duplicate keys), the engine's own
-`engines/srs/.env.<profile>` (created once from the sample, never touched by the manager), and a
+`engines/srs/.env` (created once from the sample, never touched by the manager), and a
 per deploy override file with the resolved ports and hostnames. So "changing an engine setting"
 means: store it in the database, write it into `.env.<profile>` like the passphrase already is,
 and recreate the engine container, which `deploy.sh --profile <name> srs` already does. Nothing
 about the templates has to change for settings and restarts.
 
-What does not exist today:
+What did not exist before PR 1:
 
 - **Live status.** SRS has an HTTP API (`/api/v1/summaries`, `/api/v1/streams`, `/api/v1/clients`,
   `/api/v1/versions`) on port 1985 inside the container. The template enables it, and the compose
-  file of the current stack (`main-v2`) does not publish it, so nothing outside the container can
+  file of `main-v2`, the stack pinned then, does not publish it, so nothing outside the container can
   read it. `main-v3` publishes it per deployment as `SRS_HTTP_API_PORT`, 10009 plus slot times 10,
   the last free digit in the port table. The manager in its own container cannot reach a port
   that is not published: the profile's compose network is separate from the manager's, and Docker
@@ -130,25 +132,27 @@ What does not exist today:
   anything declared in `Server.xml`, and its docs do not promise that apps created through the
   API survive a restart. Everything here therefore goes through the template and a recreate,
   for OME exactly as for SRS.
-- **Restart.** Only Stop and Start of the whole deployment. Restarting one container means the
-  Docker API, which the manager already uses for metrics, on the container whose compose labels
+- **Restart.** Only Stop and Start of the whole deployment existed. Restarting one container means
+  the Docker API, which the manager already uses for metrics, on the container whose compose labels
   are `project=<profile>` and `service=srs`.
 - **Logs and the effective config.** Both are one Docker API call away (`logs`, and `exec cat` on
-  the generated `srs.conf`), and neither is exposed.
+  the generated `srs.conf`), and neither was exposed.
 
 ## What the operator sees
 
 A new **Engine** card on the deployment page of every stream and ABR uploader, between Publish
-and Storage:
+and Stack settings:
 
-- Header: `SRS 6 · media server` or `OvenMediaEngine`, a status pill, and three buttons:
-  **Settings**, **Restart**, **Logs**.
+- Header: `SRS 6 · media server` or `OvenMediaEngine`, a status pill, and four buttons:
+  **Settings**, **Config file**, **Restart**, **Logs**.
 - **Live** (when the API is reachable, PR 2): `Publishing now: live/stream, 1080p60, 5.9 Mbps
   video, 128 kbps audio, since 14:02` or `No publisher connected`. For the ABR ladder: `5 streams,
   1 source and 4 rungs`, red when the count keeps climbing, because that is the transcode loop
   the stack's README warns about. Then `SRS uptime 3d 4h · 2 HTTP clients`. Refreshed every five
-  seconds while the page is open. When the API is not reachable the block says `Live status
-  needs the SRS API port, which this stack version does not publish.`
+  seconds while the page is open. Until then the block says why. On a version that does not
+  publish the API port it says `Live status needs the SRS API port, which this stack version does
+  not publish.`, and on one that does it says `This stack version publishes the SRS API port.
+  Reading live status from it is not built into the manager yet.`
 - **Settings** brings the deployment's **Stack settings** card into view with its **Engine
   settings** section open and the first setting focused (since 2026-09-26, a drawer of its own
   before). That section has only the fields the engine has. For SRS: **Segment length**
@@ -169,11 +173,11 @@ and Storage:
   recreates the containers that read what changed: the engine, the uploader with it for the
   segment length, and the uploader alone for the poll interval. Until 2026-09-26 the drawer's
   Save, **Apply and recreate engine**, stored and recreated in one step.
-- **Restart** asks first: `Restart SRS for stream1? The publisher (if any) is disconnected for a
-  few seconds. Settings are not changed.` With live status available the dialog says whether a
-  publisher is connected right now.
+- **Restart** asks first: `Restart SRS for stream1?`, then `The publisher, if there is one, is
+  disconnected for a few seconds and reconnects on its own if OBS is set to retry. Settings are not
+  changed.` With live status available the dialog says whether a publisher is connected right now.
 - **Logs** opens a dialog with the last 200 lines of the engine container, a Refresh button and a
-  service switch (srs, stream-uploader, bee-uploader) so the same dialog serves the whole stack.
+  switch between the deployment's containers, so the same dialog serves the whole stack.
 - **Effective config** (inside the Logs dialog as a second tab): the generated `srs.conf` as the
   container is running it, read-only, with a copy button. It is the fastest way to see which
   values actually applied.
@@ -296,13 +300,14 @@ settings, restart, logs and effective config for OME regardless.
 - `AtAGlanceCard` shows `Engine: SRS · segment 2 s · window 15 s` for a deployment created with
   the manager's own defaults, off the same observations the engine card reads, so a deployment
   that stores neither shows whatever its own stack version falls back to instead.
-- Mock manager: engine settings stored per profile and echoed, restart bumps a fake uptime,
-  logs and config return generated text, live status invents a publisher for running streams.
+- Mock manager: engine settings stored per profile and echoed, restart changes only the
+  container's own clock, logs and config return generated text, and the live block is null with
+  the reason the manager gives.
 
 ## PR split
 
 1. **Settings, restart, logs, effective config.** No upstream dependency, works on the stack as
-   pinned today.
+   pinned then.
 2. **Live status.** After the `SRS_HTTP_API_PORT` backport lands upstream and the submodule pin
    moves (or as part of the versions work if D7 picks (b)).
 
@@ -316,8 +321,8 @@ settings, restart, logs and effective config for OME regardless.
   service, logs are demultiplexed and capped (a stubbed dockerode).
 - Browser pane against the mock: change the segment length in the Stack settings card, save,
   Apply, and watch the deployment go Deploying and back, restart with and without a publisher,
-  logs dialog, config tab, dark mode, the live block on a running stream and its "not published"
-  sentence on an old version.
+  logs dialog, config tab, dark mode, and the live block's reason on a version that does not
+  publish the SRS API port.
 
 ## Done means
 

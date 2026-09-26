@@ -1,6 +1,6 @@
 # Group Deployment
 
-Status, 2026-09-16: built and merged to `main-v2`. The page opens with the prototype scope it was
+Status, 2026-09-16: built, and on `main`. The page opens with the prototype scope it was
 written for, and the paragraph after it records what has been built since. Corrected 2026-09-23
 against the code at `87673c99`: "Shared fields", which left out five fields every member is
 given and the port slot each member takes for itself.
@@ -25,11 +25,13 @@ Out of scope (deferred):
 - Per-member overrides of shared parameters.
 
 Built since this page was written, and no longer deferred: editing a group's shared
-settings in one write (`PATCH /groups/:id/config`, the **Edit group** drawer), adding
-members to an existing group (`POST /groups/:id/members`) and removing a group once it
-has no members left (`DELETE /groups/:id`). An ABR node pool refuses the first two,
-because a bulk `stamp_id` would hand every rung the same batch and a new member would
-not carry a rung name. See [abr-ladder.md](abr-ladder.md).
+settings in one write (`PATCH /groups/:id/config`, the **Edit shared settings** button on a
+group's page), adding members to an existing group (`POST /groups/:id/members`) and removing
+a group once it has no members left (`DELETE /groups/:id`). A group's page also has
+**Start all**, **Stop all** and **Remove group** buttons, which act on every member one by
+one. An ABR node pool refuses a `stamp_id` in the first, because one batch would then pay
+for every rung, and refuses the second, because a new member would not carry a rung name.
+See [abr-ladder.md](abr-ladder.md).
 
 ## Data model
 
@@ -74,6 +76,8 @@ All form fields filled in group mode are applied verbatim to every member:
 - `engine_settings`, so every member cuts the same segments
 - `stack_settings`, so every member starts with the same stack settings, a node pool's rungs
   included
+- `use_manager_admin_token`, which copies the manager's stored web2 admin token into every
+  member as it is inserted
 
 Members differ in `name` and in their port slot, which each takes for itself as it is inserted:
 the lowest free slot, with the ports that slot reserves (`insertMemberWithFreeSlot` in
@@ -105,20 +109,23 @@ The endpoint returns as soon as phase 1 succeeds and phase 2 has been kicked off
 
 As designed in 2026-05. The drawer is now a wizard, see the module table below.
 
-- New checkbox: **"Deploy as group"**.
+- New switch: **"Deploy several at once as a group"**.
 - When enabled:
   - `Name` label becomes `Group name` (same regex as profile name).
-  - New numeric input: `Size` (default 2).
+  - New input: `How many` (default 2).
   - Above a size of 20 an inline warning appears: *"Large group, double check before deploying."*
     (`LARGE_GROUP` in `frontend/src/forms/wizard/steps/BasicsStep.tsx`.)
-  - The submit button label becomes `Deploy group`.
+  - The submit button label becomes `Deploy group (N)`, with the size as N.
   - All other fields keep their existing semantics.
-- Group mode is hidden in edit mode (`selectedProfile` present).
+- Group mode is offered only for the goals `allowsGroup` in
+  `frontend/src/forms/wizard/wizardState.ts` lets through, a stream, a viewer and a custom
+  deployment. Editing a deployment happens in its own drawer, which has no group mode.
 
 ### The deployments table
 
 - Members with the same `group_id` collapse under a group header row.
-- Group header shows: group name, member count, created_at, expand/collapse caret.
+- Group header shows: expand/collapse caret, group name, member count, readiness, how many
+  members run, and the **Start all**, **Stop all** and **Open** buttons.
 - Per-row actions on individual members remain unchanged.
 - Profiles with `group_id = null` continue to render as flat rows.
 
@@ -139,8 +146,8 @@ As designed in 2026-05. The drawer is now a wizard, see the module table below.
 
 | File | Change |
 |---|---|
-| `frontend/src/types/interfaces.ts` | `DeploymentGroup` type, `group_id?: number` on `Profile`. |
-| `frontend/src/data.ts` | `createDeploymentGroup`, `listGroups`. |
+| `frontend/src/types/interfaces.ts` | `DeploymentGroup` type, `group_id?: number \| null` on `Profile`. |
+| `frontend/src/data.ts` | `createDeploymentGroup`, `fetchGroups`. |
 | `frontend/src/forms/wizard/` | Group size and the branching submit, as steps of the new deployment wizard. |
 | `frontend/src/deployments/GroupBlockRows.tsx` | Collapsible group row rendering on the deployments page. |
 | `frontend/src/groups/GroupPage.tsx` | A group's own page, with its shared settings and members. |
@@ -160,6 +167,6 @@ behaviour lives now.
 ## Open questions / future work
 
 - Per-member secret generation (private keys, stamp ids) for genuine streamer fan-out.
-- Group-level bulk destroy and redeploy. Editing shared parameters was built, and
-  so was adding members, both listed under Scope above.
+- Group-level bulk redeploy. Editing shared parameters, adding members and bulk start,
+  stop and removal were built, all listed under Scope above.
 - Multi-host distribution.
