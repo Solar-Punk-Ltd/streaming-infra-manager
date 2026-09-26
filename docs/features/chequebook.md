@@ -295,10 +295,9 @@ suites cover the poller, the receipt check, the receipt inspector, the routes,
 the schemas, submission, recovery, the qualification catalog, the automatic
 image check, the default Docker routes, the node's own chain endpoint and the
 answer for every refusal cause. All of them pass on a laptop, and all of them
-are in the jobs the checks workflow declares for a pull request. The last full
-run recorded on the branch, taken at `e857994`, is in
-[../handover/main-v2-remediation.md](../handover/main-v2-remediation.md). No job
-of that workflow had run on a GitHub runner when this page was written.
+are in the jobs the checks workflow declares for a pull request. A full run
+taken at `e857994` is recorded in
+[../handover/main-v2-remediation.md](../handover/main-v2-remediation.md).
 
 **What the tests cannot establish.** They exercise protocol and ownership code
 against a synthetic Bee. They do not check a real Bee image, they do not open
