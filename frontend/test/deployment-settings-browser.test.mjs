@@ -36,6 +36,8 @@ import {
   runningCatalog,
   STOPPED_INSTANCE,
   stoppedCatalog,
+  UNRECORDED_INSTANCE,
+  unrecordedCatalog,
 } from './fixtures/deploymentSettings.mjs';
 
 const frontend = fileURLToPath(new URL('../', import.meta.url));
@@ -46,6 +48,7 @@ const WIDE = 1280;
 const RUNNING = 'settings-stage';
 const STOPPED = 'parked-stage';
 const NOT_READY = 'fresh-stage';
+const UNRECORDED = 'early-stage';
 
 const RUNNING_SRS = [{ service: 'srs', ports: {} }, { service: 'stream-uploader', ports: {} }, { service: 'bee-uploader', ports: {} }];
 
@@ -65,13 +68,14 @@ const PROFILES = [
   profileNamed(RUNNING, RUNNING_INSTANCE, 'RUNNING'),
   profileNamed(STOPPED, STOPPED_INSTANCE, 'STOPPED'),
   profileNamed(NOT_READY, '66666666-6666-4666-8666-666666666666', 'RUNNING'),
+  profileNamed(UNRECORDED, UNRECORDED_INSTANCE, 'RUNNING'),
 ];
 
 /** The sentence the fixture's manager refuses a staged save with, as `settingEditProblems` words one. */
 const STAGED_REFUSAL = 'ADMIN_API_URL is stored for this deployment, but its version no longer declares it. Reset it rather than set it.';
 
 test('a deployment settings card lists, edits, saves and applies at a phone width', { timeout: 240_000 }, async (t) => {
-  const catalogs = new Map([[RUNNING, runningCatalog()], [STOPPED, stoppedCatalog()]]);
+  const catalogs = new Map([[RUNNING, runningCatalog()], [STOPPED, stoppedCatalog()], [UNRECORDED, unrecordedCatalog()]]);
   const writes = [];
   const stage = { refuseSave: false, applyBusy: false };
 
@@ -403,10 +407,9 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.deepEqual(writes[before], { method: 'POST', path: `/profiles/${RUNNING}/settings/apply`, body: { expectedInstanceId: RUNNING_INSTANCE } });
     await waitFor(cardText, (text) => text.includes('Applied. Every service of this deployment is being redeployed with the saved settings.'), 'what Apply did');
     await waitFor(cardText, (text) => !text.includes('behind the running containers'), 'the banner gone');
-    // The fixture's dropped key has no record to compare with, as a container
-    // started before the manager kept them has none, and the page says so
-    // rather than letting the missing banner read as nothing to apply.
-    assert.match(await cardText(), /so 1 setting cannot be compared with what they run\./);
+    // The dropped key is unknown on its own, as a key no running container
+    // reads is, which says nothing about when the containers were started.
+    assert.doesNotMatch(await cardText(), /started before the manager recorded/);
     await screenshot('applied-phone.png');
   });
 
@@ -429,11 +432,18 @@ test('a deployment settings card lists, edits, saves and applies at a phone widt
     assert.equal(await evaluate(`Boolean(${buttonIn(card, 'Apply')})`), false);
   });
 
+  await t.test('a deployment started before any record says why no banner can show', async () => {
+    await openDeployment(UNRECORDED);
+    await waitFor(cardText, (text) => text.includes('none of these settings can be compared with what they run'), 'the unrecorded note');
+    assert.equal(await evaluate(`Boolean(${buttonIn(card, 'Apply')})`), false);
+  });
+
   await t.test('a version with no build yet says why and offers no field', async () => {
     await openDeployment(NOT_READY);
     await waitFor(cardText, (text) => text.includes('candidate has no settings yet.'), 'the not ready reason');
     assert.equal(await evaluate(`${card}.querySelectorAll('input, select, textarea').length`), 0);
     assert.equal(await evaluate(`Boolean(${buttonIn(card, 'Save')})`), false);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
   });
 
   assert.deepEqual(browser.errors, []);

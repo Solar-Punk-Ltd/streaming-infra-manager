@@ -12,6 +12,7 @@ import {
 import { useToast } from '../../app/ToastProvider';
 import { ApiError } from '../../http';
 import type { Profile } from '../../types';
+import { isTransitional } from '../shape';
 import { applyDeploymentSettings, saveDeploymentSettings } from './deploymentSettingsApi';
 import {
   type DeploymentSettingsDraft,
@@ -28,16 +29,16 @@ import { SettingsDriftBanner } from './SettingsDriftBanner';
 import { filteredSections, isSectionOpen, sectionsOf, type SettingsSection } from './settingsSections';
 import { SettingsSectionFold } from './SettingsSectionFold';
 import {
+  UNRECORDED_NOTE,
   WHAT_SAVING_DOES,
   appliedText,
-  applyOffReason,
   applyRefusalText,
   driftNotice,
   noMatchText,
   saveNote,
   saveRefusalOf,
   savedText,
-  unknownNote,
+  startedBeforeRecords,
   type LoadFailure,
   type SectionCounts,
 } from './settingsText';
@@ -127,8 +128,12 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
   const states = rowStatesOf(catalog, draft);
   const pending = pendingEdits(catalog, draft);
   const refused = Object.keys(draftProblems(catalog, draft));
-  const notice = driftNotice(catalog);
-  const unknownCount = catalog.running ? catalog.entries.filter((entry) => entry.running === 'unknown').length : 0;
+  // While a deploy or a stop is under way the manager counts the deployment
+  // as not running, which would turn the banner into what Start will use in
+  // the middle of Apply's own redeploy. The deploy landing reads the list again.
+  const settling = isTransitional(profile);
+  const notice = settling ? null : driftNotice(catalog);
+  const unrecorded = !settling && startedBeforeRecords(catalog);
   const sections = filteredSections(sectionsOf(catalog.entries), query);
   const disabled = busy !== null || profile.status === 'REMOVING';
   const hasEdits = Object.keys(draft.edits).length > 0;
@@ -185,13 +190,7 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
       {load.failure && <LoadFailureAlert failure={load.failure} onRetry={() => void load.reload()} />}
 
       {notice && (
-        <SettingsDriftBanner
-          notice={notice}
-          unsaved={hasEdits}
-          applyOffBecause={applyOffReason(profile)}
-          applying={busy === 'applying'}
-          onApply={() => void apply()}
-        />
+        <SettingsDriftBanner notice={notice} unsaved={hasEdits} busy={busy !== null} onApply={() => void apply()} />
       )}
 
       {applyOutcome && (
@@ -200,9 +199,9 @@ export function DeploymentSettingsEditor({ profile }: { profile: Profile }) {
         </Alert>
       )}
 
-      {!notice && unknownCount > 0 && (
+      {unrecorded && (
         <Typography variant="caption" color="text.secondary">
-          {unknownNote(unknownCount)}
+          {UNRECORDED_NOTE}
         </Typography>
       )}
 

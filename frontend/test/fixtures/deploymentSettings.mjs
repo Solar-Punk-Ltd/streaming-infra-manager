@@ -165,6 +165,19 @@ export function stoppedCatalog() {
   };
 }
 
+export const UNRECORDED_INSTANCE = '77777777-7777-4777-8777-777777777777';
+
+/** A running deployment last deployed before the manager recorded what its containers got. */
+export function unrecordedCatalog() {
+  const unrecorded = entries().map((row) => ({ ...row, running: 'unknown' }));
+  return {
+    ...runningCatalog(),
+    instanceId: UNRECORDED_INSTANCE,
+    entries: unrecorded,
+    drift: { keys: [], services: [], fullRedeploy: false },
+  };
+}
+
 function afterEdit(row, value) {
   if (value !== null) {
     return {

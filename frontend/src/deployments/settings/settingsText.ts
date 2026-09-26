@@ -7,9 +7,6 @@ import {
   type StackSettingField,
 } from '@streaming-infra-manager/common';
 
-import type { Profile } from '../../types';
-import { isTransitional } from '../shape';
-
 /**
  * Everything the deployment settings editor says in words. The editor reads
  * these rather than writing sentences inline, so each one is pinned by a test
@@ -113,19 +110,18 @@ export function driftNotice(catalog: DeploymentSettingsCatalog): DriftNotice | n
 }
 
 /**
- * Why the list cannot say which saved values the running containers have: a
- * container started before the manager recorded what each one got has no
- * record to compare with, so no key of it can show as behind.
+ * Whether the running containers have no record the list can compare with,
+ * which is a deployment last deployed before the manager recorded what each
+ * container got. A key alone is also unknown when no running container reads
+ * it, so only a list where every key is unknown says this.
  */
-export function unknownNote(count: number): string {
-  const settings = count === 1 ? '1 setting cannot' : `${count} settings cannot`;
-  return `The running containers were started before the manager recorded what each one got, so ${settings} be compared with what they run. Their next deploy records it and gives them every saved value.`;
+export function startedBeforeRecords(catalog: DeploymentSettingsCatalog): boolean {
+  return catalog.running && catalog.entries.length > 0 && catalog.entries.every((entry) => entry.running === 'unknown');
 }
 
-/** Why Apply is greyed out, or an empty string when it is not. */
-export function applyOffReason(profile: Pick<Profile, 'status'>): string {
-  return isTransitional(profile) ? 'Wait for the current deploy to finish.' : '';
-}
+/** Said in place of the banner when `startedBeforeRecords`, so its absence does not read as nothing to apply. */
+export const UNRECORDED_NOTE =
+  'The running containers were started before the manager recorded what each one got, so none of these settings can be compared with what they run. Their next deploy records it and gives them every saved value.';
 
 /** What a save that went through says. */
 export function savedText(running: boolean): string {

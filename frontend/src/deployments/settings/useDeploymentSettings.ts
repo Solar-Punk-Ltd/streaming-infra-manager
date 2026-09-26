@@ -16,7 +16,6 @@ export interface DeploymentSettingsLoad {
   catalog: DeploymentSettingsCatalog | null;
   /** Why the latest read failed, or null. */
   failure: LoadFailure | null;
-  loading: boolean;
   /** Reads the list again, and resolves once the answer or the failure is in place. */
   reload: () => Promise<void>;
 }
@@ -32,7 +31,6 @@ export function useDeploymentSettings(profile: Profile): DeploymentSettingsLoad 
   const { name, status } = profile;
   const [catalog, setCatalog] = useState<DeploymentSettingsCatalog | null>(null);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
-  const [loading, setLoading] = useState(true);
   const latest = useRef(0);
   const inFlight = useRef<AbortController | null>(null);
 
@@ -47,7 +45,6 @@ export function useDeploymentSettings(profile: Profile): DeploymentSettingsLoad 
       timedOut = true;
       controller.abort();
     }, READ_TIMEOUT_MS);
-    setLoading(true);
     try {
       const answer = await fetchDeploymentSettings(name, controller.signal);
       if (request !== latest.current) return;
@@ -62,7 +59,6 @@ export function useDeploymentSettings(profile: Profile): DeploymentSettingsLoad 
       );
     } finally {
       clearTimeout(timer);
-      if (request === latest.current) setLoading(false);
     }
   }, [name]);
 
@@ -74,5 +70,5 @@ export function useDeploymentSettings(profile: Profile): DeploymentSettingsLoad 
     };
   }, [reload, status]);
 
-  return { catalog, failure, loading, reload };
+  return { catalog, failure, reload };
 }

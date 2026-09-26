@@ -12,16 +12,14 @@ import { type DriftNotice, UNSAVED_NOT_APPLIED_NOTE } from './settingsText';
 export function SettingsDriftBanner({
   notice,
   unsaved,
-  applyOffBecause,
-  applying,
+  busy,
   onApply,
 }: {
   notice: DriftNotice;
   /** Whether the draft holds changes, which Apply does not carry. */
   unsaved: boolean;
-  /** Why Apply is greyed out, or an empty string. */
-  applyOffBecause: string;
-  applying: boolean;
+  /** A save or an apply is on its way. */
+  busy: boolean;
   onApply: () => void;
 }) {
   return (
@@ -31,18 +29,10 @@ export function SettingsDriftBanner({
       </Typography>
       {notice.offersApply && (
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
-          <Button
-            variant="contained"
-            color="warning"
-            size="small"
-            disabled={applyOffBecause !== '' || applying}
-            onClick={onApply}
-          >
+          <Button variant="contained" color="warning" size="small" disabled={busy} onClick={onApply}>
             Apply
           </Button>
-          {(applyOffBecause || unsaved) && (
-            <Typography variant="caption">{applyOffBecause || UNSAVED_NOT_APPLIED_NOTE}</Typography>
-          )}
+          {unsaved && <Typography variant="caption">{UNSAVED_NOT_APPLIED_NOTE}</Typography>}
         </Stack>
       )}
     </Alert>

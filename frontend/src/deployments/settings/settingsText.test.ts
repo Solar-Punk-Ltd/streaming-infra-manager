@@ -24,10 +24,10 @@ import {
   REMOVAL_PENDING_NOTE,
   RESET_PENDING_NOTE,
   UNDECLARED_NOTE,
+  UNRECORDED_NOTE,
   UNSAVED_NOT_APPLIED_NOTE,
   WHAT_SAVING_DOES,
   appliedText,
-  applyOffReason,
   applyRefusalText,
   behindNote,
   defaultText,
@@ -44,7 +44,7 @@ import {
   savedText,
   secretNote,
   sectionSummary,
-  unknownNote,
+  startedBeforeRecords,
   wordList,
 } from './settingsText';
 
@@ -292,19 +292,21 @@ describe('what a save and the list say about the running containers', () => {
     assert.equal(savedText(false), 'Saved. The next start uses them.');
   });
 
-  it('says why no banner can show for containers started before their settings were recorded', () => {
-    assert.equal(
-      unknownNote(1),
-      'The running containers were started before the manager recorded what each one got, so 1 setting cannot be compared with what they run. Their next deploy records it and gives them every saved value.',
-    );
-    assert.match(unknownNote(87), /so 87 settings cannot be compared with what they run\./);
-  });
+  it('tells containers started before any record apart from a key no running container reads', () => {
+    const unknown = (key: string) => entry({ key, running: 'unknown' });
+    const listOf = (entries: DeploymentSettingEntry[], running = true): DeploymentSettingsCatalog => ({
+      ...catalogWith({ keys: [], services: [], fullRedeploy: false }, running),
+      entries,
+    });
 
-  it('says why Apply is greyed out while the deployment is on its way somewhere', () => {
-    assert.equal(applyOffReason({ status: 'DEPLOYING' }), 'Wait for the current deploy to finish.');
-    assert.equal(applyOffReason({ status: 'STOPPING' }), 'Wait for the current deploy to finish.');
-    assert.equal(applyOffReason({ status: 'RUNNING' }), '');
-    assert.equal(applyOffReason({ status: 'ERROR' }), '');
+    assert.equal(startedBeforeRecords(listOf([unknown('LOG_LEVEL'), unknown('BEE_GATEWAY_CACHE_RETRIEVAL')])), true);
+    assert.equal(
+      startedBeforeRecords(listOf([entry({ key: 'LOG_LEVEL', running: 'same' }), unknown('BEE_GATEWAY_CACHE_RETRIEVAL')])),
+      false,
+      'a gateway key on a deployment with no gateway is unknown on its own',
+    );
+    assert.equal(startedBeforeRecords(listOf([unknown('LOG_LEVEL')], false)), false, 'a stopped deployment has nothing running to compare');
+    assert.equal(startedBeforeRecords(listOf([])), false);
   });
 
   it('says a search found nothing, naming what was searched for', () => {
@@ -327,7 +329,7 @@ describe('the words themselves', () => {
       defaultText(entry({ key: 'K', versionSet: false })),
       savedText(true),
       savedText(false),
-      unknownNote(2),
+      UNRECORDED_NOTE,
       WHAT_SAVING_DOES,
       UNSAVED_NOT_APPLIED_NOTE,
       OWNED_STORED_NOTE,
