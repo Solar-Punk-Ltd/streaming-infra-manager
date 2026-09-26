@@ -210,9 +210,13 @@ from the dialog once the cause is fixed.
 
 ## Where a transfer reaches the node and the chain
 
-Every route is a manager process setting or a default derived from one, never
-a request field, a profile field or a Bee answer, and the factory has no direct
-Bee URL fallback. `CHEQUEBOOK_BEE_ENDPOINT_MODE` is gone.
+No route is taken from a money request, an operation record or a Bee answer,
+and the factory has no direct Bee URL fallback. The Docker route is a manager
+process setting or a default derived from one. The chain's default is the
+endpoint the node was started with, so a deployment's saved chain endpoint,
+which a signed-in user can set through the API, chooses where the manager
+itself sends that deployment's chain reads, from the manager's own network.
+`CHEQUEBOOK_BEE_ENDPOINT_MODE` is gone.
 
 **Docker.** `ChequebookDockerTransports` takes an entry of
 `CHEQUEBOOK_DOCKER_TRANSPORTS` for the alias it names. Any other alias gets the
