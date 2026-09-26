@@ -80,8 +80,9 @@ in the host's env as a 1Password reference.
 
 When a deployment starts, the manager resolves the source: `manager` writes its
 configured URL as `RPC_ENDPOINT`, `custom` writes the deployment's own URL, and
-`stack` writes no line. For a light gateway it also writes the two gateway
-settings above.
+`stack` writes no line. For a deployment that owns the viewer gateway it also
+writes the two gateway settings above, that endpoint and SWAP on for a light
+gateway, an empty endpoint and SWAP off for an ultra-light one.
 
 ## What the wizard offers
 
