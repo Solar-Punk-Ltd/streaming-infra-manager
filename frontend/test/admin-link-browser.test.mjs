@@ -98,6 +98,15 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
   const tokenField = found('#manager-admin-link-token');
   const inCard = (text) => `[...((${card})?.querySelectorAll('button') ?? [])].find(button => button.textContent.trim() === ${JSON.stringify(text)})`;
   const noSidewaysScroll = () => evaluate('document.documentElement.scrollWidth <= innerWidth');
+  /** The page text never holds the token, and no field but a masked one does, which the page text would not show. */
+  const tokenNowhereInSight = async () => {
+    assert.equal((await body()).includes(TOKEN), false, 'the token is in the page text');
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll('input, textarea')].some(field => field.type !== 'password' && field.value.includes(${JSON.stringify(TOKEN)}))`),
+      false,
+      'the token is in a field that is not masked',
+    );
+  };
   const screenshot = async (name) => {
     const { data } = await call('Page.captureScreenshot', { captureBeyondViewport: false });
     await writeFile(join(evidence, name), Buffer.from(data, 'base64'));
@@ -145,7 +154,7 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
   await t.test('tests the typed address and token before they are saved', async () => {
     await fillWhenPresent(evaluate, tokenField, TOKEN, 'the token field');
     await testWith(ADMIN_URL, 'token-accepted');
-    assert.equal((await body()).includes(TOKEN), false);
+    await tokenNowhereInSight();
   });
 
   await t.test('saves the link, and afterwards says a token is stored without ever showing it', async () => {
@@ -154,7 +163,7 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
 
     assert.equal(await readWhenPresent(evaluate, urlField, 'value', 'the address field'), ADMIN_URL);
     assert.equal(await evaluate(`${tokenField}.value`), '');
-    assert.equal((await body()).includes(TOKEN), false);
+    await tokenNowhereInSight();
     await evaluate(`(${card}).scrollIntoView({ block: 'start' })`);
     await screenshot('manager-link-saved-phone.png');
   });
@@ -184,7 +193,7 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
     await screenshot('manager-link-tested-phone.png');
     await fillWhenPresent(evaluate, urlField, ADMIN_URL, 'the address field');
     await fillWhenPresent(evaluate, tokenField, '', 'the token field');
-    assert.equal((await body()).includes(TOKEN), false);
+    await tokenNowhereInSight();
   });
 
   await t.test('clears the stored token', async () => {
@@ -285,7 +294,29 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
     await waitFor(() => cardRowText('ADMIN_API_TOKEN'), (text) => text.includes('A value is stored for this deployment. It is never shown.'), 'the copied token');
     assert.match(await cardRowText('ADMIN_API_URL'), /set here/);
     assert.equal(await evaluate(`document.getElementById('deployment-setting-ADMIN_API_URL').value`), ADMIN_URL);
-    assert.equal((await body()).includes(TOKEN), false);
+    await tokenNowhereInSight();
+  });
+
+  await t.test('creates a deployment with a token typed in the group, masked, tested and stored', async () => {
+    await startStream('typed-stream');
+    await click(`(${group}).querySelector('input[type=radio][aria-label="A token typed here"]')`, 'the typed token choice');
+    const typedField = `(${group})?.querySelector('input[aria-label="Web2 admin token"]')`;
+    assert.equal(await readWhenPresent(evaluate, typedField, 'type', 'the typed token field'), 'password');
+    assert.equal(await evaluate(`${typedField}.getAttribute('autocomplete')`), 'new-password');
+    await fillWhenPresent(evaluate, typedField, TOKEN, 'the typed token field');
+    await click(`[...(${group}).querySelectorAll('button')].find(button => button.textContent.trim() === 'Test connection')`, 'the group Test connection button');
+    await waitFor(groupText, (text) => text.includes(adminLinkTestText('linked')), 'the linked sentence for the typed token');
+    await tokenNowhereInSight();
+
+    await click(buttonWithText('Continue'), 'the Continue button');
+    await waitFor(body, (text) => text.includes('Check it, then deploy.'), 'the review');
+    assert.match(await body(), new RegExp(`Web2 admin\\s+Linked to ${ADMIN_URL.replace(/\./g, '\\.')}, with a token typed here\\.`));
+    await tokenNowhereInSight();
+    await click(buttonWithText('Deploy'), 'the Deploy button');
+    await waitFor(body, (text) => text.includes('typed-stream') && text.includes('Stack settings'), 'the typed-stream page with its settings card');
+    await searchCard('ADMIN_API');
+    await waitFor(() => cardRowText('ADMIN_API_TOKEN'), (text) => text.includes('A value is stored for this deployment. It is never shown.'), 'the typed token stored');
+    await tokenNowhereInSight();
   });
 
   await t.test('creates a deployment with the link switched off, which stores an empty address', async () => {
