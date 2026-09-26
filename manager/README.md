@@ -512,10 +512,10 @@ refusal there is a recorded operation rather than a `503`: `rejected` with
 `preflight_insufficient_balance` (lower the amount, or add BZZ) or
 `preflight_failed` (anything else the last check found changed).
 
-**Proven so far, and what is not.** Every piece above is exercised against a
-synthetic Docker, Bee and chain, the ssh forward through fake processes.
-No transfer has yet gone over a real ssh forward, so the remote default is
-proven by the first real transfer to a remote host.
+**Proven so far, and what is not, on 2026-09-26.** Every piece above is
+exercised against a synthetic Docker, Bee and chain, the ssh forward through
+fake processes. No transfer has yet gone over a real ssh forward, so the remote
+default is proven by the first real transfer to a remote host.
 
 ### Engine control
 
