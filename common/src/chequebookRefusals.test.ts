@@ -21,7 +21,7 @@ import {
   isChequebookRefusal,
 } from './chequebookRefusals.js';
 
-const EM_DASH = '—';
+const EM_DASH = '\u2014';
 function assertPlain(sentence: string): void {
   assert.equal(sentence.includes(EM_DASH), false, sentence);
   assert.equal(sentence.includes(';'), false, sentence);
