@@ -35,6 +35,9 @@ import { readBundledCommit } from './domain/versions/bundledCommit.js';
 import { EngineConfigChecker } from './domain/engineConfig/engineConfigCheck.js';
 import { EngineConfigService } from './domain/engineConfig/EngineConfigService.js';
 import { DeploymentSettingsService } from './domain/settings/DeploymentSettingsService.js';
+import { AdminLinkTester } from './domain/adminLink/AdminLinkTester.js';
+import { ManagerAdminLinkRepository } from './domain/adminLink/ManagerAdminLinkRepository.js';
+import { ManagerAdminLinkService } from './domain/adminLink/ManagerAdminLinkService.js';
 import { PostgresEngineConfigOperationRepository } from './domain/engineConfig/PostgresEngineConfigOperationRepository.js';
 import { PostgresStackVersionRepository } from './domain/versions/PostgresStackVersionRepository.js';
 import { PostgresBuildLedger } from './domain/versions/PostgresBuildLedger.js';
@@ -358,6 +361,7 @@ async function main(): Promise<void> {
   } catch (err) {
     logger.warn(`[Boot] the interrupted deployments were not judged: ${getErrorMessage(err)}. They stay as they are.`);
   }
+  const managerAdminLink = new ManagerAdminLinkRepository(database.pool);
   const profileService = new ProfileService(
     profileRepository,
     containerRepository,
@@ -371,6 +375,7 @@ async function main(): Promise<void> {
     portReservations,
     undefined,
     config.beeRpcEndpoint,
+    managerAdminLink,
   );
   const deployService = new DeployService(profileService, orchestrator);
 
@@ -395,6 +400,7 @@ async function main(): Promise<void> {
     async () => new Set((await profileRepository.list()).map((p) => p.name)),
   );
 
+
   apiServer = startApiServer(
     {
       database,
@@ -410,6 +416,8 @@ async function main(): Promise<void> {
       containerControl,
       engineConfigService,
       deploymentSettingsService: new DeploymentSettingsService(profileRepository, containerRepository, orchestrator, stackVersionRepository),
+      managerAdminLinkService: new ManagerAdminLinkService(managerAdminLink),
+      adminLinkTester: new AdminLinkTester(managerAdminLink, profileRepository, orchestrator),
       stackVersionService,
       orchestrator,
       deployTargets,

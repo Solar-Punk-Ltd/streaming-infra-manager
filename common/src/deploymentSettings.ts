@@ -36,6 +36,8 @@ export type SettingOwner =
   | 'engine-config'
   /** The engine settings of a deployment not created yet: the new-deployment wizard asks for the segment length in a field of its own, and its page sets the rest. */
   | 'engine-settings'
+  /** The web2 admin link of a deployment not created yet, which the new-deployment wizard asks for in a group of its own. */
+  | 'admin-link'
   | 'port-slot'
   | 'data-dir'
   /** A rung setting on a deployment that does not encode the ABR ladder. */
@@ -81,7 +83,8 @@ export type SettingRunningState =
   /** The deployment is stopped, or is deploying, stopping or being removed, so no container is compared. */
   | 'not-running';
 
-export type StackSettingKind = 'text' | 'integer' | 'number' | 'choice' | 'boolean';
+/** A `url` is an http or https address with a host, and no user name, password or # part. */
+export type StackSettingKind = 'text' | 'integer' | 'number' | 'choice' | 'boolean' | 'url';
 
 /** What the page knows about a value's shape, beyond the rules every env value answers to. */
 export interface StackSettingField {
@@ -90,6 +93,8 @@ export interface StackSettingField {
   choices?: readonly string[];
   min?: number;
   max?: number;
+  /** For a text, the fewest characters a value that is not empty may have. */
+  minLength?: number;
 }
 
 /** One key of a deployment's settings. */
@@ -257,6 +262,7 @@ export const SETTING_OWNER_LABELS: Readonly<Record<SettingOwner, string>> = {
   'feed-topic': "the deployment's feed topic",
   'engine-config': "the engine's own config file",
   'engine-settings': 'the engine settings',
+  'admin-link': 'the Web2 admin group of this step',
   'port-slot': "the deployment's port slot",
   'data-dir': 'the manager, which keeps this deployment\'s data on its own host',
   'abr-only': 'only a deployment that encodes the ABR ladder reads it',

@@ -14,6 +14,7 @@ import { NextFunction, Request, Response } from 'express';
 import { ValidationError as YupValidationError } from 'yup';
 
 import {
+  AdminLinkInputError,
   AdminRequiredError,
   AllSlotsUsedError,
   PortReservedError,
@@ -46,6 +47,9 @@ import {
   InvalidUsernameError,
   LadderGroupError,
   LockedOutError,
+  ManagerAdminTokenElsewhereError,
+  ManagerAdminTokenMissingError,
+  ManagerSettingsChangedError,
   NotSignedInError,
   NotesConflictError,
   NoUsersError,
@@ -172,6 +176,22 @@ export function errorHandler(
   }
   if (err instanceof YupValidationError) {
     res.status(400).json({ error: 'validation_error', errors: err.errors.map(withoutQuotedValue) });
+    return;
+  }
+  if (err instanceof AdminLinkInputError) {
+    res.status(400).json({ error: 'validation_error', errors: err.reasons });
+    return;
+  }
+  if (err instanceof ManagerSettingsChangedError) {
+    res.status(409).json({ error: 'manager_settings_changed', message: err.message });
+    return;
+  }
+  if (err instanceof ManagerAdminTokenMissingError) {
+    res.status(409).json({ error: 'admin_token_missing', message: err.message });
+    return;
+  }
+  if (err instanceof ManagerAdminTokenElsewhereError) {
+    res.status(409).json({ error: 'admin_token_elsewhere', message: err.message });
     return;
   }
   if (isPayloadTooLarge(err)) {

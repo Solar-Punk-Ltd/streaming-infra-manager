@@ -4,8 +4,9 @@
  * answers.
  *
  * The rules are the manager's own where they can be: the body is checked by
- * its save schema, a save is refused by its `settingEditProblems`, and which
- * control decides a key is its `settingOwnerOf`. The keys are a shortened copy
+ * its save schema, a save is refused by its `settingEditProblems` and by the
+ * web2 admin rule a save and a create are both held to, and which control
+ * decides a key is its `settingOwnerOf`. The keys are a shortened copy
  * of the stack's samples, with the stack's sections, kinds of key and
  * readers. What each deployment's containers were started with is recorded
  * whenever a deploy lands, which is what the list compares to say which
@@ -29,7 +30,13 @@
  * and at which revision, which is all the list and the comparison need.
  */
 import {
+  ADMIN_API_TOKEN_KEY,
+  ADMIN_API_URL_KEY,
+  adminLinkAfterEdits,
+  adminLinkEditProblem,
+  adminOriginOf,
   defaultServicesFor,
+  editsAdminLink,
   editsEngineSettings,
   engineOfServices,
   engineSettingFieldOf,
@@ -37,10 +44,13 @@ import {
   engineSettingsSaveProblem,
   isNotReadOwner,
   isSecretSettingKey,
+  sameAdminOrigin,
   stackSettingFieldOf,
+  storedTokenMoveProblem,
 } from '@streaming-infra-manager/common';
 
 import { SERVICE_ENV_KEYS } from '../../manager/src/domain/containerKeysSpec.ts';
+import { adminLinkBeforeOf } from '../../manager/src/domain/settings/adminLinkBefore.ts';
 import { settingEditProblems } from '../../manager/src/domain/settings/settingEditProblems.ts';
 import { settingOwnerOf } from '../../manager/src/domain/settings/settingOwners.ts';
 import {
@@ -49,6 +59,7 @@ import {
   saveDeploymentSettingsSchema,
 } from '../../manager/src/schemas/deploymentSettings.ts';
 import { newDeploymentShapeQuerySchema, servicesOfList } from '../../manager/src/schemas/profile.ts';
+import { managerAdminLink, mockTestOutcome } from './mock-admin-link.mjs';
 import { engineSettingsFacts } from './mock-engine.mjs';
 import { send } from './mock-http.mjs';
 import { PORT_BASES, state } from './mock-seed.mjs';
@@ -146,6 +157,8 @@ function storeOf(profile) {
     plain: { ...(seed?.plain ?? {}) },
     /** Secret key to the revision it was stored at, which stands in for its value. */
     secrets: new Map((seed?.secrets ?? []).map((key) => [key, 0])),
+    /** The origin the stored ADMIN_API_TOKEN is for, as migration 042 records it. */
+    adminTokenOrigin: null,
     record: null,
   };
   stores.set(profile.instance_id, store);
@@ -488,32 +501,123 @@ function notReady(res, profile) {
 /**
  * Why a create's stack settings are refused, as a status and the body the
  * manager answers, or null. Checked against the list the version gives a
- * deployment of the shape the body describes, a group's per member.
+ * deployment of the shape the body describes, a group's per member. A create
+ * that asks for the manager's stored web2 admin token is refused as the
+ * manager refuses it: beside a typed token, for a version that takes none,
+ * when the manager stores none, and for an address on another origin than the
+ * one its token was saved for.
  */
-export async function createdSettingsRefusal(stackSettings, version, shape, name) {
+export async function createdSettingsRefusal(stackSettings, version, shape, name, useManagerToken = false) {
   let settings;
   try {
     settings = await newDeploymentSettingsField().validate(stackSettings, { abortEarly: false });
   } catch (error) {
     return { status: 400, body: { error: 'validation_error', errors: error.errors ?? ['The stack settings are not valid.'] } };
   }
-  if (!settings || settings.length === 0) return null;
+  const refused = (errors) => ({ status: 400, body: { error: 'validation_error', errors: [errors], name } });
+  if ((!settings || settings.length === 0) && !useManagerToken) return null;
   if (!version?.buildId) return { status: 409, body: notReadyAnswer(version) };
-  const problems = settingEditProblems(settings, newDeploymentCatalogOf(version, shape).entries);
-  return problems.length > 0 ? { status: 400, body: { error: 'validation_error', errors: [problems.join(' ')], name } } : null;
+  const entries = newDeploymentCatalogOf(version, shape).entries;
+  const problems = settingEditProblems(settings ?? [], entries);
+  if (useManagerToken) problems.push(...managerTokenProblems(settings ?? [], entries));
+  if (problems.length > 0) return refused(problems.join(' '));
+  const before = newAdminLinkBefore(version, shape);
+  const adminProblem = adminLinkEditProblem(settings ?? [], useManagerToken ? { ...before, token: { current: true, afterReset: true } } : before);
+  if (adminProblem) return refused(adminProblem);
+  if (useManagerToken && !managerAdminLink.tokenStored) {
+    return {
+      status: 409,
+      body: {
+        error: 'admin_token_missing',
+        message: 'The manager stores no web2 admin token to copy into this deployment. Type a token for it, or save one on Manager settings.',
+      },
+    };
+  }
+  if (useManagerToken && !sameAdminOrigin(createdAdminUrl(settings ?? [], shape), managerAdminLink.url ?? '')) {
+    return {
+      status: 409,
+      body: {
+        error: 'admin_token_elsewhere',
+        message:
+          "The manager's stored web2 admin token was saved for another address than this deployment's ADMIN_API_URL, and it goes only to the address it was saved with. Type a token for this address, or use the address saved on Manager settings.",
+      },
+    };
+  }
+  return null;
+}
+
+/** The address a create gives the new deployment's uploader: the one it sends, else its version's. */
+function createdAdminUrl(settings, shape) {
+  return settings.find(({ key }) => key === ADMIN_API_URL_KEY)?.value ?? versionValuesFor(shape)[ADMIN_API_URL_KEY] ?? '';
+}
+
+/**
+ * A create's stack settings with the manager's own web2 admin link added, as
+ * the manager adds it: for a deployment that runs a stream uploader, when the
+ * create names neither key and asks for no token, the manager stores an
+ * address and a token, and the version lets a create set both keys.
+ */
+export function withManagerLink(stackSettings, useManagerToken, version, shape) {
+  const named = stackSettings ?? [];
+  const untouched = { stackSettings, useManagerToken };
+  if (useManagerToken || editsAdminLink(named) || !managerAdminLink.url || !managerAdminLink.tokenStored || !version?.buildId) return untouched;
+  if (!defaultServicesFor({ kind: shape.kind, components: shape.components }).includes('stream-uploader')) return untouched;
+  const { entries } = newDeploymentCatalogOf(version, shape);
+  const settable = (key) => entries.some((entry) => entry.key === key && entry.declared && entry.owner === null);
+  if (!settable(ADMIN_API_URL_KEY) || !settable(ADMIN_API_TOKEN_KEY)) return untouched;
+  return { stackSettings: [...named, { key: ADMIN_API_URL_KEY, value: managerAdminLink.url }], useManagerToken: true };
+}
+
+/** Why the manager's stored token cannot go into a deployment created with these settings, in the manager's words. */
+function managerTokenProblems(settings, entries) {
+  if (settings.some(({ key }) => key === ADMIN_API_TOKEN_KEY)) {
+    return [`${ADMIN_API_TOKEN_KEY} is typed for this deployment and also asked for from the manager's stored token. Send one of the two.`];
+  }
+  const entry = entries.find(({ key }) => key === ADMIN_API_TOKEN_KEY);
+  if (!entry?.declared || entry.owner !== null) {
+    return [`${ADMIN_API_TOKEN_KEY} is not a setting this deployment's version declares, so the manager's stored token has nowhere to go.`];
+  }
+  return [];
+}
+
+/** What the version's samples set, which a deployment not created yet starts with. */
+function versionValuesFor(shape) {
+  return Object.fromEntries(samplesFor(shape).filter((sample) => sample.version !== undefined).map((sample) => [sample.key, sample.version]));
+}
+
+/** The two web2 admin keys of a deployment not created yet, as the manager's create judges them. */
+function newAdminLinkBefore(version, shape) {
+  const values = versionValuesFor(shape);
+  return adminLinkBeforeOf({ current: values, version: values, requiredSecrets: version.contract?.requiredSecrets ?? [] });
+}
+
+/**
+ * A deployment's two web2 admin keys as its save judges them. A stored secret
+ * counts as a token: the mock keeps no value, and the page cannot store an
+ * empty one.
+ */
+function adminLinkBefore(profile, store) {
+  return adminLinkBeforeOf({
+    current: nextValuesOf(profile, store),
+    version: versionValuesFor(profile),
+    requiredSecrets: versionOf(profile)?.contract?.requiredSecrets ?? [],
+  });
 }
 
 /**
  * Stores what a create sent for a deployment the mock has just made, as the
- * manager stores it at the insert. A secret's value is not kept, only that
+ * manager stores it at the insert, the manager's own web2 admin token among
+ * it when the create asked for that. A secret's value is not kept, only that
  * one was stored. The deploy that lands records what the containers got.
  */
-export function storeCreatedSettings(profile, stackSettings = []) {
+export function storeCreatedSettings(profile, stackSettings = [], useManagerToken = false) {
   const store = storeOf(profile);
   for (const { key, value } of stackSettings) {
     if (isSecretSettingKey(key)) store.secrets.set(key, store.revision);
     else store.plain[key] = value;
   }
+  if (useManagerToken) store.secrets.set(ADMIN_API_TOKEN_KEY, store.revision);
+  if (store.secrets.has(ADMIN_API_TOKEN_KEY)) store.adminTokenOrigin = adminOriginOf(createdAdminUrl(stackSettings, profile)) ?? '';
 }
 
 /** Gives a member appended to a group the settings its sibling stores, as the manager copies them. */
@@ -522,6 +626,7 @@ export function copyStoredSettings(from, to) {
   const target = storeOf(to);
   Object.assign(target.plain, source.plain);
   for (const key of source.secrets.keys()) target.secrets.set(key, target.revision);
+  target.adminTokenOrigin = source.adminTokenOrigin;
 }
 
 /** Why the engine would refuse what a save leaves in the engine settings, by the shared rules and this host's defaults. */
@@ -553,6 +658,21 @@ function save(res, profile, body) {
   const engineProblem = engineSaveProblem(profile, body.entries);
   if (engineProblem) {
     return send(res, 400, { error: 'validation_error', errors: [engineProblem], name: profile.name });
+  }
+  const before = adminLinkBefore(profile, store);
+  const adminProblem =
+    adminLinkEditProblem(body.entries, before) ??
+    storedTokenMoveProblem(body.entries, {
+      url: store.adminTokenOrigin ?? before.url.current,
+      tokenStored: store.secrets.has(ADMIN_API_TOKEN_KEY),
+      afterReset: before.url.afterReset,
+    });
+  if (adminProblem) {
+    return send(res, 400, { error: 'validation_error', errors: [adminProblem], name: profile.name });
+  }
+  const tokenEdit = body.entries.find(({ key }) => key === ADMIN_API_TOKEN_KEY);
+  if (tokenEdit) {
+    store.adminTokenOrigin = tokenEdit.value ? (adminOriginOf(adminLinkAfterEdits(body.entries, before).url) ?? '') : null;
   }
   store.revision += 1;
   for (const { key, value } of body.entries) {
@@ -626,5 +746,25 @@ export function deploymentSettingsRoutes({ readBody, withProfile, deploy }) {
     ],
     ['PUT', /^\/profiles\/([^/]+)\/settings$/, withVersionBuilt((req, res, profile) => saveRoute(req, res, profile, readBody))],
     ['POST', /^\/profiles\/([^/]+)\/settings\/apply$/, withVersionBuilt((req, res, profile) => applyRoute(req, res, profile, readBody))],
+    [
+      'POST',
+      /^\/profiles\/([^/]+)\/settings\/admin-link\/test$/,
+      withVersionBuilt((_req, res, profile) => send(res, 200, { outcome: deploymentTestOutcome(profile) }, { 'cache-control': 'no-store' })),
+    ],
   ];
+}
+
+/**
+ * What Test connection answers for what the deployment's next deploy would
+ * give its uploader: the address it stores or its version sets, whether a
+ * token is stored or generated, and its stream address, as the manager reads
+ * them. A stored token is not presented to another origin than the one it was
+ * stored for. The outcome itself is the mock's, off the address.
+ */
+function deploymentTestOutcome(profile) {
+  const store = storeOf(profile);
+  const url = nextValuesOf(profile, store)[ADMIN_API_URL_KEY] ?? '';
+  if (store.adminTokenOrigin !== null && url !== '' && !sameAdminOrigin(url, store.adminTokenOrigin)) return 'stored-token-elsewhere';
+  const hasToken = store.secrets.has(ADMIN_API_TOKEN_KEY) || isGenerated(ADMIN_API_TOKEN_KEY, profile);
+  return mockTestOutcome({ url, hasToken, feedOwner: profile.has_private_key ? (profile.public_key ?? null) : null });
 }

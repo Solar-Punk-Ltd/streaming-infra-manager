@@ -3,7 +3,9 @@
 Status: the store, the record of what each container got, the API, the page that edits them, the
 new-deployment wizard that creates a deployment with them already set, and the engine settings in
 the same list in place of the Engine card's drawer, as of 2026-09-26, built on
-`feat/deployment-settings-engine` up to `02f699d4`.
+`feat/deployment-settings-engine` up to `02f699d4`. The web2 admin keys are typed fields with a
+rule of their own, with a group of their own in the wizard and Test connection on the card, as of
+2026-09-26 on `feat/admin-link-out-of-the-box`.
 
 ## What this is
 
@@ -138,10 +140,20 @@ against an older one is refused. So two operators editing at once cannot overwri
 Every value answers to the rules of the version settings page, which keep out a value the stack's
 loader and the manager's parser would read differently. For the keys whose accepted values are
 certain, such as the start gate mode, the chequebook floor and re-check interval, the stamp limits,
-the log level and format, and the switches, the value is also held to what the stack takes, in
-`common/src/stackSettingFields.ts`: a number to the stream uploader's own bounds, and a choice or a
-switch to the values the stack's samples name. Any other key is plain text, checked by its
-container when it starts.
+the log level and format, the switches, and the two web2 admin keys, the value is also held to what
+the stack takes, in `common/src/stackSettingFields.ts`: a number to the stream uploader's own
+bounds, a choice or a switch to the values the stack's samples name, `ADMIN_API_URL` to an http or
+https address with a host and no user name, password or `#` part, and `ADMIN_API_TOKEN` to at least
+32 characters. Any other key is plain text, checked by its container when it starts.
+
+The two web2 admin keys also answer to a rule together, because the uploader turns admin mode on
+from the address alone and then refuses to start without a token: a save that names either key and
+leaves an address with no token anywhere, stored, set by the version or generated, is refused with
+both keys named. A save of other keys is not held to it. A token the deployment stores goes only to
+the origin of the address it was stored for, so a save that moves `ADMIN_API_URL` to another origin
+has to come with a new token or a cleared one, and a deploy that would give the uploader another
+origin is refused.
+[The web2 admin link](web2-admin-link.md) has the rest of that feature.
 
 ## API
 
@@ -185,6 +197,10 @@ announces no change for a save, so both show the value it stored rather than the
   its label and help as well as its key. A screen reader hears the field as its label and its key,
   then the line under it, which says the unit with the bounds and is read out when a refusal replaces
   it, then the default a reset goes back to.
+
+Right after the two web2 admin keys the card offers Test connection, which asks the manager to try
+what the next deploy would give the uploader, the saved values, and says one sentence for the
+outcome. The stored token never leaves the manager for it.
 
 A value the manager would refuse is named under its field, by the same shared rules, and keeps Save
 off. A pair of engine settings the engine would refuse is named once above Save, in the manager's
@@ -230,7 +246,9 @@ settings step on, and again whenever the version, the engine, the services or th
   settings decide, shows the segment length typed above it, so the two never read differently. The
   wizard asks for the segment length alone and leaves the other engine settings to the deployment's
   page, so its list keeps every engine setting out of reach, where the deployment's page, once it
-  exists, lists them as its own.
+  exists, lists them as its own. For a deployment that runs a stream uploader, `ADMIN_API_URL` and
+  `ADMIN_API_TOKEN` point at the step's Web2 admin group the same way, the address shown while the
+  link is on, so neither is set twice.
 - **A value the manager would refuse** is named under its field, by the same shared rules, and stops
   Continue and Deploy, the footer naming the key and never the value. Values typed before the list
   for the current choices was read wait for it.

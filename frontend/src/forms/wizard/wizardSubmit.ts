@@ -11,6 +11,7 @@ import {
 } from '../../data';
 import type { CreateProfileBody, Profile } from '../../types';
 import { addressForKey } from '../validation';
+import { adminLinkBody } from './adminLinkChoice';
 import { advancedSettingsBody } from './advancedSettings';
 import { matchingPool, type CreatedPool } from './poolIdentity';
 import { PoolResponseError } from './PoolResponseError';
@@ -112,6 +113,23 @@ function feedOwnerOf(
   return streamer?.public_key ?? undefined;
 }
 
+/**
+ * The stack settings a create sends: the ones typed under Advanced settings,
+ * then the Web2 admin group's keys, and whether the manager copies its stored
+ * token in, which the page never holds.
+ */
+function stackSettingsBody(
+  state: WizardState,
+  context: WizardContext,
+): Pick<CreateProfileBody, 'stack_settings' | 'use_manager_admin_token'> {
+  const adminLink = adminLinkBody(state, context);
+  const settings = [...(advancedSettingsBody(state, context) ?? []), ...adminLink.settings];
+  return {
+    stack_settings: settings.length > 0 ? settings : undefined,
+    ...(adminLink.useManagerToken ? { use_manager_admin_token: true } : {}),
+  };
+}
+
 /** The fields every kind shares, so the single and group bodies cannot drift. */
 function sharedBody(state: WizardState, context: WizardContext) {
   const key = needsStreamKey(state) ? chosenKey(state) : '';
@@ -128,7 +146,7 @@ function sharedBody(state: WizardState, context: WizardContext) {
     engine_settings: offersSegmentLength(state)
       ? segmentLengthSettings(state.segmentSeconds)
       : undefined,
-    stack_settings: advancedSettingsBody(state, context),
+    ...stackSettingsBody(state, context),
   };
 }
 

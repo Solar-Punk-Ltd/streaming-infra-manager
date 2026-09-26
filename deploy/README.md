@@ -546,11 +546,11 @@ docker compose down -v            # nuke postgres data too, so be sure
   reachable through the SSH tunnel and from the edge over the compose network,
   never directly from outside. It serves the built React SPA and
   reverse-proxies `/auth`, `/profiles`, `/groups`, `/health`, `/services`,
-  `/config`, `/targets`, `/versions`, `/chequebook`, `/metrics` and `/events`
-  to `api:9876`. Every path the dev server proxies has to appear here too. A
-  path wired in one place and not the other is how the whole transfer history
-  had no route in production until 2026-09-11, and a test now checks the two
-  lists against each other.
+  `/config`, `/targets`, `/manager-settings`, `/versions`, `/chequebook`,
+  `/metrics` and `/events` to `api:9876`. Every path the dev server proxies has
+  to appear here too. A path wired in one place and not the other is how the
+  whole transfer history had no route in production until 2026-09-11, and a
+  test checks the two lists against each other.
 - **`api`** has no published port at all. The `web` proxy on the internal
   compose network is the only thing that reaches it.
 - **`postgres`** is bound to `127.0.0.1:5432` so a host-side `pnpm dev`

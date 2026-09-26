@@ -3,8 +3,16 @@ import { Box, ButtonBase, Collapse, Stack, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { NewDeploymentSettingsEditor } from '../../../deployments/settings/NewDeploymentSettingsEditor';
-import { advancedSettingsFoldLine, controlValuesOf } from '../advancedSettings';
-import type { WizardStepProps } from '../wizardState';
+import type { NewDeploymentSettingsLoad } from '../../../deployments/settings/useNewDeploymentSettings';
+import { advancedSettingsEntries, advancedSettingsFoldLine, controlValuesOf } from '../advancedSettings';
+import type { WizardContext, WizardState, WizardStepProps } from '../wizardState';
+
+/** The list as the fold shows it, with the keys another group of this step sets pointed at that group. */
+function shownLoad(state: WizardState, context: WizardContext): NewDeploymentSettingsLoad | undefined {
+  const load = context.newDeploymentSettings;
+  const entries = advancedSettingsEntries(state, context);
+  return load?.catalog && entries ? { ...load, catalog: { ...load.catalog, entries } } : load;
+}
 
 /**
  * Every key the chosen version declares, for the deployment about to be
@@ -42,9 +50,9 @@ export function AdvancedSettings({ state, context, update }: WizardStepProps) {
       <Collapse in={open} unmountOnExit>
         <Box id={regionId} sx={{ px: 1.5, pb: 1.5, minWidth: 0 }}>
           <NewDeploymentSettingsEditor
-            load={context.newDeploymentSettings}
+            load={shownLoad(state, context)}
             values={state.stackSettings}
-            controlValues={controlValuesOf(state)}
+            controlValues={controlValuesOf(state, context)}
             onChange={(stackSettings) => update({ stackSettings })}
           />
         </Box>

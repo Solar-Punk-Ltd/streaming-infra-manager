@@ -10,7 +10,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { STACK_SETTING_FIELDS, stackSettingFieldProblem } from './stackSettingFields.js';
+import { ADMIN_API_TOKEN_MIN_LENGTH } from './adminLink.js';
+import { STACK_SETTING_FIELDS, stackSettingFieldOf, stackSettingFieldProblem } from './stackSettingFields.js';
 
 describe('the shape of a stack setting', () => {
   it('takes every start gate mode the uploader knows and nothing else', () => {
@@ -46,6 +47,51 @@ describe('the shape of a stack setting', () => {
   });
 
   it('checks nothing about a key it has no field for', () => {
-    assert.equal(stackSettingFieldProblem('ADMIN_API_URL', 'anything at all'), null);
+    assert.equal(stackSettingFieldProblem('VITE_APP_TITLE', 'anything at all'), null);
+  });
+});
+
+describe('the web2 admin link keys', () => {
+  it('takes an http or https address with a host, a port or a path', () => {
+    for (const url of ['http://admin:9877', 'https://admin.example.com', 'https://admin.example.com/', 'http://10.0.0.5:9877/admin']) {
+      assert.equal(stackSettingFieldProblem('ADMIN_API_URL', url), null, url);
+    }
+  });
+
+  it('refuses an address that is not http or https, or names no host', () => {
+    for (const url of ['admin.example.com', 'ftp://admin.example.com', 'javascript:alert(1)', 'https://', 'not an address']) {
+      assert.match(stackSettingFieldProblem('ADMIN_API_URL', url) ?? '', /ADMIN_API_URL must be an http or https address/, url);
+    }
+  });
+
+  it('refuses a user name or a password in the address, and never repeats the address', () => {
+    const problem = stackSettingFieldProblem('ADMIN_API_URL', 'https://operator:synthetic-password@admin.example.com');
+    assert.match(problem ?? '', /ADMIN_API_URL cannot carry a user name or a password/);
+    assert.doesNotMatch(problem ?? '', /synthetic-password|operator/);
+  });
+
+  it('refuses a # part, which the uploader would put its own paths after', () => {
+    for (const url of ['https://admin.example.com/#streams', 'https://admin.example.com/#']) {
+      assert.match(stackSettingFieldProblem('ADMIN_API_URL', url) ?? '', /ADMIN_API_URL cannot carry a # part/, url);
+    }
+  });
+
+  it('holds the token to the uploader floor of 32 characters, and never repeats it', () => {
+    assert.equal(ADMIN_API_TOKEN_MIN_LENGTH, 32);
+    assert.equal(stackSettingFieldProblem('ADMIN_API_TOKEN', 'a'.repeat(32)), null);
+    const short = 'synthetic-short-token';
+    const problem = stackSettingFieldProblem('ADMIN_API_TOKEN', short);
+    assert.equal(problem, 'ADMIN_API_TOKEN must be at least 32 characters.');
+    assert.doesNotMatch(problem ?? '', new RegExp(short));
+  });
+
+  it('takes an empty address and an empty token, which leave admin mode off', () => {
+    assert.equal(stackSettingFieldProblem('ADMIN_API_URL', ''), null);
+    assert.equal(stackSettingFieldProblem('ADMIN_API_TOKEN', ''), null);
+  });
+
+  it('gives both keys a field, the address its own kind and the token its floor', () => {
+    assert.deepEqual(stackSettingFieldOf('ADMIN_API_URL'), { kind: 'url' });
+    assert.deepEqual(stackSettingFieldOf('ADMIN_API_TOKEN'), { kind: 'text', minLength: 32 });
   });
 });

@@ -1,12 +1,15 @@
 import {
+  ADMIN_API_TOKEN_KEY,
   configuredBeeRpcEndpoint,
   DEFAULT_RPC_ENDPOINT_SOURCE,
   type EngineSettings,
   isPendingStamp,
   isSecretSettingKey,
+  sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
 import { ContainerSnapshot } from '../../src/domain/containerKeysSpec.js';
+import { ManagerAdminTokenElsewhereError, ManagerAdminTokenMissingError } from '../../src/domain/errors/index.js';
 import { portPlanFor } from '../../src/domain/ports/portReservations.js';
 import type { StackSecrets } from '../../src/domain/versions/stackSecrets.js';
 import type { ExpectedDeployOwner } from '../../src/domain/versions/buildLedger.js';
@@ -32,6 +35,7 @@ import {
   TRANSITIONAL_STATUSES,
 } from '../../src/types/index.js';
 
+import { InMemoryManagerAdminLink } from './InMemoryManagerAdminLink.js';
 import { InMemoryPortReservations } from './InMemoryPortReservations.js';
 
 export type ProfileFixture = Profile & { rpc_endpoint?: string | null };
@@ -130,8 +134,14 @@ export class InMemoryProfiles {
   /** The `stack_settings` and `stack_settings_secret` columns together, as the deploy reads them. */
   readonly stackSettings = new Map<string, Record<string, string>>();
 
+  /** Each deployment's `admin_token_origin`, left out where it is null. */
+  readonly adminTokenOrigins = new Map<string, string | null>();
+
   /** Each deployment's `settings_revision`, 0 until its first save. */
   readonly settingsRevisions = new Map<string, number>();
+
+  /** The manager's own web2 admin link, whose token an insert that asks for it copies. */
+  readonly managerAdminLink = new InMemoryManagerAdminLink();
 
   onDeleted?: (name: string) => void;
 
@@ -200,6 +210,8 @@ export class InMemoryProfiles {
     if (this.rows.has(name)) throw new Error(`duplicate profile name: ${name}`);
     const slot = this.reservations.freeSlot(placement.daemonId, placement.table, placement.slotCap, this.takenSlots());
     if (slot === null) return null;
+    // Asked before anything is stored, because the real insert's transaction rolls back whole.
+    this.initialValuesOf(stackSettings);
     const {
       private_key: key,
       srt_passphrase: passphrase,
@@ -234,10 +246,24 @@ export class InMemoryProfiles {
     return row;
   }
 
+  /**
+   * What a create stores in both columns, with the manager's token copied in
+   * when it asks, as the insert's own SQL copies it. Refuses as that does when
+   * none is stored or when it was saved for another origin.
+   */
+  initialValuesOf(stackSettings: InitialStackSettings): Record<string, string> {
+    const values = { ...stackSettings.plain, ...stackSettings.secret };
+    if (!stackSettings.copyManagerAdminToken) return values;
+    if (this.managerAdminLink.token === null) throw new ManagerAdminTokenMissingError();
+    if (!sameAdminOrigin(stackSettings.copyManagerAdminToken.url, this.managerAdminLink.url ?? '')) throw new ManagerAdminTokenElsewhereError();
+    return { ...values, [ADMIN_API_TOKEN_KEY]: this.managerAdminLink.token };
+  }
+
   /** Both columns as one set, the way `stackSettings` keeps them, and nothing for a create that named none. */
   storeInitialStackSettings(name: string, stackSettings: InitialStackSettings): void {
-    const values = { ...stackSettings.plain, ...stackSettings.secret };
+    const values = this.initialValuesOf(stackSettings);
     if (Object.keys(values).length > 0) this.stackSettings.set(name, values);
+    if (stackSettings.adminTokenOrigin !== undefined) this.adminTokenOrigins.set(name, stackSettings.adminTokenOrigin);
   }
 
   async transitionStatus(
@@ -522,7 +548,12 @@ export class InMemoryProfiles {
       secretKeys: secretKeys.sort(),
       engine: { ...row.engine_settings },
       revision: this.settingsRevisions.get(name) ?? 0,
+      adminTokenOrigin: this.adminTokenOrigins.get(name) ?? null,
     };
+  }
+
+  async bindAdminTokenOrigin(name: string, origin: string): Promise<void> {
+    if ((this.adminTokenOrigins.get(name) ?? null) === null) this.adminTokenOrigins.set(name, origin);
   }
 
   async updateStackSettings(
@@ -536,6 +567,7 @@ export class InMemoryProfiles {
     const next = { ...(this.stackSettings.get(name) ?? {}) };
     for (const key of change.remove) delete next[key];
     this.stackSettings.set(name, { ...next, ...change.plain, ...change.secret });
+    if (change.adminTokenOrigin !== undefined) this.adminTokenOrigins.set(name, change.adminTokenOrigin);
     const engine = { ...row.engine_settings };
     for (const key of change.engine.remove) delete engine[key];
     this.write(name, { engine_settings: { ...engine, ...change.engine.set } });

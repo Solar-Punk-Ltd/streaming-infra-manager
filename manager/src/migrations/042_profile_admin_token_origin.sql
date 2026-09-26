@@ -1,0 +1,14 @@
+-- The origin, scheme, host and port, a deployment's own stored web2 admin
+-- token was stored for. The manager sends that token only to an address on
+-- this origin: a save of the settings that moves ADMIN_API_URL elsewhere has to
+-- come with a new token or a cleared one, a deploy that would give the
+-- uploader another origin, because the version's own address moved under it,
+-- is refused, and Test connection asks nothing there.
+--
+-- NULL is no record: the deployment stores no token of its own, or stored it
+-- before this column existed, in which case its next deploy records the
+-- address that deploy gives the uploader. An empty string is a token stored
+-- with no address, which goes to none until it is typed again with one.
+--
+-- Going back to an older manager needs no step: it never reads the column.
+ALTER TABLE profiles ADD COLUMN admin_token_origin TEXT;

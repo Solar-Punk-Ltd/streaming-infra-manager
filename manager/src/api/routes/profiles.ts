@@ -59,6 +59,7 @@ export function createProfilesRouter(
         engine_settings:
           body.engine_settings && definedSettingValues(body.engine_settings),
         stack_settings: body.stack_settings as NewDeploymentSetting[] | undefined,
+        use_manager_admin_token: body.use_manager_admin_token,
       });
       res.status(202).json(profile);
     }),

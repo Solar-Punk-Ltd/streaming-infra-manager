@@ -8,10 +8,13 @@ import {
   getErrorMessage,
 } from '@streaming-infra-manager/common';
 
+import { testDeploymentAdminLink } from '../../adminLink/adminLinkApi';
+import { AdminLinkTest } from '../../adminLink/AdminLinkTest';
 import { useToast } from '../../app/ToastProvider';
 import { ApiError } from '../../http';
 import type { Profile } from '../../types';
 import { isTransitional } from '../shape';
+import { adminLinkTestAnchor, unsavedAdminLinkNote } from './adminLinkRow';
 import { applyDeploymentSettings, saveDeploymentSettings } from './deploymentSettingsApi';
 import {
   type DeploymentSettingsDraft,
@@ -148,6 +151,19 @@ export function DeploymentSettingsEditor({
   const unrecorded = !settling && startedBeforeRecords(catalog);
   const disabled = busy !== null || profile.status === 'REMOVING';
   const hasEdits = Object.keys(draft.edits).length > 0;
+  // What the next deploy would give the uploader, asked of the manager, whose stored token never reaches the page.
+  const adminLinkAnchor = adminLinkTestAnchor(catalog.entries);
+  const afterRow = adminLinkAnchor
+    ? {
+        [adminLinkAnchor]: (
+          <AdminLinkTest
+            run={() => testDeploymentAdminLink(profile.name)}
+            resetKey={`${catalog.revision}:${profile.status}`}
+            note={unsavedAdminLinkNote(pending)}
+          />
+        ),
+      }
+    : {};
 
   const edit = (next: (current: DeploymentSettingsDraft) => DeploymentSettingsDraft) => {
     setDraft(next);
@@ -227,6 +243,7 @@ export function DeploymentSettingsEditor({
         onUndo={(key) => edit((current) => withoutEdit(current, key))}
         engine={{ fields: engineFieldsOf(catalog), ownConfig: profile.has_engine_config }}
         reveal={reveal}
+        afterRow={afterRow}
       />
 
       {engineProblem && (

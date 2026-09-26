@@ -10,6 +10,8 @@ import { ContainerControl } from '../domain/ContainerControl.js';
 import { Database } from '../domain/Database.js';
 import { DeployService } from '../domain/DeployService.js';
 import { EngineConfigService } from '../domain/engineConfig/EngineConfigService.js';
+import type { AdminLinkTester } from '../domain/adminLink/AdminLinkTester.js';
+import type { ManagerAdminLinkService } from '../domain/adminLink/ManagerAdminLinkService.js';
 import type { DeploymentSettingsService } from '../domain/settings/DeploymentSettingsService.js';
 import { EventBus } from '../domain/EventBus.js';
 import { Logger } from '../domain/Logger.js';
@@ -30,6 +32,7 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { requireSameSite } from './middleware/requireSameSite.js';
 import { createRequireSession } from './middleware/requireSession.js';
 import { createActionsRouter } from './routes/actions.js';
+import { createAdminLinkTestRouter } from './routes/adminLinkTest.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createChequebookRouter } from './routes/chequebook.js';
 import { createConfigRouter } from './routes/config.js';
@@ -39,6 +42,7 @@ import { createEngineConfigRouter } from './routes/engineConfig.js';
 import { createEventsRouter } from './routes/events.js';
 import { createGroupsRouter } from './routes/groups.js';
 import { createHealthRouter } from './routes/health.js';
+import { createManagerSettingsRouter } from './routes/managerSettings.js';
 import { createMetricsRouter } from './routes/metrics.js';
 import { createProfilesRouter } from './routes/profiles.js';
 import { createSrtIngestRouter } from './routes/srtIngest.js';
@@ -68,6 +72,10 @@ export interface ApiDeps {
   containerControl: ContainerControl;
   engineConfigService: EngineConfigService;
   deploymentSettingsService: DeploymentSettingsService;
+  /** The web2 admin link every new uploader deployment starts with, which the Manager settings page edits. */
+  managerAdminLinkService: ManagerAdminLinkService;
+  /** Test connection, for an address typed on a page and for what a deployment's next deploy gives its uploader. */
+  adminLinkTester: AdminLinkTester;
   stackVersionService: StackVersionService;
   /** For the deploy attempts that hold a project or the daemon, and their release. */
   orchestrator: DeploymentOrchestrator;
@@ -138,6 +146,8 @@ export function startApiServer(
   app.use('/', createEngineRouter(deps.profileService, deps.containerControl, deps.beeRpcEndpoint));
   app.use('/', createEngineConfigRouter(deps.engineConfigService));
   app.use('/', createDeploymentSettingsRouter(deps.deploymentSettingsService));
+  app.use('/', createManagerSettingsRouter(deps.managerAdminLinkService));
+  app.use('/', createAdminLinkTestRouter(deps.adminLinkTester));
 
   app.use(notFound);
   app.use(errorHandler);

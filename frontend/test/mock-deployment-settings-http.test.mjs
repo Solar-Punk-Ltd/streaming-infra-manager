@@ -26,6 +26,9 @@ let base;
 let cookie;
 let nextProfile = 1;
 
+const ADMIN_LINK_REFUSAL =
+  'ADMIN_API_URL is set and ADMIN_API_TOKEN is not, and the stream uploader refuses to start that way. Set ADMIN_API_TOKEN, or leave ADMIN_API_URL empty.';
+
 async function candidatePort() {
   const socket = createServer();
   socket.listen(0, '127.0.0.1');
@@ -233,6 +236,19 @@ describe('the mock deployment settings routes', { concurrency: false, timeout: 6
     assert.equal(outOfBounds.status, 400);
     assert.deepEqual(outOfBounds.body.errors, ['MAX_QUEUE_SIZE must be at least 1. Got 0.']);
     assert.equal((await settingsOf(name)).revision, 0, 'a refused save stores nothing');
+  });
+
+  it('refuses a web2 admin address with no token anywhere, naming both keys, as the manager does', async () => {
+    const name = await runningDeployment();
+
+    const refused = await saveOn(name, [{ key: 'ADMIN_API_URL', value: 'https://admin.offline.example' }]);
+    const withToken = await saveOn(name, [
+      { key: 'ADMIN_API_URL', value: 'https://admin.offline.example' },
+      { key: 'ADMIN_API_TOKEN', value: 'offline-mock-token-not-a-real-one-0123456789abcdef' },
+    ]);
+
+    assert.deepEqual(refused, { status: 400, body: { error: 'validation_error', errors: [ADMIN_LINK_REFUSAL], name } });
+    assert.equal(withToken.status, 200, JSON.stringify(withToken.body));
   });
 
   it('refuses a body that is not a save before it reads any key', async () => {
@@ -476,6 +492,18 @@ describe('the mock settings list and create for a deployment not made yet', { co
     assert.equal((await call(`/profiles/${name}`)).status, 404);
   });
 
+  it('refuses a create with a web2 admin address and no token anywhere, naming both keys, and creates nothing', async () => {
+    const name = `mock-created-${nextProfile++}`;
+
+    const refused = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'ADMIN_API_URL', value: 'https://admin.offline.example' }],
+    });
+
+    assert.deepEqual(refused, { status: 400, body: { error: 'validation_error', errors: [ADMIN_LINK_REFUSAL], name } });
+    assert.equal((await call(`/profiles/${name}`)).status, 404);
+  });
+
   it('gives every member of a group the same settings, and a member appended later those of its siblings', async () => {
     const groupName = `mock-fleet-${nextProfile++}`;
 
@@ -490,5 +518,72 @@ describe('the mock settings list and create for a deployment not made yet', { co
     for (const member of members) {
       assert.equal(entryOf(await settingsOf(member), 'LOG_LEVEL').storedValue, 'warn', member);
     }
+  });
+});
+
+describe("the mock's create with the manager's stored web2 admin token", { concurrency: false, timeout: 60_000 }, () => {
+  const ADMIN_URL = 'https://admin.offline.example';
+
+  async function managerLink(body) {
+    const current = await request('/manager-settings/admin-link');
+    return call('/manager-settings/admin-link', 'PUT', { expectedRevision: current.revision, ...body });
+  }
+
+  it('refuses the stored token when the manager stores none, and creates nothing', async () => {
+    await managerLink({ url: '' });
+    const name = `mock-linked-${nextProfile++}`;
+
+    const refused = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'ADMIN_API_URL', value: ADMIN_URL }], use_manager_admin_token: true,
+    });
+
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.error, 'admin_token_missing');
+    assert.equal((await call(`/profiles/${name}`)).status, 404);
+  });
+
+  it("stores the manager's token for a create that asks, and never answers it", async () => {
+    const token = 'offline-mock-manager-token-0123456789abcdef';
+    assert.equal((await managerLink({ url: ADMIN_URL, token })).status, 200);
+    const name = `mock-linked-${nextProfile++}`;
+
+    const created = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2, stamp_id: 'ab'.repeat(32),
+      stack_settings: [{ key: 'ADMIN_API_URL', value: ADMIN_URL }], use_manager_admin_token: true,
+    });
+    const catalog = await settingsOf(name);
+
+    assert.equal(created.status, 202, JSON.stringify(created.body));
+    assert.equal('use_manager_admin_token' in created.body, false, 'the request is kept off the row');
+    assert.equal(entryOf(catalog, 'ADMIN_API_TOKEN').stored, true);
+    assert.equal(entryOf(catalog, 'ADMIN_API_URL').storedValue, ADMIN_URL);
+    assert.equal(JSON.stringify(catalog).includes(token), false);
+  });
+
+  it("refuses the stored token for an address on another origin than the manager's, and creates nothing", async () => {
+    const name = `mock-linked-${nextProfile++}`;
+
+    const refused = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'ADMIN_API_URL', value: 'https://elsewhere.offline.example' }], use_manager_admin_token: true,
+    });
+
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.error, 'admin_token_elsewhere');
+    assert.equal((await call(`/profiles/${name}`)).status, 404);
+  });
+
+  it("links a create for an uploader that names neither key with the manager's own link", async () => {
+    const name = `mock-linked-${nextProfile++}`;
+
+    const created = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2, stamp_id: 'ab'.repeat(32),
+    });
+    const catalog = await settingsOf(name);
+
+    assert.equal(created.status, 202, JSON.stringify(created.body));
+    assert.equal(entryOf(catalog, 'ADMIN_API_URL').storedValue, ADMIN_URL);
+    assert.equal(entryOf(catalog, 'ADMIN_API_TOKEN').stored, true);
   });
 });

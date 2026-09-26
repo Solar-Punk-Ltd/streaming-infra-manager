@@ -310,10 +310,12 @@ function boundsText(min: number | undefined, max: number | undefined): string {
   return '';
 }
 
-/** What a number field takes, for the line under it, or null where the control shows it already. */
+/** What a field takes, for the line under it, or null where the control shows it already or nothing is known. */
 export function fieldHint(field: StackSettingField | null): string | null {
   if (field?.kind === 'integer') return `A whole number${boundsText(field.min, field.max)}.`;
   if (field?.kind === 'number') return `A number${boundsText(field.min, field.max)}. Use a period for decimals.`;
+  if (field?.kind === 'url') return 'An http or https address, or empty.';
+  if (field?.kind === 'text' && field.minLength !== undefined) return `At least ${field.minLength} characters, or empty.`;
   return null;
 }
 

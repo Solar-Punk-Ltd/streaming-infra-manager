@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DeploymentPage } from '../deployments/DeploymentPage';
 import { DeploymentsPage } from '../deployments/DeploymentsPage';
 import { GroupPage } from '../groups/GroupPage';
+import { ManagerSettingsPage } from '../managerSettings/ManagerSettingsPage';
 import { OverviewPage } from '../overview/OverviewPage';
 import { HostPage } from '../resources/HostPage';
 import { TransferHistoryPage } from '../transfers/TransferHistoryPage';
@@ -29,6 +30,7 @@ const PAGE_TITLES: Record<Route['page'], string> = {
   versions: 'Versions',
   versionSettings: 'Versions',
   access: 'Access',
+  managerSettings: 'Manager settings',
   transfers: 'Transfers',
   transfer: 'Transfers',
   transferRequest: 'Transfers',
@@ -134,6 +136,8 @@ function Page({ route, search }: { route: Route; search: string }) {
       return <VersionSettingsPage key={route.id} id={route.id} />;
     case 'access':
       return <AccessPage />;
+    case 'managerSettings':
+      return <ManagerSettingsPage />;
     case 'transfers':
       return <TransferHistoryPage />;
     case 'transfer':

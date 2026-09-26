@@ -31,6 +31,7 @@ const NAV_ITEMS: { label: string; hash: string; pages: Route['page'][] }[] = [
   { label: 'Host', hash: routes.host, pages: ['host'] },
   { label: 'Versions', hash: routes.versions, pages: ['versions'] },
   { label: 'Access', hash: routes.access, pages: ['access'] },
+  { label: 'Manager settings', hash: routes.managerSettings, pages: ['managerSettings'] },
 ];
 
 type ThemeMode = 'system' | 'light' | 'dark';

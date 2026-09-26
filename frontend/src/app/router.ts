@@ -12,6 +12,7 @@ export type Route =
   | { page: 'versions' }
   | { page: 'versionSettings'; id: number }
   | { page: 'access' }
+  | { page: 'managerSettings' }
   | { page: 'transfers' }
   | { page: 'transfer'; id: string }
   | { page: 'transferRequest'; requestId: string };
@@ -23,6 +24,7 @@ export const routes = {
   versions: '#/versions',
   versionSettings: (id: number): string => `#/versions/${id}/settings`,
   access: '#/access',
+  managerSettings: '#/manager-settings',
   transfers: '#/transfers',
   transfer: (id: string): string => `#/transfers/${encodeURIComponent(id)}`,
   transferRequest: (requestId: string): string => `#/transfers/request/${encodeURIComponent(requestId)}`,
@@ -55,6 +57,7 @@ function parse(hash: string): Route {
     return { page: 'versions' };
   }
   if (segments[0] === 'access') return { page: 'access' };
+  if (segments[0] === 'manager-settings') return { page: 'managerSettings' };
 
   if (segments[0] === 'transfers') {
     if (segments[1] === 'request' && segments[2]) return { page: 'transferRequest', requestId: segments[2] };

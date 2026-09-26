@@ -34,6 +34,7 @@ export default defineConfig({
       '/health': managerApi(),
       '/config': managerApi(),
       '/targets': managerApi(),
+      '/manager-settings': managerApi(),
       // SSE — disable any buffering / timeouts so events stream live.
       '/events': { ...managerApi(), ws: false, proxyTimeout: 0, timeout: 0 },
       // Metrics: JSON one-shot, SSE stream, and on-demand disk lookups.

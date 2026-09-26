@@ -1,3 +1,4 @@
+import { ADMIN_API_TOKEN_KEY, ADMIN_API_TOKEN_MIN_LENGTH, ADMIN_API_URL_KEY } from './adminLink.js';
 import type { StackSettingField } from './deploymentSettings.js';
 
 /**
@@ -12,7 +13,9 @@ import type { StackSettingField } from './deploymentSettings.js';
  * keys refuse values the uploader would take, and are here because it takes
  * them by ignoring them: a mistyped level falls back to the default with one
  * line in the uploader's log, and a mistyped format falls back to text
- * without a word.
+ * without a word. The web2 admin address refuses a user name and a # part the
+ * uploader would take, because it builds every request by adding a path after
+ * the address, and either one then sends the request somewhere else.
  */
 export const STACK_SETTING_FIELDS: Readonly<Record<string, StackSettingField>> = {
   UPLOADER_START_GATES: { kind: 'choice', choices: ['chequebook-warn', 'warn', 'refuse'] },
@@ -31,22 +34,46 @@ export const STACK_SETTING_FIELDS: Readonly<Record<string, StackSettingField>> =
   BEE_RUNG_FULL_NODE: { kind: 'boolean' },
   BEE_GATEWAY_CACHE_RETRIEVAL: { kind: 'boolean' },
   OME_ADMISSION_FAIL_OPEN: { kind: 'boolean' },
+  [ADMIN_API_URL_KEY]: { kind: 'url' },
+  [ADMIN_API_TOKEN_KEY]: { kind: 'text', minLength: ADMIN_API_TOKEN_MIN_LENGTH },
 };
 
 const INTEGER_RE = /^-?\d+$/;
 const NUMBER_RE = /^-?\d+(?:\.\d+)?$/;
 const BOOLEAN_VALUES: readonly string[] = ['true', 'false'];
+const WEB_PROTOCOLS: readonly string[] = ['http:', 'https:'];
 
 /** The field a key has, or null for plain text. */
 export function stackSettingFieldOf(key: string): StackSettingField | null {
   return STACK_SETTING_FIELDS[key] ?? null;
 }
 
+/** Why this is not an http or https address the stack can add its paths to, or null. Never repeats the address. */
+function urlProblem(key: string, value: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return `${key} must be an http or https address, such as https://admin.example.com.`;
+  }
+  if (!WEB_PROTOCOLS.includes(parsed.protocol) || parsed.hostname === '') {
+    return `${key} must be an http or https address, such as https://admin.example.com.`;
+  }
+  if (parsed.username !== '' || parsed.password !== '') {
+    return `${key} cannot carry a user name or a password.`;
+  }
+  // The raw text rather than `hash`, which is empty for a bare trailing #.
+  if (value.includes('#')) return `${key} cannot carry a # part, because the stack adds its own paths after the address.`;
+  return null;
+}
+
 /**
  * What is wrong with this value for this key, or null. An empty value is
  * always taken, because it leaves the key to the stack's own default. The
- * message reads on its own, key first, and repeats the value, which is safe
- * because no secret has a field.
+ * message reads on its own, key first. It repeats the value only for a list, a
+ * switch or a number, whose keys are never secret, and never an address or a
+ * text, because an address can carry a password and a text field can be a
+ * token.
  */
 export function stackSettingFieldProblem(key: string, value: string): string | null {
   const field = STACK_SETTING_FIELDS[key];
@@ -59,7 +86,12 @@ export function stackSettingFieldProblem(key: string, value: string): string | n
   if (field.kind === 'boolean') {
     return BOOLEAN_VALUES.includes(value) ? null : `${key} must be true or false. Got "${value}".`;
   }
-  if (field.kind === 'text') return null;
+  if (field.kind === 'url') return urlProblem(key, value);
+  if (field.kind === 'text') {
+    return field.minLength !== undefined && value.length < field.minLength
+      ? `${key} must be at least ${field.minLength} characters.`
+      : null;
+  }
 
   const shape = field.kind === 'integer' ? INTEGER_RE : NUMBER_RE;
   if (!shape.test(value)) {

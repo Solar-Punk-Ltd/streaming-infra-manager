@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import type { EngineName } from '@streaming-infra-manager/common';
 
-import { baseEnvPath, engineEnvPath } from '../../utils/envUtils.js';
+import { baseEnvPath, engineEnvPath, parseEnvText } from '../../utils/envUtils.js';
 
 import type { CatalogInput } from './deploymentSettingsCatalog.js';
 
@@ -21,6 +21,11 @@ export function versionSettingsFilesAt(root: string, engine: EngineName): Versio
     baseEnvText: readIfPresent(baseEnvPath(root)),
     engineEnvText: readIfPresent(engineEnvPath(root, engine)),
   };
+}
+
+/** What the version sets: the engine's file, and the root file over it, the way the deploy script reads them. */
+export function versionValuesOf(files: Pick<VersionSettingsFiles, 'baseEnvText' | 'engineEnvText'>): Record<string, string> {
+  return { ...parseEnvText(files.engineEnvText), ...parseEnvText(files.baseEnvText) };
 }
 
 function readIfPresent(path: string): string {

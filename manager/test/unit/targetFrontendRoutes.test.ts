@@ -107,3 +107,19 @@ it('reaches the manager by a name it resolves again, so a recreated api is found
     .map(match => match[1]!.trim());
   assert.deepEqual(fixed, [], `these hold one address for the life of nginx: ${fixed.join(', ')}`);
 });
+
+/**
+ * The Manager settings page reads and saves the web2 admin link under a path
+ * of its own, and tests it there too, so both proxies have to send that path
+ * to the manager. Missed in either, the page reads the SPA's own HTML and says
+ * it could not read the link, on a laptop or on a host.
+ */
+it('routes the Manager settings requests to the API in development and production', () => {
+  const config = vite as { server: { proxy: Record<string, unknown> } };
+  const nginx = readFileSync(new URL('../../../frontend/nginx.conf', import.meta.url), 'utf8');
+  const locations = apiLocations(nginx);
+  for (const path of ['/manager-settings/admin-link', '/manager-settings/admin-link/test']) {
+    assert.ok(Object.keys(config.server.proxy).some(key => !key.startsWith('^') && path.startsWith(key)), `Vite proxies nothing for ${path}`);
+    assert.ok(locations.some(location => takes(location, path)), `nginx sends ${path} to the SPA instead of to the manager`);
+  }
+});

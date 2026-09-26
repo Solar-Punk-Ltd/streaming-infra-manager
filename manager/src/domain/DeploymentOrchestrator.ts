@@ -6,6 +6,9 @@ import { basename, dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
+  ADMIN_API_TOKEN_KEY,
+  ADMIN_API_URL_KEY,
+  adminOriginOf,
   engineForComponents,
   type EngineName,
   getErrorMessage,
@@ -14,6 +17,7 @@ import {
   redactEndpoints,
   portExposureProblem,
   slotCapFor,
+  storedTokenElsewhereProblem,
 } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../types/index.js';
@@ -24,6 +28,7 @@ import {
   engineEnvPath,
   engineSettingsLinesOf,
   managedEnvLines,
+  parseEnvText,
   profileEnvPath,
   type ProfileEnvValues,
   renderProfileEnv,
@@ -677,6 +682,26 @@ export class DeploymentOrchestrator {
   }
 
   /**
+   * Refuses a deploy that would give the deployment's own stored web2 admin
+   * token to another origin than the one it was stored for, which is how a
+   * version whose address moved would otherwise carry the token along. A
+   * token stored before origins were recorded is recorded here, for the
+   * address this deploy gives the uploader.
+   */
+  private async assertAdminTokenStaysHome(profile: Profile, stored: Record<string, string>, root: string, engine: EngineName): Promise<void> {
+    if (!stored[ADMIN_API_TOKEN_KEY]) return;
+    const files = { ...parseEnvText(readIfPresent(engineEnvPath(root, engine))), ...parseEnvText(readIfPresent(baseEnvPath(root))) };
+    const url = stored[ADMIN_API_URL_KEY] ?? files[ADMIN_API_URL_KEY] ?? '';
+    const storedWith = (await this.profiles.stackSettingsOf(profile.name))?.adminTokenOrigin ?? null;
+    if (storedWith === null) {
+      await this.profiles.bindAdminTokenOrigin(profile.name, adminOriginOf(url) ?? '');
+      return;
+    }
+    const problem = storedTokenElsewhereProblem(url, storedWith);
+    if (problem) throw new ProfileConfigError(profile.name, problem);
+  }
+
+  /**
    * What the deployment's env file is written from, given what the caller read
    * on its own: the secrets, the generated ones, the engine config file and the
    * operator's stored values.
@@ -1234,6 +1259,7 @@ export class DeploymentOrchestrator {
         rpcEndpoint: rpcEndpoint.rpcEndpoint,
       };
       const stored = await this.operatorSettingsFor(profile, version, reservation.host);
+      await this.assertAdminTokenStaysHome(profile, stored, paths.root, engine);
       const written = writeProfileEnv(paths.root, profile.name, this.profileEnvValuesOf(profile, version, engine, {
         secrets,
         stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),

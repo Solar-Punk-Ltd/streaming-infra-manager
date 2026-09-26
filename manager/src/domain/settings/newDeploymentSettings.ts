@@ -1,6 +1,14 @@
 import {
+  ADMIN_API_TOKEN_KEY,
+  ADMIN_API_URL_KEY,
+  adminLinkEditProblem,
+  adminOriginOf,
+  type DeploymentSettingEntry,
+  type EngineName,
+  editsAdminLink,
   engineForComponents,
   isSecretSettingKey,
+  type ManagerAdminLink,
   type NewDeploymentSetting,
   type NewDeploymentSettingsCatalog,
 } from '@streaming-infra-manager/common';
@@ -13,9 +21,10 @@ import { deployRootProblem, stackRootOf } from '../versions/stackPaths.js';
 import type { StackVersionRecord } from '../versions/StackVersionRepository.js';
 import { versionSuppliedSecrets } from '../versions/versionSuppliedSecrets.js';
 
+import { adminLinkBeforeOf } from './adminLinkBefore.js';
 import { newDeploymentSettingsCatalogOf } from './deploymentSettingsCatalog.js';
 import { settingEditProblems } from './settingEditProblems.js';
-import { versionSettingsFilesAt } from './versionSettingsFiles.js';
+import { type VersionSettingsFiles, versionSettingsFilesAt, versionValuesOf } from './versionSettingsFiles.js';
 
 /** The deployment a list is worked out for before it exists, as its create body would describe it. */
 export interface NewDeploymentShape {
@@ -25,50 +34,131 @@ export interface NewDeploymentShape {
   host?: string | null;
 }
 
-/**
- * The settings a deployment of this version would start with, before it
- * exists: the list the wizard edits and a create body's `stack_settings` is
- * checked against. Refused, as a deployment's own list is, for a version with
- * no build to read the keys from.
- */
-export function newDeploymentSettingsCatalogFor(
-  version: StackVersionRecord,
-  shape: NewDeploymentShape,
-): NewDeploymentSettingsCatalog {
+/** What a deployment not created yet is worked out from: its version's build, for the engine it would run. */
+interface NewDeploymentSources {
+  root: string;
+  engine: EngineName;
+  files: VersionSettingsFiles;
+  /** The secrets the version requires, which the manager generates at the first deploy where the version leaves one empty. */
+  required: readonly string[];
+}
+
+/** Refused, as a deployment's own list is, for a version with no build to read the keys from. */
+function sourcesOf(version: StackVersionRecord, shape: NewDeploymentShape): NewDeploymentSources {
   const problem = deployRootProblem(version);
   if (problem) throw new StackSettingsNotReadyError(version.name, problem);
   const root = stackRootOf(version);
   const engine = engineForComponents(shape.components);
-  const required = version.contract?.requiredSecrets ?? [];
-  const supplied = versionSuppliedSecrets(root, engine, required);
+  return { root, engine, files: versionSettingsFilesAt(root, engine), required: version.contract?.requiredSecrets ?? [] };
+}
+
+function catalogOf(version: StackVersionRecord, shape: NewDeploymentShape, sources: NewDeploymentSources): NewDeploymentSettingsCatalog {
+  const supplied = versionSuppliedSecrets(sources.root, sources.engine, sources.required);
   return newDeploymentSettingsCatalogOf({
     versionId: version.id,
     contract: version.contract,
     buildId: version.buildId ?? null,
-    ...versionSettingsFilesAt(root, engine),
-    generatedKeys: required.filter((key) => !supplied.has(key)),
+    ...sources.files,
+    generatedKeys: sources.required.filter((key) => !supplied.has(key)),
     isLocalTarget: isLocalTarget(targetAlias(shape.host ?? null)),
   });
 }
 
 /**
+ * The settings a deployment of this version would start with, before it
+ * exists: the list the wizard edits and a create body's `stack_settings` is
+ * checked against.
+ */
+export function newDeploymentSettingsCatalogFor(
+  version: StackVersionRecord,
+  shape: NewDeploymentShape,
+): NewDeploymentSettingsCatalog {
+  return catalogOf(version, shape, sourcesOf(version, shape));
+}
+
+/**
+ * Why the manager's stored web2 admin token cannot be copied into a
+ * deployment created with these settings, or null: the create types a token
+ * of its own too, or the version gives the operator no `ADMIN_API_TOKEN` to set.
+ */
+function managerTokenProblem(settings: readonly NewDeploymentSetting[], entries: readonly DeploymentSettingEntry[]): string | null {
+  if (settings.some(({ key }) => key === ADMIN_API_TOKEN_KEY)) {
+    return `${ADMIN_API_TOKEN_KEY} is typed for this deployment and also asked for from the manager's stored token. Send one of the two.`;
+  }
+  const entry = entries.find(({ key }) => key === ADMIN_API_TOKEN_KEY);
+  if (!entry?.declared) return `${ADMIN_API_TOKEN_KEY} is not a setting this deployment's version declares, so the manager's stored token has nowhere to go.`;
+  if (entry.owner !== null) return `${ADMIN_API_TOKEN_KEY} is not one this deployment sets, so the manager's stored token has nowhere to go.`;
+  return null;
+}
+
+function settable(entries: readonly DeploymentSettingEntry[], key: string): boolean {
+  return entries.some((entry) => entry.key === key && entry.declared && entry.owner === null);
+}
+
+/**
+ * The manager's own web2 admin link as the settings of a create that names
+ * neither key and asks for no token, for a deployment that runs a stream
+ * uploader (Levi, 2026-09-25: every new uploader deployment starts with it).
+ * Only a link with both an address and a stored token, and only for a version
+ * that lets a create set both keys, so the default never leaves an address
+ * the uploader would refuse to start with or a create refused over it.
+ */
+export function managerLinkSettingsFor(
+  link: ManagerAdminLink | null,
+  version: StackVersionRecord,
+  shape: NewDeploymentShape,
+): NewDeploymentSetting[] {
+  if (!link?.url || !link.tokenStored || deployRootProblem(version)) return [];
+  const { entries } = newDeploymentSettingsCatalogFor(version, shape);
+  if (!settable(entries, ADMIN_API_URL_KEY) || !settable(entries, ADMIN_API_TOKEN_KEY)) return [];
+  return [{ key: ADMIN_API_URL_KEY, value: link.url }];
+}
+
+/** Whether a create leaves the web2 admin link to the manager's default: it names neither key and asks for no token. */
+export function leavesAdminLinkToManager(settings: readonly NewDeploymentSetting[], copyManagerAdminToken: boolean): boolean {
+  return !copyManagerAdminToken && !editsAdminLink(settings);
+}
+
+/**
  * The stack settings a new deployment is created with, held to the rules a
  * save of its settings page is held to, against the list its version gives a
- * deployment of this shape, and split the way the two columns hold them.
- * Refused whole, each key named and no secret repeated. A create that names
- * none reads nothing, so it is never refused over a version's files.
+ * deployment of this shape, and split the way the two columns hold them. That
+ * includes the web2 admin rule, judged on what the version gives the two keys
+ * and what the create sets for them, the manager's stored token counted when
+ * the create asks for it. Refused whole, each key named and no secret
+ * repeated. A create that names none and asks for nothing reads nothing, so
+ * it is never refused over a version's files. A token the create stores,
+ * typed or copied, is recorded for the origin of the address the deployment
+ * starts with.
+ *
+ * @param copyManagerAdminToken whether the insert copies the manager's stored
+ *   web2 admin token into the deployment, which never passes through here.
  */
 export function initialStackSettingsFor(
   name: string,
   version: StackVersionRecord,
   shape: NewDeploymentShape,
   settings: readonly NewDeploymentSetting[],
+  copyManagerAdminToken = false,
 ): InitialStackSettings {
-  if (settings.length === 0) return NO_STACK_SETTINGS;
-  const { entries } = newDeploymentSettingsCatalogFor(version, shape);
+  if (settings.length === 0 && !copyManagerAdminToken) return NO_STACK_SETTINGS;
+  const sources = sourcesOf(version, shape);
+  const { entries } = catalogOf(version, shape, sources);
   const problems = settingEditProblems(settings, entries);
+  const tokenProblem = copyManagerAdminToken ? managerTokenProblem(settings, entries) : null;
+  if (tokenProblem) problems.push(tokenProblem);
   if (problems.length > 0) throw new ProfileConfigError(name, problems.join(' '));
-  return initialStackSettingsOf(Object.fromEntries(settings.map(({ key, value }) => [key, value])));
+  const versionValues = versionValuesOf(sources.files);
+  const before = adminLinkBeforeOf({ current: versionValues, version: versionValues, requiredSecrets: sources.required });
+  const token = copyManagerAdminToken ? { current: true, afterReset: true } : before.token;
+  const adminProblem = adminLinkEditProblem(settings, { ...before, token });
+  if (adminProblem) throw new ProfileConfigError(name, adminProblem);
+  const values = Object.fromEntries(settings.map(({ key, value }) => [key, value]));
+  const initial = initialStackSettingsOf(values);
+  const url = values[ADMIN_API_URL_KEY] ?? versionValues[ADMIN_API_URL_KEY] ?? '';
+  const adminTokenOrigin = adminOriginOf(url) ?? '';
+  if (copyManagerAdminToken) return { ...initial, copyManagerAdminToken: { url }, adminTokenOrigin };
+  return values[ADMIN_API_TOKEN_KEY] ? { ...initial, adminTokenOrigin } : initial;
 }
 
 /** Values by key, split the way the two columns hold them: a secret apart from the rest. */

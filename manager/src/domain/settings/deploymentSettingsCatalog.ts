@@ -20,7 +20,6 @@ import {
 } from '@streaming-infra-manager/common';
 
 import type { Profile } from '../../types/index.js';
-import { parseEnvText } from '../../utils/envUtils.js';
 import type { ContainerRow } from '../ContainerRepository.js';
 import { SERVICE_ENV_KEYS } from '../containerKeysSpec.js';
 import { sampleCatalogOf, type SampleCatalogEntry } from '../versions/envSettingsText.js';
@@ -28,6 +27,7 @@ import { portTableOf } from '../versions/portTable.js';
 
 import { isChainEndpointKey, recordedStateOf } from './runningRecord.js';
 import { type EngineSettingsReader, type SettingOwnerContext, settingOwnerOf } from './settingOwners.js';
+import { versionValuesOf } from './versionSettingsFiles.js';
 
 /**
  * The engine settings of a deployment that runs a media server, as its list
@@ -255,11 +255,6 @@ function storedKeyOf(key: string, input: ListInput): StoredKey {
   }
   const stored = key in input.stored.plain || input.stored.secretKeys.includes(key);
   return { stored, value: isSecretSettingKey(key) ? null : (input.stored.plain[key] ?? null) };
-}
-
-/** What the version sets: the engine's file, and the root file over it, the way the deploy script reads them. */
-function versionValuesOf(files: Pick<CatalogInput, 'baseEnvText' | 'engineEnvText'>): Record<string, string> {
-  return { ...parseEnvText(files.engineEnvText), ...parseEnvText(files.baseEnvText) };
 }
 
 function ownerContextOf(

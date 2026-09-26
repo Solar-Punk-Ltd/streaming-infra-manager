@@ -8,6 +8,7 @@ import {
 import { Pool } from 'pg';
 
 import { Profile, ProfileKind, ProfileStatus } from '../types/index.js';
+import { copyManagerAdminToken } from './adminLink/adminTokenCopy.js';
 import { reserveSlotFor } from './ports/reservationSql.js';
 import { DEPLOYMENT_PHASE_FROM_PRIOR_STATUS_SQL, OPERATION_HOLD_FOR_OWNER_SQL, PROFILE_COLUMNS, PROFILE_SLOT_LOCK_KEY } from './profileSql.js';
 import { ProfileConfigError } from './errors/index.js';
@@ -71,6 +72,8 @@ export interface StoredStackSettings {
   secretKeys: string[];
   engine: EngineSettings;
   revision: number;
+  /** The origin its stored `ADMIN_API_TOKEN` was stored for, empty for none, and null where nothing is recorded. */
+  adminTokenOrigin: string | null;
 }
 
 /**
@@ -84,6 +87,8 @@ export interface StackSettingsChange {
   /** Keys that go back to what the version sets, taken out of whichever column holds them. */
   remove: string[];
   engine: EngineSettingsChange;
+  /** The origin a token the save stores is for, null for a save that takes the token out, and left out for one that leaves it. */
+  adminTokenOrigin?: string | null;
 }
 
 /** One save's change to the engine settings: values to store, and keys that go back to their default. */
@@ -100,6 +105,21 @@ export interface EngineSettingsChange {
 export interface InitialStackSettings {
   plain: Readonly<Record<string, string>>;
   secret: Readonly<Record<string, string>>;
+  /**
+   * Asks the insert to copy the manager's stored web2 admin token into the
+   * secret settings as `ADMIN_API_TOKEN`, which refuses the whole insert when
+   * none is stored or when it was saved for another origin. Left out, nothing
+   * is copied.
+   */
+  copyManagerAdminToken?: ManagerAdminTokenCopy;
+  /** The origin the stored `ADMIN_API_TOKEN` is for, empty for a token stored with no address. Left out where none is stored. */
+  adminTokenOrigin?: string;
+}
+
+/** A copy of the manager's stored token into a new deployment. */
+export interface ManagerAdminTokenCopy {
+  /** The address the new deployment gives its uploader, whose origin has to be the stored link's. */
+  url: string;
 }
 
 /** What a create that names no stack settings stores, so its version's values stand. */
@@ -208,10 +228,10 @@ export class ProfileRepository {
            components, host, feed_owner, feed_topic, private_key, public_key, stamp_id,
            srt_passphrase, group_id, bee_publishers, bee_url, rpc_endpoint, rpc_endpoint_source,
            node_mode, stack_version_id, engine_settings, stack_settings, stack_settings_secret,
-           deployment_phase
+           admin_token_origin, deployment_phase
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                 COALESCE($18::text, 'stack'), $19, $20, $21::jsonb, $22::jsonb, $23::jsonb,
+                 COALESCE($18::text, 'stack'), $19, $20, $21::jsonb, $22::jsonb, $23::jsonb, $24,
                  CASE WHEN $5 = 'DEPLOYING' THEN 'starting' ELSE NULL END)
          RETURNING ${PROFILE_COLUMNS}`,
         [
@@ -238,8 +258,10 @@ export class ProfileRepository {
           JSON.stringify(engineSettings),
           JSON.stringify(stackSettings.plain),
           JSON.stringify(stackSettings.secret),
+          stackSettings.adminTokenOrigin ?? null,
         ],
       );
+      if (stackSettings.copyManagerAdminToken) await copyManagerAdminToken(client, name, stackSettings.copyManagerAdminToken);
       await client.query('COMMIT');
       return result.rowCount && result.rowCount > 0 ? result.rows[0]! : null;
     } catch (err) {
@@ -561,16 +583,25 @@ export class ProfileRepository {
       secret_keys: string[];
       engine: EngineSettings;
       revision: number;
+      admin_token_origin: string | null;
     }>(
       `SELECT stack_settings AS plain,
               ARRAY(SELECT jsonb_object_keys(stack_settings_secret) ORDER BY 1) AS secret_keys,
               engine_settings AS engine,
-              settings_revision AS revision
+              settings_revision AS revision,
+              admin_token_origin
          FROM profiles WHERE name = $1`,
       [name],
     );
     const row = result.rows[0];
-    return row ? { plain: row.plain, secretKeys: row.secret_keys, engine: row.engine, revision: row.revision } : null;
+    return row
+      ? { plain: row.plain, secretKeys: row.secret_keys, engine: row.engine, revision: row.revision, adminTokenOrigin: row.admin_token_origin }
+      : null;
+  }
+
+  /** Records the origin a stored web2 admin token is for, where nothing is recorded yet. */
+  async bindAdminTokenOrigin(name: string, origin: string): Promise<void> {
+    await this.pool.query('UPDATE profiles SET admin_token_origin = $2 WHERE name = $1 AND admin_token_origin IS NULL', [name, origin]);
   }
 
   /**
@@ -590,6 +621,7 @@ export class ProfileRepository {
           SET stack_settings = (stack_settings - $4::text[]) || $5::jsonb,
               stack_settings_secret = (stack_settings_secret - $4::text[]) || $6::jsonb,
               engine_settings = (engine_settings - $7::text[]) || $8::jsonb,
+              admin_token_origin = CASE WHEN $9::boolean THEN $10::text ELSE admin_token_origin END,
               settings_revision = settings_revision + 1,
               updated_at = NOW()
         WHERE name = $1 AND instance_id = $2 AND settings_revision = $3
@@ -597,6 +629,7 @@ export class ProfileRepository {
       [
         name, guard.instanceId, guard.expectedRevision, change.remove, JSON.stringify(change.plain),
         JSON.stringify(change.secret), change.engine.remove, JSON.stringify(change.engine.set),
+        change.adminTokenOrigin !== undefined, change.adminTokenOrigin ?? null,
       ],
     );
     return result.rows[0]?.settings_revision ?? null;

@@ -19,10 +19,7 @@
  * `node --import tsx --conditions=development --test test/wizard-settings-browser.test.mjs`.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { writeFile } from 'node:fs/promises';
-import { createServer as createNetServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +37,7 @@ import {
   waitFor,
 } from './support/chrome.mjs';
 import { evidenceDirectory } from './support/evidence.mjs';
+import { freePort, startMockManager } from './support/mock-manager-process.mjs';
 import { endViteServer } from './support/teardown.mjs';
 import { viteCacheFor } from './support/vite-cache.mjs';
 
@@ -56,50 +54,8 @@ const VERSION = '2';
 const NAME = 'wizard-configured';
 
 /** Synthetic, and never expected on any page once typed. */
-const TOKEN = 'offline-wizard-admin-token-0123456789abcdef';
+const TOKEN = 'offline-wizard-auth-token-0123456789abcdef';
 const WEBHOOK_TOKEN = 'offline-wizard-webhook-token-0123456789';
-
-async function freePort() {
-  const server = createNetServer();
-  await new Promise((done) => server.listen(0, '127.0.0.1', done));
-  const { port } = server.address();
-  await new Promise((done) => server.close(done));
-  return port;
-}
-
-/** The dev mock manager on a port of its own, with the seeded blocked attempt released so creates deploy. */
-async function startMockManager(t) {
-  const port = await freePort();
-  const child = spawn(
-    process.execPath,
-    [
-      '--import', 'tsx', '--conditions=development', '--input-type=module',
-      '-e', "import { state } from './dev/mock-seed.mjs'; await import('./dev/mock-manager.mjs'); state.attempts = []; process.send({ ready: true });",
-    ],
-    { cwd: frontend, env: { ...process.env, PORT: String(port) }, stdio: ['ignore', 'ignore', 'inherit', 'ipc'] },
-  );
-  t.after(async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const exited = once(child, 'exit');
-    const bound = setTimeout(() => child.kill('SIGKILL'), 2_000);
-    child.kill('SIGTERM');
-    try { await exited; } finally { clearTimeout(bound); }
-  });
-  await new Promise((done, fail) => {
-    const bound = setTimeout(() => finish(new Error('the mock manager did not start')), 20_000);
-    const onMessage = (message) => { if (message?.ready) finish(); };
-    const onExit = () => finish(new Error('the mock manager exited before it was ready'));
-    const finish = (error) => {
-      clearTimeout(bound);
-      child.off('message', onMessage);
-      child.off('exit', onExit);
-      error ? fail(error) : done();
-    };
-    child.on('message', onMessage);
-    child.once('exit', onExit);
-  });
-  return `http://127.0.0.1:${port}`;
-}
 
 test('the wizard creates a deployment with its own settings at a phone width', { timeout: 300_000 }, async (t) => {
   const manager = await startMockManager(t);
@@ -210,12 +166,14 @@ test('the wizard creates a deployment with its own settings at a phone width', {
 
   await t.test('a secret is a masked field that starts empty, and a generated one says it is made at the first deploy', async () => {
     await search('TOKEN');
-    await waitFor(() => evaluate(`Boolean(${fieldOf('ADMIN_API_TOKEN')})`), Boolean, 'the admin token field');
-    assert.equal(await evaluate(`${fieldOf('ADMIN_API_TOKEN')}.type`), 'password');
-    assert.equal(await evaluate(`${fieldOf('ADMIN_API_TOKEN')}.value`), '');
+    await waitFor(() => evaluate(`Boolean(${fieldOf('API_AUTH_TOKEN')})`), Boolean, 'the auth token field');
+    assert.equal(await evaluate(`${fieldOf('API_AUTH_TOKEN')}.type`), 'password');
+    assert.equal(await evaluate(`${fieldOf('API_AUTH_TOKEN')}.value`), '');
     assert.match(await rowText('API_AUTH_TOKEN'), /The manager generates a value for this deployment when it first deploys\./);
-    await fillWhenPresent(evaluate, fieldOf('ADMIN_API_TOKEN'), TOKEN, 'the admin token field');
-    await waitFor(() => rowText('ADMIN_API_TOKEN'), (text) => text.includes('changed'), 'the typed token marked changed');
+    // The web2 admin token is set in the step's own Web2 admin group, so this list points at it.
+    assert.match(await rowText('ADMIN_API_TOKEN'), /Decided by the Web2 admin group of this step\./);
+    await fillWhenPresent(evaluate, fieldOf('API_AUTH_TOKEN'), TOKEN, 'the auth token field');
+    await waitFor(() => rowText('API_AUTH_TOKEN'), (text) => text.includes('changed'), 'the typed token marked changed');
     assert.equal((await body()).includes(TOKEN), false, 'a typed secret is never shown as text');
   });
 
@@ -284,8 +242,10 @@ test('the wizard creates a deployment with its own settings at a phone width', {
     await click(buttonWithText('Continue'), 'the Continue button');
     await waitFor(body, (text) => text.includes('Check it, then deploy.'), 'the review');
     const review = await body();
-    // In the list's order, which puts the admin section first.
-    assert.match(review, /Advanced settings\s+ADMIN_API_TOKEN, MAX_QUEUE_SIZE, LOG_LEVEL and SRS_WEBHOOK_TOKEN set for this deployment\. Every other key keeps the version's value\./);
+    // In the list's order, which puts the required section first.
+    assert.match(review, /Advanced settings\s+API_AUTH_TOKEN, MAX_QUEUE_SIZE, LOG_LEVEL and SRS_WEBHOOK_TOKEN set for this deployment\. Every other key keeps the version's value\./);
+    // This mock manager has no web2 admin link of its own, so the group starts off.
+    assert.match(review, /Web2 admin\s+Not linked\. The uploader runs standalone\./);
     assert.equal(review.includes(TOKEN) || review.includes(WEBHOOK_TOKEN), false);
     await screenshot('review-phone.png');
   });
@@ -298,16 +258,18 @@ test('the wizard creates a deployment with its own settings at a phone width', {
     await waitFor(() => rowText('LOG_LEVEL'), (text) => text.includes('set here'), 'the created value as the deployment own');
     assert.equal(await evaluate(`${fieldOf('LOG_LEVEL')}.value`), 'debug');
 
-    await fillWhenPresent(evaluate, `${card}?.querySelector('input[aria-label="Search settings"]')`, 'ADMIN_API_TOKEN', 'the card search');
-    await waitFor(() => rowText('ADMIN_API_TOKEN'), (text) => text.includes('A value is stored for this deployment. It is never shown.'), 'the stored token');
+    await fillWhenPresent(evaluate, `${card}?.querySelector('input[aria-label="Search settings"]')`, 'API_AUTH_TOKEN', 'the card search');
+    await waitFor(() => rowText('API_AUTH_TOKEN'), (text) => text.includes('A value is stored for this deployment. It is never shown.'), 'the stored token');
 
     const stored = await evaluate(`fetch('/profiles/${NAME}/settings').then(r => r.json()).then(list => list.entries
       .filter(entry => entry.stored).map(entry => [entry.key, entry.storedValue]))`);
     // The segment length the wizard's own engine step took is listed too: a
-    // deployment's list takes its engine settings as its own since the Engine
-    // card's drawer went on 2026-09-26.
+    // deployment's list takes its engine settings as its own. And the empty
+    // address the Web2 admin group stores while it is off, so the uploader runs
+    // standalone.
     assert.deepEqual(stored, [
-      ['ADMIN_API_TOKEN', null],
+      ['API_AUTH_TOKEN', null],
+      ['ADMIN_API_URL', ''],
       ['MAX_QUEUE_SIZE', '250'],
       ['LOG_LEVEL', 'debug'],
       ['HLS_FRAGMENT', '1.5'],

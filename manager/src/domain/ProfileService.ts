@@ -100,13 +100,20 @@ import {
 } from './localHost.js';
 import { ProfileRepository } from './ProfileRepository.js';
 import { engineDefaultsAt } from './settings/engineHostDefaults.js';
-import { initialStackSettingsFor, initialStackSettingsOf } from './settings/newDeploymentSettings.js';
+import {
+  initialStackSettingsFor,
+  initialStackSettingsOf,
+  leavesAdminLinkToManager,
+  managerLinkSettingsFor,
+  type NewDeploymentShape,
+} from './settings/newDeploymentSettings.js';
+import type { ManagerAdminLinkStore } from './adminLink/ManagerAdminLinkRepository.js';
 import { beePublisherUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
 import { stackRootOf } from './versions/stackPaths.js';
 import { deployOwnerOf } from './versions/buildLedger.js';
 import { portPlacementProblem } from './versions/stackContract.js';
-import type { NewProfilePlacement } from './ProfileRepository.js';
+import type { InitialStackSettings, NewProfilePlacement, StoredStackSettings } from './ProfileRepository.js';
 import type { DeployTargets } from './ports/DeployTargets.js';
 import type { PortReservationRepository } from './ports/PortReservationRepository.js';
 import type {
@@ -200,9 +207,22 @@ function nextFreeMemberNames(
   return names;
 }
 
+/** The origin a sibling's stored web2 admin token is for, where one is recorded, for a member that copies its settings. */
+function adminTokenOriginOf(stored: StoredStackSettings | null): Pick<InitialStackSettings, 'adminTokenOrigin'> {
+  const origin = stored?.adminTokenOrigin ?? null;
+  return origin === null ? {} : { adminTokenOrigin: origin };
+}
+
+/** Whether a deployment of this shape runs a stream uploader, which is what reports to the web2 admin. */
+function runsStreamUploader({ kind, components }: NewDeploymentShape): boolean {
+  return defaultServicesFor({ kind, components: components ? [...components] : null }).includes(STREAM_UPLOADER_SERVICE);
+}
+
 /** What the create log says of the stack settings a deployment was given: their keys, never a value. */
-function stackSettingsNote(settings: readonly NewDeploymentSetting[] | null | undefined): string {
-  return settings?.length ? ` with stack settings ${settings.map(({ key }) => key).join(', ')}` : '';
+function stackSettingsNote(settings: InitialStackSettings): string {
+  const keys = [...Object.keys(settings.plain), ...Object.keys(settings.secret)];
+  const named = keys.length > 0 ? ` with stack settings ${keys.join(', ')}` : '';
+  return settings.copyManagerAdminToken ? `${named} and the manager's web2 admin token` : named;
 }
 
 /**
@@ -253,7 +273,30 @@ export class ProfileService {
      * line in an env file at deploy and reaches nothing else.
      */
     private readonly managerRpcEndpoint: string | null = null,
+    /** The web2 admin link every new uploader deployment starts with, where a create leaves the link to it. */
+    private readonly managerAdminLink?: Pick<ManagerAdminLinkStore, 'read'>,
   ) {}
+
+  /**
+   * What a create is given of its stack settings: what it names, and the
+   * manager's own web2 admin link for a deployment that runs a stream
+   * uploader when the create names neither key and asks for no token, with the
+   * stored token copied in for that address.
+   */
+  private async createdStackSettings(
+    name: string,
+    version: StackVersionRecord,
+    shape: NewDeploymentShape,
+    input: { stack_settings?: readonly NewDeploymentSetting[] | null; use_manager_admin_token?: boolean | null },
+  ): Promise<InitialStackSettings> {
+    const named = input.stack_settings ?? [];
+    const asked = input.use_manager_admin_token === true;
+    const linked =
+      this.managerAdminLink && leavesAdminLinkToManager(named, asked) && runsStreamUploader(shape)
+        ? managerLinkSettingsFor(await this.managerAdminLink.read(), version, shape)
+        : [];
+    return initialStackSettingsFor(name, version, shape, [...named, ...linked], asked || linked.length > 0);
+  }
 
   /**
    * Both request paths ask the same two questions of the row they are about to
@@ -372,6 +415,8 @@ export class ProfileService {
     engine_settings?: EngineSettings | null;
     /** Absent stores none, so the version's values stand. Checked against the list its version gives this deployment. */
     stack_settings?: readonly NewDeploymentSetting[] | null;
+    /** True copies the manager's stored web2 admin token into the deployment at its insert. */
+    use_manager_admin_token?: boolean | null;
   }): Promise<ProfileWithContainers> {
     const existing = await this.repo.findByName(input.name);
     if (existing) {
@@ -417,11 +462,11 @@ export class ProfileService {
     if (Object.keys(engineSettings).length > 0) {
       this.assertCreatableEngineSettings(input, version, engineSettings);
     }
-    const stackSettings = initialStackSettingsFor(
+    const stackSettings = await this.createdStackSettings(
       input.name,
       version,
       { kind: input.kind, components: createdComponents, host: input.host },
-      input.stack_settings ?? [],
+      input,
     );
 
     let row;
@@ -466,7 +511,7 @@ export class ProfileService {
     }
 
     logger.info(
-      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(input.stack_settings)}`,
+      `[ProfileService] Created profile ${input.name} (kind=${input.kind}, slot=${row.port_slot}, version=${version.name})${stackSettingsNote(stackSettings)}`,
     );
     const withContainers = await this.containers.withContainers(row);
     this.publishChanged(withContainers);
@@ -1008,6 +1053,8 @@ export class ProfileService {
     engine_settings?: EngineSettings | null;
     /** What every member is created with, checked against the list its version gives such a member. Absent stores none. */
     stack_settings?: readonly NewDeploymentSetting[] | null;
+    /** True copies the manager's stored web2 admin token into every member at its insert. */
+    use_manager_admin_token?: boolean | null;
   }): Promise<{ group: DeploymentGroup; profiles: ProfileWithContainers[] }> {
     // The same invariant updateGroupConfig enforces, at the other door. A pool's
     // rungs each pay with their own batch, sized for that rung's bitrate, so one
@@ -1046,11 +1093,11 @@ export class ProfileService {
         engineSettings,
       );
     }
-    const stackSettings = initialStackSettingsFor(
+    const stackSettings = await this.createdStackSettings(
       input.group_name,
       version,
       { kind: input.kind, components: memberComponents, host: input.host },
-      input.stack_settings ?? [],
+      input,
     );
 
     // The same two questions the single create asks, over the services the
@@ -1130,7 +1177,7 @@ export class ProfileService {
 
     logger.info(
       `[ProfileService] Created group ${group.name} with ${profiles.length} member(s)` +
-        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(input.stack_settings)}; deploying`,
+        `${input.abr_ladder ? ' (ABR node pool)' : ''} on ${version.name}${stackSettingsNote(stackSettings)}; deploying`,
     );
 
     return { group, profiles: await this.deployNewMembers(profiles) };
@@ -1505,9 +1552,13 @@ export class ProfileService {
       stack_version_id: canonical.stack_version_id,
       // So an appended member cuts the same segments as the siblings it joins,
       // and runs with the same stack settings, the secret ones included, which
-      // the member rows do not carry either.
+      // the member rows do not carry either, and its web2 admin token goes only
+      // where theirs does.
       engine_settings: canonical.engine_settings,
-      stack_settings: initialStackSettingsOf(await this.repo.stackSettingsForDeploy(canonical.name)),
+      stack_settings: {
+        ...initialStackSettingsOf(await this.repo.stackSettingsForDeploy(canonical.name)),
+        ...adminTokenOriginOf(await this.repo.stackSettingsOf(canonical.name)),
+      },
       slot_cap: placement.slotCap,
       daemon_id: placement.daemonId,
       table: placement.table,

@@ -91,6 +91,7 @@ describe('POST /profiles with stack settings', () => {
         secretKeys: ['ADMIN_API_TOKEN'],
         engine: {},
         revision: 0,
+        adminTokenOrigin: 'http://admin.internal',
       });
       assert.deepEqual(await harness.profiles.stackSettingsForDeploy('stage'), {
         LOG_LEVEL: 'debug',
@@ -278,7 +279,7 @@ describe('POST /groups with stack settings', () => {
 });
 
 describe('POST /groups/:id/members', () => {
-  it('gives a member appended to a group the stack settings of the siblings it joins', async () => {
+  it('gives a member appended to a group the stack settings of the siblings it joins, and their token for the address it was stored for', async () => {
     const harness = profileServiceHarness();
     const app = await appFor(harness);
     try {
@@ -298,6 +299,7 @@ describe('POST /groups/:id/members', () => {
         secretKeys: ['ADMIN_API_TOKEN'],
         engine: {},
         revision: 0,
+        adminTokenOrigin: '',
       });
       assert.deepEqual(await harness.profiles.stackSettingsForDeploy('fleet-profile-2'), { LOG_LEVEL: 'debug', ADMIN_API_TOKEN: TOKEN });
       assert.doesNotMatch(JSON.stringify(appended.body), new RegExp(TOKEN));

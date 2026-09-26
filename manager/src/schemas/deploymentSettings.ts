@@ -1,4 +1,4 @@
-import { array, mixed, number, object, string, InferType } from 'yup';
+import { array, boolean, mixed, number, object, string, InferType } from 'yup';
 
 /** The shape of an env key, the same rule the version settings save holds a key to. */
 const SETTINGS_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -80,6 +80,14 @@ export const newDeploymentSettingsField = () =>
     .notRequired()
     .default(undefined)
     .max(MAX_SAVE_ENTRIES);
+
+/**
+ * Whether a create copies the manager's stored web2 admin token into the new
+ * deployment, in `POST /profiles` and `POST /groups`. The token itself never
+ * travels on a request: the insert copies it from the manager's own table.
+ */
+export const managerAdminTokenField = () =>
+  boolean().typeError('use_manager_admin_token is true or false').strict().notRequired();
 
 export const saveDeploymentSettingsSchema = object({
   expectedInstanceId: string().required().strict().uuid(EXPECTED_INSTANCE_MESSAGE),
