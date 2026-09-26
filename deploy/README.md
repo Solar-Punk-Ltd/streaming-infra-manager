@@ -399,9 +399,11 @@ leaves the host firewall of step 3 to close those ports.
 
 Commit the edit, Update the bundled version from the Versions page so the next
 build captures it, then redeploy the deployments that should pick it up. A node
-or an engine takes its new binding on its next deploy and not before: the
+or an engine takes its new binding on its next deploy and not before. The
 manager copies that base file fresh into each deployment's own `.env.<name>`
-every time it deploys, which is how a value set once reaches all of them.
+every time it deploys, with the deployment's own stored settings over it, so a
+value set once reaches every deployment that stores no value of its own for
+that key.
 
 ### 3. Generate and review the host firewall
 
