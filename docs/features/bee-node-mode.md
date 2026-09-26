@@ -117,10 +117,9 @@ on the manager's endpoint against the offline mock and reads both entries off
 each page and the stored profile back. The stack's deploy suite is 889 on its
 branch, where the rendered gateway with neither key was measured byte for
 byte identical to the one before. Two read-only reviews of the manager half,
-one for correctness and one for security, and one of the frontend half. Not
-yet given a full check, not yet deployed, and not yet exercised on a
-real Bee node: a light gateway's chequebook coming up through the two keys is
-proved on the rendered compose command, not on a running node.
+one for correctness and one for security, and one of the frontend half. A
+light gateway's chequebook coming up through the two keys is proved on the
+rendered compose command, not on a running Bee node.
 
 The 2026-09-19 privacy regression ran focused manager service, SQL projection,
 deployment env and log redaction tests, plus frontend edit and offline manager
