@@ -111,7 +111,7 @@ by the manager in this row.
 ## Verified
 
 Common 405, manager unit 2666, manager database 540 on a disposable Postgres,
-frontend unit 311 and browser 259 through the laptop lane on 2026-09-17, with
+frontend unit 311 and browser 259 on a laptop on 2026-09-17, with
 a browser walkthrough that creates a viewer gateway in each mode and a stream
 on the manager's endpoint against the offline mock and reads both entries off
 each page and the stored profile back. The stack's deploy suite is 889 on its
