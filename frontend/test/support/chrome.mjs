@@ -36,8 +36,8 @@ export async function waitFor(read, accepts = Boolean, description = '', timeout
  *
  * The description says what was wanted and nothing says what arrived instead,
  * which is the difference between a page that never loaded and a page that
- * loaded and said something else. On the verification box seven files ended on
- * waits that could not tell those apart, and all seven pass on a laptop, so
+ * loaded and said something else. In a busy Linux container seven files ended
+ * on waits that could not tell those apart, and all seven pass on a laptop, so
  * the missing half is exactly the half that decides whose fault it is.
  */
 function lastReading(value, readAnything) {
@@ -418,9 +418,9 @@ async function passwdFile() {
  * Who should run the browser, and whether the sandbox has to be given up.
  *
  * Chrome refuses to run as root unless the sandbox is disabled, which is why
- * every browser suite refused inside the verification box's container. Passing
- * `--no-sandbox` unconditionally is the usual answer and the worse one: it
- * drops the sandbox on a laptop that never needed it.
+ * every browser suite refused inside a container whose jobs run as root.
+ * Passing `--no-sandbox` unconditionally is the usual answer and the worse
+ * one: it drops the sandbox on a laptop that never needed it.
  *
  * ⛔ Keeping the sandbox in that container is not on offer, and this is a
  * reading rather than an assumption. Running as the image's `pwuser` cleared
@@ -520,7 +520,7 @@ export async function launchChrome(t, origin) {
   // Chrome explains a refusal on its own standard error, at once and in one
   // line, and then exits. Discarding that stream leaves a run with nothing but
   // the absence of a port file fifteen seconds later, which is how sixteen
-  // suites on the verification box each reported the same timeout and no
+  // suites run as root in a container each reported the same timeout and no
   // reason among them.
   let said = '';
   const collect = (chunk) => { said += chunk; };
