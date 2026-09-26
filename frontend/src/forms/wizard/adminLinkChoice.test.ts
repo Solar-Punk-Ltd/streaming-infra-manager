@@ -24,6 +24,7 @@ import {
   adminLinkTestOf,
   asksAdminLink,
   chosenAdminLink,
+  storedTokenElsewhere,
   withAdminLinkPointed,
 } from './adminLinkChoice';
 import { initialWizardState, type WizardContext, type WizardGoal, type WizardState } from './wizardState';
@@ -132,6 +133,19 @@ describe('what stops Continue and Deploy', () => {
       adminLinkError(stateFor('stream', { adminLink: { ...on, url: ADMIN_URL, tokenSource: 'stored' } }), contextWith(ADDRESS_ONLY)),
       'Web2 admin: the manager stores no token, so type one here',
     );
+  });
+
+  it("asks for a typed token when the address leaves the origin the manager's token was saved for", () => {
+    const moved = { on: true, url: 'https://admin2.example.com', tokenSource: 'stored' as const, token: '' };
+    assert.equal(
+      adminLinkError(stateFor('stream', { adminLink: moved }), contextWith(DEFAULT)),
+      "Web2 admin: the manager's stored token was saved for another address, so type the token for this one",
+    );
+    assert.equal(storedTokenElsewhere(stateFor('stream', { adminLink: moved }), contextWith(DEFAULT)), true);
+    assert.equal(adminLinkTestOf(stateFor('stream', { adminLink: moved }), contextWith(DEFAULT)), null);
+    assert.equal(adminLinkError(stateFor('stream', { adminLink: { ...moved, url: `${ADMIN_URL}/v2` } }), contextWith(DEFAULT)), null);
+    assert.equal(storedTokenElsewhere(stateFor('stream', { adminLink: { ...moved, url: `${ADMIN_URL}/v2` } }), contextWith(DEFAULT)), false);
+    assert.equal(adminLinkError(stateFor('stream', { adminLink: { ...moved, tokenSource: 'typed', token: TOKEN } }), contextWith(DEFAULT)), null);
   });
 });
 

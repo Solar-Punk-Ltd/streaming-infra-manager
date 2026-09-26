@@ -8,6 +8,7 @@ import {
   type DeploymentSettingEntry,
   type ManagerAdminLink,
   type NewDeploymentSetting,
+  sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
 import { ADMIN_LINK_ABSENT, ADMIN_LINK_UNREAD } from '../../adminLink/adminLinkText';
@@ -74,10 +75,26 @@ export function adminLinkAvailability(context: WizardContext): AdminLinkAvailabi
   return takesAdminLink(load.catalog.entries) ? 'available' : 'absent';
 }
 
+/**
+ * Whether the group asks for the manager's stored token for an address on
+ * another origin than the one it was saved for, where the manager refuses to
+ * send it and a token typed for the address has to take its place.
+ */
+export function storedTokenElsewhere(state: WizardState, context: WizardContext): boolean {
+  const choice = chosenAdminLink(state, context);
+  const link = context.managerAdminLink;
+  if (!choice.on || choice.tokenSource !== 'stored' || !link?.tokenStored) return false;
+  return urlProblemOf(choice) === null && !sameAdminOrigin(choice.url, link.url ?? '');
+}
+
 /** The token a test or a create presents, or why there is none to present. */
 function tokenOf(choice: AdminLinkChoice, context: WizardContext): { token: AdminLinkTokenChoice } | { problem: string } {
   if (choice.tokenSource === 'stored') {
-    return context.managerAdminLink?.tokenStored ? { token: { source: 'stored' } } : { problem: 'the manager stores no token, so type one here' };
+    const link = context.managerAdminLink;
+    if (!link?.tokenStored) return { problem: 'the manager stores no token, so type one here' };
+    return sameAdminOrigin(choice.url, link.url ?? '')
+      ? { token: { source: 'stored' } }
+      : { problem: "the manager's stored token was saved for another address, so type the token for this one" };
   }
   if (choice.token === '') return { problem: "type the token, or use the manager's stored one" };
   const problem = adminTokenProblem(choice.token);

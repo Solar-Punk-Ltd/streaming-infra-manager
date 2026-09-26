@@ -30,9 +30,20 @@ describe("the manager's web2 admin link draft", () => {
   });
 
   it('sends the address and keeps the stored token while the field is empty', () => {
-    const draft = { ...draftOf(STORED), url: 'https://admin2.example.com' };
+    const draft = { ...draftOf(STORED), url: `${ADMIN_URL}/v2` };
     assert.equal(managerAdminLinkChanged(STORED, draft), true);
-    assert.deepEqual(managerAdminLinkSaveOf(STORED, draft), { expectedRevision: 4, url: 'https://admin2.example.com' });
+    assert.deepEqual(managerAdminLinkSaveOf(STORED, draft), { expectedRevision: 4, url: `${ADMIN_URL}/v2` });
+  });
+
+  it('asks for the token again for an address on another origin, and tests nothing there with the stored one', () => {
+    const moved = { ...draftOf(STORED), url: 'https://admin2.example.com' };
+    assert.deepEqual(managerAdminLinkDraftProblems(STORED, moved), [
+      'The address moves to another one than the stored token was saved with, and the manager sends its stored token only to the address it was saved with. Type the token again for the new address, or clear it.',
+    ]);
+    assert.deepEqual(managerAdminLinkDraftProblems(STORED, { ...moved, token: TOKEN }), []);
+    assert.deepEqual(managerAdminLinkDraftProblems(STORED, { ...moved, clearToken: true }), []);
+    assert.equal(managerAdminLinkTestOf(STORED, moved), null);
+    assert.deepEqual(managerAdminLinkTestOf(STORED, { ...moved, token: TOKEN })?.token, { source: 'typed', value: TOKEN });
   });
 
   it('replaces the token with a typed one, and clears it on Clear', () => {

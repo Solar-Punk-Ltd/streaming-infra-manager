@@ -3,6 +3,7 @@ import {
   type ManagerAdminLink,
   type ManagerAdminLinkSave,
   managerAdminLinkProblems,
+  sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
 /**
@@ -34,18 +35,23 @@ export function managerAdminLinkSaveOf(link: ManagerAdminLink, draft: ManagerAdm
   return draft.clearToken ? { ...save, token: null } : save;
 }
 
-/** Why the manager would refuse this draft, by the same shared rules, one sentence each. None repeats the address or the token. */
+/**
+ * Why the manager would refuse this draft, by the same shared rules, one
+ * sentence each, an address on another origin than the stored token's
+ * included. None repeats the address or the token.
+ */
 export function managerAdminLinkDraftProblems(link: ManagerAdminLink, draft: ManagerAdminLinkDraft): string[] {
-  return managerAdminLinkProblems(managerAdminLinkSaveOf(link, draft));
+  return managerAdminLinkProblems(managerAdminLinkSaveOf(link, draft), link);
 }
 
 /**
  * What Test connection sends for this draft: the typed token, else the stored
- * one, which never reaches the page. Null when there is no address, or no
- * token to test with.
+ * one, which never reaches the page and goes only to the origin it was saved
+ * for. Null when there is no address, or no token to test with.
  */
 export function managerAdminLinkTestOf(link: ManagerAdminLink, draft: ManagerAdminLinkDraft): AdminLinkTestRequest | null {
   if (draft.url === '') return null;
   if (draft.token !== '') return { url: draft.url, token: { source: 'typed', value: draft.token } };
-  return link.tokenStored && !draft.clearToken ? { url: draft.url, token: { source: 'stored' } } : null;
+  const stored = link.tokenStored && !draft.clearToken && sameAdminOrigin(draft.url, link.url ?? '');
+  return stored ? { url: draft.url, token: { source: 'stored' } } : null;
 }

@@ -19,6 +19,7 @@ import {
   ADMIN_LINK_TEST_OUTCOMES,
   adminLinkTestProblems,
   managerAdminLinkProblems,
+  sameAdminOrigin,
 } from '@streaming-infra-manager/common';
 
 import { saveManagerAdminLinkSchema, testAdminLinkSchema } from '../../manager/src/schemas/managerSettings.ts';
@@ -63,14 +64,14 @@ async function validBody(schema, req, readBody, res) {
 async function save(req, res, readBody) {
   const body = await validBody(saveManagerAdminLinkSchema, req, readBody, res);
   if (!body) return;
-  const problems = managerAdminLinkProblems(body);
-  if (problems.length > 0) return send(res, 400, { error: 'validation_error', errors: problems });
   if (body.expectedRevision !== managerAdminLink.revision) {
     return send(res, 409, {
       error: 'manager_settings_changed',
       message: "The manager's settings changed after the page read them. Reload them and make the change again.",
     });
   }
+  const problems = managerAdminLinkProblems(body, managerAdminLink);
+  if (problems.length > 0) return send(res, 400, { error: 'validation_error', errors: problems });
   managerAdminLink.url = body.url === '' ? null : body.url;
   if (managerAdminLink.url === null) managerAdminLink.tokenStored = false;
   else if (body.token !== undefined) managerAdminLink.tokenStored = body.token !== null;
@@ -83,6 +84,9 @@ async function test(req, res, readBody) {
   if (!body) return;
   const problems = adminLinkTestProblems(body);
   if (problems.length > 0) return send(res, 400, { error: 'validation_error', errors: problems });
+  if (body.token.source === 'stored' && managerAdminLink.tokenStored && !sameAdminOrigin(body.url, managerAdminLink.url ?? '')) {
+    return send(res, 200, { outcome: 'stored-token-elsewhere' }, { 'cache-control': 'no-store' });
+  }
   const hasToken = body.token.source === 'typed' || managerAdminLink.tokenStored;
   return send(res, 200, { outcome: mockTestOutcome({ url: body.url, hasToken, feedOwner: body.feedOwner ?? null }) }, { 'cache-control': 'no-store' });
 }

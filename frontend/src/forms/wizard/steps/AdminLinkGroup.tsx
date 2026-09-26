@@ -1,4 +1,5 @@
-import { Box, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
+import { useRef } from 'react';
+import { Alert, Box, Button, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
 
 import { adminTokenProblem, adminUrlProblem } from '@streaming-infra-manager/common';
 
@@ -10,7 +11,9 @@ import {
   ADMIN_LINK_OFF_NOTE,
   ADMIN_LINK_SWITCH_LABEL,
   ADMIN_LINK_UNREAD,
+  STORED_TOKEN_ELSEWHERE,
   storedTokenDetail,
+  TYPE_TOKEN_HERE,
 } from '../../../adminLink/adminLinkText';
 import { PLAIN_TEXT_INPUT } from '../../../deployments/settings/SettingValueField';
 import { ChoiceGroup } from '../../ChoiceGroup';
@@ -20,6 +23,7 @@ import {
   adminLinkTestOf,
   asksAdminLink,
   chosenAdminLink,
+  storedTokenElsewhere,
 } from '../adminLinkChoice';
 import type { WizardStepProps } from '../wizardState';
 
@@ -33,6 +37,7 @@ const NEW_PASSWORD = 'new-password';
  * manager's stored token or one typed here, with Test connection.
  */
 export function AdminLinkGroup({ state, context, update }: WizardStepProps) {
+  const tokenField = useRef<HTMLInputElement | null>(null);
   if (!asksAdminLink(state)) return null;
   const availability = adminLinkAvailability(context);
   const choice = chosenAdminLink(state, context);
@@ -41,6 +46,11 @@ export function AdminLinkGroup({ state, context, update }: WizardStepProps) {
   const urlProblem = choice.url === '' ? null : adminUrlProblem(choice.url);
   const tokenProblem = choice.token === '' ? null : adminTokenProblem(choice.token);
   const testRequest = adminLinkTestOf(state, context);
+  const elsewhere = storedTokenElsewhere(state, context);
+  const typeTokenHere = () => {
+    set({ tokenSource: 'typed' });
+    requestAnimationFrame(() => tokenField.current?.focus());
+  };
 
   return (
     <Box component="section" sx={{ border: 1, borderColor: 'divider', borderRadius: 2, px: 1.5, py: 1.25, minWidth: 0 }}>
@@ -100,15 +110,30 @@ export function AdminLinkGroup({ state, context, update }: WizardStepProps) {
                         error={tokenProblem !== null}
                         helperText={tokenProblem ?? undefined}
                         onChange={(event) => set({ token: event.target.value })}
+                        inputRef={tokenField}
                         inputProps={{ ...PLAIN_TEXT_INPUT, autoComplete: NEW_PASSWORD, 'aria-label': 'Web2 admin token' }}
                       />
                     ),
                   },
                 ]}
               />
+              {elsewhere && (
+                <Alert
+                  severity="warning"
+                  data-stored-token-elsewhere
+                  sx={{ '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}
+                  action={
+                    <Button color="inherit" size="small" onClick={typeTokenHere}>
+                      {TYPE_TOKEN_HERE}
+                    </Button>
+                  }
+                >
+                  {STORED_TOKEN_ELSEWHERE}
+                </Alert>
+              )}
               <AdminLinkTest
                 run={testRequest ? () => testAdminLink(testRequest) : null}
-                blockedReason="Give the address and a token to test the link."
+                blockedReason={elsewhere ? 'Type the token for this address to test it.' : 'Give the address and a token to test the link.'}
                 resetKey={JSON.stringify([choice.url, choice.tokenSource, choice.token, testRequest?.feedOwner ?? null])}
               />
             </>

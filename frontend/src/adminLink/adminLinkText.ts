@@ -69,6 +69,13 @@ export function storedTokenDetail(stored: boolean): string {
     : 'The manager stores no token. Save one on Manager settings, or type one here.';
 }
 
+/** Said in the wizard's group when the address leaves the origin the manager's stored token was saved for. */
+export const STORED_TOKEN_ELSEWHERE =
+  "The manager's stored token was saved for another address, and the manager sends it only there. Type the token for this address.";
+
+/** The button beside that sentence, which moves to a token typed here. */
+export const TYPE_TOKEN_HERE = 'Type a token for this address';
+
 /** The line at the top of the Manager settings card. */
 export const MANAGER_LINK_LEAD =
   'New uploader deployments start linked to this web2 admin, with the switch on in the new-deployment wizard. A deployment keeps what it was created with, so a change here reaches only deployments created after it.';

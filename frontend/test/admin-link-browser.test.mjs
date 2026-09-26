@@ -159,13 +159,32 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
     await screenshot('manager-link-saved-phone.png');
   });
 
-  await t.test("tests with the stored token, and says each outcome's sentence", async () => {
+  await t.test('asks for the token again for an address on another origin, and neither saves nor tests the stored one there', async () => {
+    await fillWhenPresent(evaluate, urlField, 'https://moved.admin2.offline.example', 'the address field');
+    await waitFor(
+      cardText,
+      (text) => text.includes('The address moves to another one than the stored token was saved with, and the manager sends its stored token only to the address it was saved with. Type the token again for the new address, or clear it.'),
+      'the sentence asking for the token again',
+    );
+
+    assert.equal(await evaluate(`(${inCard('Save')}).disabled`), true);
+    assert.equal(await evaluate(`(${inCard('Test connection')}).disabled`), true);
+    assert.equal(await evaluate(`${tokenField}.getAttribute('aria-invalid')`), 'true');
+    assert.equal(await noSidewaysScroll(), true);
+    await evaluate(`(${card}).scrollIntoView({ block: 'start' })`);
+    await screenshot('manager-link-moved-phone.png');
+  });
+
+  await t.test("tests other addresses with a typed token, and says each outcome's sentence", async () => {
+    await fillWhenPresent(evaluate, tokenField, TOKEN, 'the token field');
     for (const outcome of ['token-refused', 'unreachable', 'redirected', 'not-admin']) {
       await testWith(`https://${outcome}.admin.offline.example`, outcome);
     }
     assert.equal(await noSidewaysScroll(), true);
     await screenshot('manager-link-tested-phone.png');
     await fillWhenPresent(evaluate, urlField, ADMIN_URL, 'the address field');
+    await fillWhenPresent(evaluate, tokenField, '', 'the token field');
+    assert.equal((await body()).includes(TOKEN), false);
   });
 
   await t.test('clears the stored token', async () => {
@@ -219,6 +238,28 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
     assert.equal(await dialogFits(), true, 'the dialog scrolls sideways');
     await evaluate(`(${group}).scrollIntoView({ block: 'start' })`);
     await screenshot('wizard-group-on-phone.png');
+  });
+
+  await t.test("asks for a typed token once the address leaves the origin the manager's token was saved for", async () => {
+    const address = `(${group})?.querySelector('input[aria-label="Web2 admin address"]')`;
+    const typedChoice = `(${group}).querySelector('input[type=radio][aria-label="A token typed here"]')`;
+    await fillWhenPresent(evaluate, address, 'https://moved.admin2.offline.example', 'the group address');
+    await waitFor(
+      groupText,
+      (text) => text.includes("The manager's stored token was saved for another address, and the manager sends it only there. Type the token for this address."),
+      'the sentence on the stored token',
+    );
+    assert.match(await body(), /Web2 admin: the manager's stored token was saved for another address, so type the token for this one/);
+    assert.equal(await evaluate(`[...(${group}).querySelectorAll('button')].find(button => button.textContent.trim() === 'Test connection').disabled`), true);
+    assert.equal(await dialogFits(), true, 'the dialog scrolls sideways');
+
+    await click(`[...(${group}).querySelectorAll('button')].find(button => button.textContent.trim() === 'Type a token for this address')`, 'the button that moves to a typed token');
+    await waitFor(() => evaluate(`document.activeElement?.getAttribute('aria-label')`), (label) => label === 'Web2 admin token', 'focus on the token field');
+    assert.equal(await evaluate(`${typedChoice}.checked`), true);
+
+    await fillWhenPresent(evaluate, address, ADMIN_URL, 'the group address');
+    await click(`(${group}).querySelector('input[type=radio][aria-label="The manager\\'s stored token"]')`, 'the stored token choice');
+    await waitFor(() => evaluate(`(${group}).querySelector('input[type=radio][aria-label="The manager\\'s stored token"]').checked`), Boolean, 'the stored token chosen again');
   });
 
   await t.test('points the two keys of Advanced settings at the group rather than editing them twice', async () => {
@@ -291,10 +332,23 @@ test('the web2 admin link for new deployments, set on the Manager settings page 
     await screenshot('card-test-linked-phone.png');
   });
 
+  await t.test('refuses a card save that moves the address to another origin and leaves the stored token, saying why', async () => {
+    await fillWhenPresent(evaluate, `document.getElementById('deployment-setting-ADMIN_API_URL')`, 'https://moved.admin2.offline.example', 'the card address field');
+    await click(cardSave, 'the card Save button');
+    await waitFor(
+      stackCardText,
+      (text) => text.includes('ADMIN_API_URL moves to another address than the one ADMIN_API_TOKEN was stored with, and the manager sends a stored token only to the address it was stored with. Type ADMIN_API_TOKEN again for the new address, or clear it.'),
+      'the refusal on the card',
+    );
+    assert.equal(await noSidewaysScroll(), true);
+  });
+
   await t.test("says each outcome's sentence for what the next deploy would give the uploader", async () => {
     for (const outcome of ADMIN_LINK_TEST_OUTCOMES.filter((each) => each !== 'linked')) {
       const url = outcome === 'not-linked' ? '' : `https://${outcome}.admin.offline.example`;
       await fillWhenPresent(evaluate, `document.getElementById('deployment-setting-ADMIN_API_URL')`, url, 'the card address field');
+      // Each address is another origin, where the stored token does not go, so each is saved with the token typed again.
+      await fillWhenPresent(evaluate, `document.getElementById('deployment-setting-ADMIN_API_TOKEN')`, TOKEN, 'the card token field');
       await waitFor(cardTestText, (text) => text.includes('The test uses what is saved, not the changes above that are not saved yet.'), 'the note on an unsaved address');
       await click(cardSave, 'the card Save button');
       await waitFor(stackCardText, (text) => text.includes('Nothing changed yet'), `the saved ${outcome} address`);

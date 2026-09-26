@@ -32,7 +32,9 @@
 import {
   ADMIN_API_TOKEN_KEY,
   ADMIN_API_URL_KEY,
+  adminLinkAfterEdits,
   adminLinkEditProblem,
+  adminOriginOf,
   defaultServicesFor,
   editsEngineSettings,
   engineOfServices,
@@ -41,7 +43,9 @@ import {
   engineSettingsSaveProblem,
   isNotReadOwner,
   isSecretSettingKey,
+  sameAdminOrigin,
   stackSettingFieldOf,
+  storedTokenMoveProblem,
 } from '@streaming-infra-manager/common';
 
 import { SERVICE_ENV_KEYS } from '../../manager/src/domain/containerKeysSpec.ts';
@@ -152,6 +156,8 @@ function storeOf(profile) {
     plain: { ...(seed?.plain ?? {}) },
     /** Secret key to the revision it was stored at, which stands in for its value. */
     secrets: new Map((seed?.secrets ?? []).map((key) => [key, 0])),
+    /** The origin the stored ADMIN_API_TOKEN is for, as migration 042 records it. */
+    adminTokenOrigin: null,
     record: null,
   };
   stores.set(profile.instance_id, store);
@@ -497,7 +503,8 @@ function notReady(res, profile) {
  * deployment of the shape the body describes, a group's per member. A create
  * that asks for the manager's stored web2 admin token is refused as the
  * manager refuses it: beside a typed token, for a version that takes none,
- * and when the manager stores none.
+ * when the manager stores none, and for an address on another origin than the
+ * one its token was saved for.
  */
 export async function createdSettingsRefusal(stackSettings, version, shape, name, useManagerToken = false) {
   let settings;
@@ -525,7 +532,22 @@ export async function createdSettingsRefusal(stackSettings, version, shape, name
       },
     };
   }
+  if (useManagerToken && !sameAdminOrigin(createdAdminUrl(settings ?? [], shape), managerAdminLink.url ?? '')) {
+    return {
+      status: 409,
+      body: {
+        error: 'admin_token_elsewhere',
+        message:
+          "The manager's stored web2 admin token was saved for another address than this deployment's ADMIN_API_URL, and it goes only to the address it was saved with. Type a token for this address, or use the address saved on Manager settings.",
+      },
+    };
+  }
   return null;
+}
+
+/** The address a create gives the new deployment's uploader: the one it sends, else its version's. */
+function createdAdminUrl(settings, shape) {
+  return settings.find(({ key }) => key === ADMIN_API_URL_KEY)?.value ?? versionValuesFor(shape)[ADMIN_API_URL_KEY] ?? '';
 }
 
 /** Why the manager's stored token cannot go into a deployment created with these settings, in the manager's words. */
@@ -577,6 +599,7 @@ export function storeCreatedSettings(profile, stackSettings = [], useManagerToke
     else store.plain[key] = value;
   }
   if (useManagerToken) store.secrets.set(ADMIN_API_TOKEN_KEY, store.revision);
+  if (store.secrets.has(ADMIN_API_TOKEN_KEY)) store.adminTokenOrigin = adminOriginOf(createdAdminUrl(stackSettings, profile)) ?? '';
 }
 
 /** Gives a member appended to a group the settings its sibling stores, as the manager copies them. */
@@ -585,6 +608,7 @@ export function copyStoredSettings(from, to) {
   const target = storeOf(to);
   Object.assign(target.plain, source.plain);
   for (const key of source.secrets.keys()) target.secrets.set(key, target.revision);
+  target.adminTokenOrigin = source.adminTokenOrigin;
 }
 
 /** Why the engine would refuse what a save leaves in the engine settings, by the shared rules and this host's defaults. */
@@ -617,9 +641,20 @@ function save(res, profile, body) {
   if (engineProblem) {
     return send(res, 400, { error: 'validation_error', errors: [engineProblem], name: profile.name });
   }
-  const adminProblem = adminLinkEditProblem(body.entries, adminLinkBefore(profile, store));
+  const before = adminLinkBefore(profile, store);
+  const adminProblem =
+    adminLinkEditProblem(body.entries, before) ??
+    storedTokenMoveProblem(body.entries, {
+      url: store.adminTokenOrigin ?? before.url.current,
+      tokenStored: store.secrets.has(ADMIN_API_TOKEN_KEY),
+      afterReset: before.url.afterReset,
+    });
   if (adminProblem) {
     return send(res, 400, { error: 'validation_error', errors: [adminProblem], name: profile.name });
+  }
+  const tokenEdit = body.entries.find(({ key }) => key === ADMIN_API_TOKEN_KEY);
+  if (tokenEdit) {
+    store.adminTokenOrigin = tokenEdit.value ? (adminOriginOf(adminLinkAfterEdits(body.entries, before).url) ?? '') : null;
   }
   store.revision += 1;
   for (const { key, value } of body.entries) {
@@ -705,11 +740,13 @@ export function deploymentSettingsRoutes({ readBody, withProfile, deploy }) {
  * What Test connection answers for what the deployment's next deploy would
  * give its uploader: the address it stores or its version sets, whether a
  * token is stored or generated, and its stream address, as the manager reads
- * them. The outcome itself is the mock's, off the address.
+ * them. A stored token is not presented to another origin than the one it was
+ * stored for. The outcome itself is the mock's, off the address.
  */
 function deploymentTestOutcome(profile) {
   const store = storeOf(profile);
   const url = nextValuesOf(profile, store)[ADMIN_API_URL_KEY] ?? '';
+  if (store.adminTokenOrigin !== null && url !== '' && !sameAdminOrigin(url, store.adminTokenOrigin)) return 'stored-token-elsewhere';
   const hasToken = store.secrets.has(ADMIN_API_TOKEN_KEY) || isGenerated(ADMIN_API_TOKEN_KEY, profile);
   return mockTestOutcome({ url, hasToken, feedOwner: profile.public_key ?? null });
 }
