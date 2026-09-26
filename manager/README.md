@@ -364,8 +364,8 @@ cannot make.
 | Method | Path                                  | Body                    | Notes                                                                             |
 | ------ | ------------------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
 | GET    | `/profiles/:name/chequebook`          |                         | Address, balances, settlement totals and the health verdict. Any field is `null` when that call to the node failed. |
-| POST   | `/profiles/:name/chequebook/deposit`  | `{ requestId, profileInstanceId, amount, expectedAccountId }` | Wallet to chequebook. `202` with the recorded operation, or `409` with the operation in the way. The body is strict, so a missing or unknown field is refused with 400 before any balance is read, and an `expectedAccountId` that is not the signed-in user is refused with `409 account_changed`. Also refused with 400 when the wallet holds less BZZ than asked or has no xDAI for gas. The whole contract, including recovery, is under "API contract" in [docs/features/chequebook.md](../docs/features/chequebook.md). |
-| POST   | `/profiles/:name/chequebook/withdraw` | `{ requestId, profileInstanceId, amount, expectedAccountId }` | Chequebook to wallet, the same body and the same answers. Also refused with 400 above the available balance. |
+| POST   | `/profiles/:name/chequebook/deposit`  | `{ requestId, profileInstanceId, amount, expectedAccountId }` | Wallet to chequebook. `202` with the recorded operation, or `409` with the operation in the way. The body is strict, so a missing or unknown field is refused with 400 before any balance is read, and an `expectedAccountId` that is not the signed-in user is refused with `409 account_changed`. A wallet with no xDAI for gas, or less BZZ than asked, is refused by the last check before sending: `202` with the operation `rejected` and its `failureReason` `preflight_no_gas` or `preflight_insufficient_balance`. A transfer the manager could not prepare is `503` with its cause, see "Funding a chequebook on a new host" below. The whole contract, including recovery, is under "API contract" in [docs/features/chequebook.md](../docs/features/chequebook.md). |
+| POST   | `/profiles/:name/chequebook/withdraw` | `{ requestId, profileInstanceId, amount, expectedAccountId }` | Chequebook to wallet, the same body and the same answers, with `preflight_insufficient_balance` meaning more than the chequebook has available. |
 
 `amount` is PLUR, bee's integer unit, matching `^[1-9][0-9]*$` and at most 30
 digits. 1 BZZ is 10^16 PLUR, so a decimal here is refused rather than
@@ -397,15 +397,126 @@ malformed value stops the process rather than silently reverting to the default.
 `GET /config` answers it as `chequebookFloorBzz` so the UI shows the number the
 gate uses.
 
-Two more process settings decide whether a transfer can be made at all, and
-neither is ever accepted from a request, a profile or a Bee response.
-**`CHEQUEBOOK_RPC_ENDPOINTS`** is a JSON object keyed by chain id, naming the
-chain the manager reads receipts from. **`CHEQUEBOOK_DOCKER_TRANSPORTS`** names,
-per deploy target alias, the Docker socket the manager reaches the node's Bee
-through and the qualification ids the container image must match. With either
-missing, saved operations stay readable and recoverable and new transfers refuse
-rather than guess. `docs/testing/t09-money-api.md` has their exact shapes and
-the rules the registry applies to them.
+### Funding a chequebook on a new host
+
+The deployment page's Fill chequebook and Withdraw move BZZ between a Bee
+node's wallet and its chequebook. They work on any host a deployment runs on,
+with nothing to set up first.
+
+**What a new host needs: nothing, by default.** A transfer reaches the node the
+way the manager already reaches that host, and reads the chain the way the node
+itself does.
+
+- **Docker on `localhost`** is the manager's own socket: `/var/run/docker.sock`,
+  which `docker-compose.yml` mounts into the api container, or the Unix socket
+  `DOCKER_HOST` names.
+- **Docker on another host** is that host's `/var/run/docker.sock`, forwarded
+  over ssh through the same `Host` block in `MANAGER_SSH_DIR`'s `ssh_config`
+  that deploys to it use. The forward keeps batch mode, strict host key checking
+  and every other restriction of the manager's other forwards, and takes the
+  address, user, port, key and known hosts from that block. So the host needs
+  what a deploy to it already needs, a `Host` block for its alias, a key that
+  authenticates without a prompt and its host key in `known_hosts`. A host
+  written as `user@host` names no `Host` block and needs one, or an entry in
+  `CHEQUEBOOK_DOCKER_TRANSPORTS`. A `Host` block that relies on `ProxyJump` or
+  `ProxyCommand` is not followed.
+- **The chain** is read through the endpoint the Bee node was started with, its
+  `--blockchain-rpc-endpoint`, read from the node's own container on the Docker
+  connection the transfer owns. It is held to the same shape rules as a
+  configured endpoint and must answer the chain the node's wallet is on before
+  it is used. Receipt polling and recovery reuse it. They read the container
+  again when the manager does not know it, after a restart, and whenever the
+  remembered endpoint fails in any way, and what they read replaces the
+  remembered one only after it verified. A deployment whose chain endpoint a
+  signed-in user saved makes the manager itself send its chain reads to that
+  address, from the manager's own network. An endpoint only the node's host can
+  reach, such as `host.docker.internal` on a remote host, does not answer the
+  manager, and needs `CHEQUEBOOK_RPC_ENDPOINTS`.
+
+**The automatic check.** A transfer talks to Bee's private API through a small
+bash script it runs inside the node's own container, so the manager checks a
+Bee image before money moves through it. The first time a transfer meets an
+image and Docker engine pair nothing has checked, the manager opens a short
+connection of its own, before the transfer's, and runs one command in the
+container that only reads: whether `/usr/bin/env`, `/usr/bin/timeout`,
+`/bin/bash` and `/usr/bin/cat` are there and executable, and whether bash can
+open `/dev/tcp` (a connect to closed port 9 must be refused, not answered "No
+such file"). It stores the result in the `bee_bridge_qualifications` table: the
+image id, engine version, platform and bridge script it is about, what was
+found, a digest of that, the revision of the check, the host it was first seen
+on and the time. A pass qualifies exactly that image, engine, platform and
+bridge script, so every later transfer through them skips the check, and the
+transfer's own connection must find the stored pass before it runs the bridge.
+A failure is stored with the check that failed, refuses the transfer with that
+check named, and is checked again on the next attempt. The image checked by
+hand on 2026-09-14, `ethersphere/bee:2.8.2` on Docker 29.1.3 as `157.90.34.105`
+runs it, stays in the code as the seed and needs no check.
+`manager/scripts/qualify-bee-bridge.mjs` runs the same check by hand.
+To read the record:
+
+```sql
+SELECT image_id, engine_version, outcome, failed_check, host_alias, checked_at
+  FROM bee_bridge_qualifications ORDER BY checked_at DESC;
+```
+
+**The two overrides.** Both are optional manager process settings, never read
+from a request, a profile or a Bee answer, and each wins only for what it names.
+Changing either takes a manager restart.
+
+- **`CHEQUEBOOK_RPC_ENDPOINTS`** is a JSON object keyed by chain id, one of `1`,
+  `100` and `11155111`, whose values are `http` or `https` URLs with no user
+  information and no fragment, for example `{"100":"https://rpc.example.invalid"}`.
+  Every transfer on a chain it names reads the chain there instead of through
+  the node's endpoint. A URL can carry a key, so route the value into the
+  process rather than writing it in a committed file.
+- **`CHEQUEBOOK_DOCKER_TRANSPORTS`** is a JSON object keyed by deploy target
+  alias, at most 256 of them. Each value has a `locator` and may have
+  `qualificationIds`. A locator is one of:
+  - `{"kind":"unix","alias":"localhost","socketPath":"/var/run/docker.sock"}`,
+    a local socket.
+  - `{"kind":"ssh-config","alias":"bee-eu-1","remoteSocketPath":"/run/user/1000/docker.sock"}`,
+    the same forward through the alias's `Host` block to another remote socket.
+  - `{"kind":"ssh-unix","alias":"bee-eu-1","host":"203.0.113.7","port":22,"user":"deploy","remoteSocketPath":"/var/run/docker.sock","identityPublicKeyPath":"/root/.ssh/deploy_key.pub","agentSocketPath":"/run/ssh-agent.sock","knownHostsPath":"/root/.ssh/known_hosts","hostKeyAlias":"bee-eu-1"}`,
+    a forward that reads no config file and takes everything from these fields.
+  `qualificationIds` names seed records. When it is given, those records alone
+  qualify that host and the automatic check does not run for it, which is the
+  format this setting had before. Leave it out to have the manager check new
+  images itself.
+
+**Every refusal and its fix.** A transfer the manager could not prepare is
+answered `503` with `{"error":"chequebook_preparation_unavailable","cause":...,"check":...,"message":...}`,
+where `message` is the sentence the page shows for that cause. Nothing is sent
+or recorded in any of them. The cause is set where the refusal is decided, from
+a closed list in `common/src/chequebookRefusals.ts`, and never carries upstream
+text, an endpoint or a socket path.
+
+| `cause` | What is wrong | The fix |
+| --- | --- | --- |
+| `docker_unreachable` | The manager could not open or use the Docker connection to the host. | Check that Docker runs there and, for a remote host, that `ssh <alias> docker info` works from the api container. That check also passes for a host whose `Host` block reaches it through `ProxyJump` or `ProxyCommand`, but the transfer's forward turns both off, so such a host needs a `Host` block that reaches it directly. |
+| `docker_route_missing` | No Docker connection is known for the host: a `user@host` host, or a `DOCKER_HOST` that is not a Unix socket. | Give the host a `Host` block and deploy under that alias, or name it in `CHEQUEBOOK_DOCKER_TRANSPORTS`. |
+| `docker_setting_invalid` | `CHEQUEBOOK_DOCKER_TRANSPORTS` is malformed or names a qualification id that does not exist. | Correct it or remove it, then restart the manager. |
+| `bee_container_not_found` | The deployment's Bee container is not running. | Start the deployment. |
+| `bee_container_unsupported` | The container does not publish its API on the reserved port, or uses the host's network. | Deploy it again from the manager. |
+| `bridge_not_qualified` | The image failed the check, and `check` names which part: `env`, `timeout`, `bash`, `cat`, `dev_tcp`, or `answer` for an answer the manager could not read. With `check` null, pinned `qualificationIds` match nothing the host runs. | Run a Bee image that has what is missing, or remove the pinned ids. |
+| `chain_endpoint_missing` | Nothing is configured for the node's chain and the node was started without a usable endpoint. | Give the deployment a chain endpoint and deploy it again, or set `CHEQUEBOOK_RPC_ENDPOINTS`. Deploying again cannot help a transfer already sent from a deployment that was deleted since, because no node is left to read the endpoint from. Such a transfer is still read through the endpoint the manager remembered for that node, if it has one, while that endpoint answers and until the manager restarts. Past that it stays unverified until `CHEQUEBOOK_RPC_ENDPOINTS` names its chain and the manager restarts, and then Check verifies it. |
+| `chain_setting_invalid` | `CHEQUEBOOK_RPC_ENDPOINTS` is malformed. | Correct it or remove it, then restart the manager. |
+| `chain_unreachable` | The chain endpoint did not answer the manager. | Make the node's endpoint reachable from the manager, or set `CHEQUEBOOK_RPC_ENDPOINTS`. |
+| `wrong_chain` | The endpoint answered for another chain than the node's. | Point the node, or `CHEQUEBOOK_RPC_ENDPOINTS`, at the node's own chain. |
+| `unsupported_chain` | The node runs on a chain with no pinned BZZ token. | Transfers work on Gnosis Chain, Ethereum and Sepolia only. |
+| `target_changed` | The deployment or its host's Docker changed during the transfer, or it is being deployed, stopped or removed. | Wait until it is running and settled, or deploy it again. |
+| `bee_unreadable` | The Bee node did not answer, or answered inconsistently. | Check that the node runs and is synced. |
+| `unavailable` | Anything else, a timeout among them. | Try again, and read the manager's log if it keeps failing. |
+
+The node's own balances are checked last, after the transfer is recorded, and a
+refusal there is a recorded operation rather than a `503`: `rejected` with
+`failureReason` `preflight_no_gas` (send xDAI to the node's wallet),
+`preflight_insufficient_balance` (lower the amount, or add BZZ) or
+`preflight_failed` (anything else the last check found changed).
+
+**Proven so far, and what is not, on 2026-09-26.** Every piece above is
+exercised against a synthetic Docker, Bee and chain, the ssh forward through
+fake processes. No transfer has yet gone over a real ssh forward, so the remote
+default is proven by the first real transfer to a remote host.
 
 ### A deployment's own settings
 
@@ -821,21 +932,24 @@ curl -b cookies.txt -X DELETE localhost:9876/profiles/streamer1 \
 ## Environment
 
 Everything comes from `manager/.env`. `manager/.env.sample` documents the keys
-an operator sets by hand. Five more are used that it does not carry:
+an operator sets by hand. Four more are used that it does not carry:
 `SHLS_ROOT` and `BEE_DATA_ROOT`, which `docker-compose.yml` sets for the `api`
 container, `WEB_PORT`, which the compose file interpolates for the `web` port
-binding, and the two below that decide whether a chequebook transfer can be
-made at all.
+binding, and `DOCKER_HOST`, which the compose file leaves unset and the table
+below describes.
 
-**`CHEQUEBOOK_RPC_ENDPOINTS`** and **`CHEQUEBOOK_DOCKER_TRANSPORTS`** have no
-default and no fallback. With either missing, saved operations stay readable and
-recoverable and every new transfer refuses rather than guessing. Their exact
-shapes are in `docs/testing/t09-money-api.md`. Neither belongs in a file that is
-committed: route the value into the process rather than writing it down.
+**`CHEQUEBOOK_RPC_ENDPOINTS`** and **`CHEQUEBOOK_DOCKER_TRANSPORTS`** are in
+the sample commented out, because both are optional overrides. Without them a
+transfer reads the chain through the node's own endpoint and reaches Docker the
+way the manager already does for that host. Their exact shapes, and what each
+default is, are in "Funding a chequebook on a new host" above. An endpoint can
+carry a key, so route the value into the process rather than writing it in a
+committed file.
 
 The keys that decide where the streaming stack lives, the ssh identity the
 manager deploys to other hosts with, the chain endpoint it offers the Bee nodes
-it creates, the address the API binds and where it reads the host's own numbers:
+it creates, the Docker it talks to on its own host, the address the API binds
+and where it reads the host's own numbers:
 
 | Variable              | Default                                            | What it points at                                                                  |
 | --------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -843,6 +957,7 @@ it creates, the address the API binds and where it reads the host's own numbers:
 | `STACK_VERSIONS_ROOT` | `/home/solarpunk/streaming-infra-manager-versions` | Where every version lives, the bundled one included: a clone, its builds and its settings files.                                |
 | `MANAGER_SSH_DIR`     | `/home/solarpunk/manager-ssh`                      | The ssh identity the manager deploys to other hosts with: the deploy key, `known_hosts`, and an `ssh_config` with a `Host` block per target alias. Mounted at `/root/.ssh` in the api container, whose image links `/etc/ssh/ssh_config` to the `ssh_config` in it. `deploy.sh` creates the directory, empty, so it is only filled when a deployment's host is not `localhost`. See [deploy/README.md](../deploy/README.md). |
 | `BEE_RPC_ENDPOINT`    | none                                               | The chain endpoint every Bee node created here is offered first, which is what `rpc_endpoint_source: manager` writes into a deployment's env file. Optional, and a malformed value stops the manager at startup rather than reverting to the stack's public RPC. Such a URL can carry an API key: `GET /config` answers only its host, the container logs this manager serves and the deploy output it stores have it taken out of them, and the manager's own boot line prints its host. The Bee node prints the whole address into its own container log on the host it runs on, which no manager code can prevent, so the safe shape is an address carrying no key, such as a proxy on the host that holds it. Removing the variable from a manager that has deployments on it refuses their next edit and their next deploy with it named, which is the alternative to moving them onto the public endpoint in silence. |
+| `DOCKER_HOST`         | unset, which means `/var/run/docker.sock`          | The Docker the manager talks to on its own host. `docker-compose.yml` leaves it unset and mounts the host's socket at that path. A chequebook transfer to a `localhost` deployment connects to the same socket, a `unix://` value moves both, and any other value leaves such a transfer without a Docker connection until `CHEQUEBOOK_DOCKER_TRANSPORTS` names one for `localhost`. |
 | `MANAGER_HOST`        | `0.0.0.0`                                          | The address the API binds. Every interface by default, which is what the `web` container needs to reach the `api` container. Narrow it to `127.0.0.1` when the manager runs on the host and the port should answer nothing but the loopback. |
 | `HOST_PROC`           | `/host/proc`, then `/proc`                         | Where the resource monitor reads the host's CPU, memory, disk I/O and init process network view. `docker-compose.yml` bind-mounts the host's `/proc` there read-only, and the fallback is the current machine's `/proc`, so a manager run outside Docker reports its own box. |
 | `HOST_ROOTFS`         | `/host/rootfs`, then `/`                           | Where the resource monitor reads the host's disk, mounted read-only the same way, with the same fallback. |

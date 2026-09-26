@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { ChequebookConfigurationError } from '../errors/ChequebookConfigurationError.js';
 import { DockerBeeAcquisitionError } from '../errors/DockerBeeAcquisitionError.js';
-import { dockerObject } from './DockerBeeBinding.js';
+import { dockerObject, type ObservedBeeContainer } from './DockerBeeBinding.js';
 import { DOCKER_BEE_BRIDGE_REVISION } from './dockerBeeBridge.js';
 
 export const DOCKER_BEE_STREAM_BOUNDS = Object.freeze({ maxFrameBytes: 1024 * 1024, maxOutputBytes: 8 * 1024 * 1024, maxInputBytes: 64 * 1024 });
@@ -23,23 +23,50 @@ export interface BeeBridgeQualificationRecord extends Omit<BeeBridgeExecution, '
   readonly bridgeLifetimeSeconds: QualifiedRange;
   readonly cleanupGraceMs: QualifiedRange;
 }
-export type QualifiedBeeBridgeExecution = (execution: BeeBridgeExecution) => boolean;
+/** The facts a qualification is about: the image, the Docker engine, the platform and the bridge script. */
+export type BeeBridgeTuple = Pick<BeeBridgeExecution, 'imageId' | 'engineVersion' | 'platform' | 'bridgeRevision'>;
+/**
+ * Whether the bridge may run for this exact execution in this container. It may
+ * throw a DockerBeeAcquisitionError naming a more exact cause than a plain no.
+ */
+export type QualifiedBeeBridgeExecution = (execution: BeeBridgeExecution, container?: ObservedBeeContainer) => boolean | Promise<boolean>;
+
+export function beeBridgeTuple(execution: BeeBridgeExecution): BeeBridgeTuple {
+  return Object.freeze({ imageId: execution.imageId, engineVersion: execution.engineVersion,
+    platform: Object.freeze({ os: execution.platform.os, architecture: execution.platform.architecture, variant: execution.platform.variant }),
+    bridgeRevision: execution.bridgeRevision });
+}
+
+/** The lifetime, grace and stream bounds every record qualifies within: the seed's, and every pass the manager stores. */
+const QUALIFIED_BRIDGE_LIFETIME_SECONDS = Object.freeze({ min: 1, max: 270 });
+const QUALIFIED_CLEANUP_GRACE_MS = Object.freeze({ min: 1, max: 10_000 });
+
+/** A pass the manager stored itself, as a record the same qualifier reads. */
+export function storedPassRecord(pass: { readonly id: string; readonly tuple: BeeBridgeTuple; readonly harnessRevision: string; readonly evidenceDigest: string }): BeeBridgeQualificationRecord {
+  const { imageId, engineVersion, platform, bridgeRevision } = pass.tuple;
+  return Object.freeze({ id: pass.id, imageId, engineVersion, bridgeRevision,
+    platform: Object.freeze({ os: platform.os, architecture: platform.architecture, variant: platform.variant }),
+    harnessRevision: pass.harnessRevision, evidenceDigest: pass.evidenceDigest,
+    bridgeLifetimeSeconds: QUALIFIED_BRIDGE_LIFETIME_SECONDS, cleanupGraceMs: QUALIFIED_CLEANUP_GRACE_MS, streamBounds: DOCKER_BEE_STREAM_BOUNDS });
+}
 
 /**
- * The images somebody has checked the bridge shell against, one entry per image
- * and Docker engine pair. Synthetic records are injected by tests.
+ * The seed: images checked by hand before the manager checked them itself, one
+ * entry per image and Docker engine pair. Synthetic records are injected by
+ * tests. On a route that pins no qualification ids, an image no entry covers
+ * is checked automatically the first time a transfer goes through it and the
+ * pass is stored in bee_bridge_qualifications, so there this list only saves
+ * that first check. A route that pins ids is qualified by the entries it names
+ * and nothing else.
  *
- * Each is produced by `manager/scripts/qualify-bee-bridge.mjs`, which reads an
- * image the way this file needs it read: the four absolute paths the bridge
- * script names, and a bash that really carries /dev/tcp. `evidenceDigest` is
- * the hash of what that run saw, and `harnessRevision` is the git object id of
- * the script that saw it, so a later reader can tell with one command whether
- * the same check would be made again. A node started from a listed image needs
- * nothing further: an entry is about the image, never about the container.
+ * The one entry was produced by `manager/scripts/qualify-bee-bridge.mjs` on
+ * 2026-09-14. Its `harnessRevision` is the git object id the script had then,
+ * kept as history. A pass the manager stores carries BEE_BRIDGE_CHECK_REVISION
+ * instead, a hash of the check's own definition. `evidenceDigest` is the hash
+ * of what the check saw. An entry is about the image, never the container.
  *
  * An entry stops matching the moment anything it pins moves, the image, the
- * Docker engine, the platform or the bridge script itself, and transfers
- * through it refuse again until the script has been run against the new pair.
+ * Docker engine, the platform or the bridge script itself.
  */
 export const PRODUCTION_BEE_BRIDGE_QUALIFICATIONS: readonly BeeBridgeQualificationRecord[] = Object.freeze([
   Object.freeze({
@@ -51,8 +78,8 @@ export const PRODUCTION_BEE_BRIDGE_QUALIFICATIONS: readonly BeeBridgeQualificati
     bridgeRevision: DOCKER_BEE_BRIDGE_REVISION,
     harnessRevision: 'ce9ef1a6b01273c4eb2759ba0ea32f01416356f0',
     evidenceDigest: 'sha256:ff368ea1c36ab4700c61cf32e46015d3de7fc40a4d5e3ba4cfc02c34fbfc0d43',
-    bridgeLifetimeSeconds: Object.freeze({ min: 1, max: 270 }),
-    cleanupGraceMs: Object.freeze({ min: 1, max: 10_000 }),
+    bridgeLifetimeSeconds: QUALIFIED_BRIDGE_LIFETIME_SECONDS,
+    cleanupGraceMs: QUALIFIED_CLEANUP_GRACE_MS,
     streamBounds: DOCKER_BEE_STREAM_BOUNDS,
   }),
 ]);
@@ -103,7 +130,7 @@ export function createBeeBridgeQualifier(records: readonly BeeBridgeQualificatio
       if (Object.keys(value).sort().join(',') !== 'bridgeLifetimeSeconds,bridgeRevision,cleanupGraceMs,engineVersion,evidenceDigest,harnessRevision,id,imageId,platform,streamBounds' ||
           typeof value.id !== 'string' || !TOKEN.test(value.id) || catalog.has(value.id) || typeof value.imageId !== 'string' || !HASH.test(value.imageId) ||
           typeof value.engineVersion !== 'string' || !TOKEN.test(value.engineVersion) || typeof value.bridgeRevision !== 'string' || !HASH.test(value.bridgeRevision) ||
-          typeof value.evidenceDigest !== 'string' || !HASH.test(value.evidenceDigest) || typeof value.harnessRevision !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.harnessRevision) ||
+          typeof value.evidenceDigest !== 'string' || !HASH.test(value.evidenceDigest) || typeof value.harnessRevision !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64}|sha256:[a-f0-9]{64})$/.test(value.harnessRevision) ||
           !isDeepStrictEqual(value.streamBounds, DOCKER_BEE_STREAM_BOUNDS)) throw new ChequebookConfigurationError();
       catalog.set(value.id, Object.freeze({ id: value.id, imageId: value.imageId, engineVersion: value.engineVersion,
         bridgeRevision: value.bridgeRevision, evidenceDigest: value.evidenceDigest, harnessRevision: value.harnessRevision,
