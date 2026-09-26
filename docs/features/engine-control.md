@@ -108,7 +108,7 @@ splice safely.
 Those environment variables reach the container from compose interpolation of three files the
 deploy script assembles: the profile's `.env.<profile>` (written fresh by the manager on every
 deploy from the database, the root file wins on duplicate keys), the engine's own
-`engines/srs/.env.<profile>` (created once from the sample, never touched by the manager), and a
+`engines/srs/.env` (created once from the sample, never touched by the manager), and a
 per deploy override file with the resolved ports and hostnames. So "changing an engine setting"
 means: store it in the database, write it into `.env.<profile>` like the passphrase already is,
 and recreate the engine container, which `deploy.sh --profile <name> srs` already does. Nothing
