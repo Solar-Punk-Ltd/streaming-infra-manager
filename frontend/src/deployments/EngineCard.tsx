@@ -77,7 +77,7 @@ function whyRolloutActionsAreOff(profile: Profile, busy: boolean): string {
  * is pinned. That is also where the live block's answer will come from once the
  * engine API port is published, which it is not on this one. They are edited in
  * the deployment's Stack settings card, one list of settings for the whole
- * deployment (Levi, 2026-09-26), and Settings here leads there. The values are
+ * deployment, and Settings here leads there. The values are
  * the stored ones, so one the running containers are behind on is marked as
  * saved and not applied.
  */
