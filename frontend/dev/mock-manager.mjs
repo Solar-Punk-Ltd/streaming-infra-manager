@@ -53,7 +53,13 @@ import {
   resolveAttempt,
   seedAttempts,
 } from './mock-attempts.mjs';
-import { deploymentSettingsRoutes, recordDeployedSettings } from './mock-deployment-settings.mjs';
+import {
+  copyStoredSettings,
+  createdSettingsRefusal,
+  deploymentSettingsRoutes,
+  recordDeployedSettings,
+  storeCreatedSettings,
+} from './mock-deployment-settings.mjs';
 import { engineRoutes } from './mock-engine.mjs';
 import { createMockChequebookJournal } from './mock-chequebook.mjs';
 import { createTargetRoutes } from './mock-targets.mjs';
@@ -583,6 +589,12 @@ function refuse(res, problem) {
   send(res, 400, { error: 'validation_error', errors: [problem] });
 }
 
+/** The version a create body names, or the default one. */
+function versionForCreate(body) {
+  const id = body.stack_version_id ?? defaultVersionId();
+  return state.versions.find((version) => version.id === id) ?? null;
+}
+
 function createFromBody(body, extra = {}) {
   const { problem, ...choices } = nodeChoicesFor(body, extra);
   const profile = makeProfile({
@@ -633,7 +645,14 @@ const ROUTES = [
       if (versionProblem) return refuse(res, versionProblem);
       const { problem } = nodeChoicesFor(body);
       if (problem) return refuse(res, problem);
-      send(res, 202, createFromBody(body));
+      // Kept off the profile, which every page and event carries.
+      const { stack_settings: stackSettings, ...profileBody } = body;
+      const shape = { kind: body.kind ?? 'custom', components: body.components ?? null, host: body.host ?? null };
+      const refusal = await createdSettingsRefusal(stackSettings, versionForCreate(body), shape, body.name);
+      if (refusal) return send(res, refusal.status, refusal.body);
+      const profile = createFromBody(profileBody);
+      storeCreatedSettings(profile, stackSettings);
+      send(res, 202, profile);
     },
   ],
   ['GET', /^\/profiles\/([^/]+)$/, withProfile((_req, res, p) => send(res, 200, p))],
@@ -808,6 +827,14 @@ const ROUTES = [
       const memberShape = isPool ? { kind: 'custom', components: ['bee-uploader'] } : {};
       const { problem } = nodeChoicesFor(body, memberShape);
       if (problem) return refuse(res, problem);
+      const { stack_settings: stackSettings, ...groupBody } = body;
+      const settingsShape = {
+        kind: memberShape.kind ?? body.kind ?? 'custom',
+        components: memberShape.components ?? body.components ?? null,
+        host: body.host ?? null,
+      };
+      const refusal = await createdSettingsRefusal(stackSettings, versionForCreate(body), settingsShape, body.group_name);
+      if (refusal) return send(res, refusal.status, refusal.body);
       const group = {
         id: takeGroupId(),
         name: body.group_name,
@@ -820,16 +847,17 @@ const ROUTES = [
       const profiles = isPool
         ? RUNGS.map((rung) =>
             createFromBody(
-              { ...body, name: `${group.name}-${rung.name}`, kind: 'custom' },
+              { ...groupBody, name: `${group.name}-${rung.name}`, kind: 'custom' },
               { components: ['bee-uploader'], group_id: group.id },
             ),
           )
         : Array.from({ length: group.size }, (_value, index) =>
             createFromBody(
-              { ...body, name: `${group.name}-profile-${index + 1}` },
+              { ...groupBody, name: `${group.name}-profile-${index + 1}` },
               { group_id: group.id },
             ),
           );
+      for (const profile of profiles) storeCreatedSettings(profile, stackSettings);
 
       send(res, 202, { group, profiles });
     },
@@ -888,6 +916,7 @@ const ROUTES = [
           { group_id: group.id },
         ),
       );
+      if (existing[0]) for (const profile of profiles) copyStoredSettings(existing[0], profile);
       group.size += profiles.length;
       send(res, 202, { group, profiles });
     },

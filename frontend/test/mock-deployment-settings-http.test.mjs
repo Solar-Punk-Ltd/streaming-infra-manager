@@ -302,3 +302,88 @@ describe('the mock deployment settings routes', { concurrency: false, timeout: 6
     assert.equal(answer.body.error, 'profile_stopped');
   });
 });
+
+describe('the mock settings list and create for a deployment not made yet', { concurrency: false, timeout: 60_000 }, () => {
+  const newList = (query) => request(`/versions/2/settings-catalog${query}`);
+
+  it('lists what a deployment starts with on a version, storing and running nothing', async () => {
+    const catalog = await newList('?kind=streamer&host=localhost');
+    const keys = catalog.entries.map(({ key }) => key);
+
+    assert.equal(catalog.versionId, 2);
+    assert.ok(keys.indexOf('LOG_LEVEL') < keys.indexOf('HLS_FRAGMENT'), keys.join(' '));
+    assert.ok(catalog.entries.every((entry) => !entry.stored && entry.running === 'not-running'));
+    assert.deepEqual(
+      [entryOf(catalog, 'LOG_LEVEL').value, entryOf(catalog, 'LOG_LEVEL').source],
+      ['info', 'version'],
+    );
+    assert.equal(entryOf(catalog, 'API_AUTH_TOKEN').source, 'generated');
+    assert.deepEqual([entryOf(catalog, 'STAMP').owner, entryOf(catalog, 'STAMP').value], ['stamp', null]);
+    assert.deepEqual([entryOf(catalog, 'HLS_FRAGMENT').owner, entryOf(catalog, 'HLS_FRAGMENT').value], ['engine-settings', null]);
+  });
+
+  it('takes the engine sample of the engine the services select', async () => {
+    const keys = (await newList('?kind=custom&components=ome,stream-uploader')).entries.map(({ key }) => key);
+
+    assert.ok(keys.includes('HLS_SEGMENT_DURATION'), keys.join(' '));
+    assert.equal(keys.includes('HLS_FRAGMENT'), false);
+  });
+
+  it('answers a version that does not exist with a 404, and a list no create could describe with a 400', async () => {
+    assert.equal((await call('/versions/999/settings-catalog?kind=streamer')).status, 404);
+    assert.equal((await call('/versions/2/settings-catalog?kind=custom&components=srs,ome')).status, 400);
+  });
+
+  it('creates a deployment with the settings it was given, which its page then lists as its own', async () => {
+    const name = `mock-created-${nextProfile++}`;
+    const secret = 'offline-mock-created-token-0123456789abcdef';
+
+    const created = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2, stamp_id: 'ab'.repeat(32),
+      stack_settings: [{ key: 'LOG_LEVEL', value: 'debug' }, { key: 'ADMIN_API_TOKEN', value: secret }],
+    });
+    await until(`/profiles/${name}`, (profile) => profile.status === 'RUNNING');
+    const answer = await call(`/profiles/${name}/settings`);
+
+    assert.equal(created.status, 202, JSON.stringify(created.body));
+    assert.equal(JSON.stringify(created.body).includes(secret), false);
+    assert.deepEqual(
+      [entryOf(answer.body, 'LOG_LEVEL').storedValue, entryOf(answer.body, 'LOG_LEVEL').source, entryOf(answer.body, 'LOG_LEVEL').running],
+      ['debug', 'deployment', 'same'],
+    );
+    assert.equal(entryOf(answer.body, 'ADMIN_API_TOKEN').stored, true);
+    assert.deepEqual(answer.body.drift, { keys: [], services: [], fullRedeploy: false });
+    assert.equal(JSON.stringify(answer.body).includes(secret), false);
+  });
+
+  it("refuses a create with a key a control decides, in the manager's words, and creates nothing", async () => {
+    const name = `mock-created-${nextProfile++}`;
+
+    const refused = await call('/profiles', 'POST', {
+      name, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'STAMP', value: 'cd'.repeat(32) }],
+    });
+
+    assert.deepEqual(refused, {
+      status: 400,
+      body: { error: 'validation_error', errors: ["STAMP is set by the deployment's postage stamp, not here."], name },
+    });
+    assert.equal((await call(`/profiles/${name}`)).status, 404);
+  });
+
+  it('gives every member of a group the same settings, and a member appended later those of its siblings', async () => {
+    const groupName = `mock-fleet-${nextProfile++}`;
+
+    const created = await request('/groups', 'POST', {
+      group_name: groupName, size: 2, kind: 'custom', components: ['srs', 'stream-uploader'], stack_version_id: 2,
+      stack_settings: [{ key: 'LOG_LEVEL', value: 'warn' }],
+    });
+    const appended = await request(`/groups/${created.group.id}/members`, 'POST', { count: 1 });
+
+    const members = [...created.profiles, ...appended.profiles].map((profile) => profile.name);
+    assert.equal(members.length, 3);
+    for (const member of members) {
+      assert.equal(entryOf(await settingsOf(member), 'LOG_LEVEL').storedValue, 'warn', member);
+    }
+  });
+});
