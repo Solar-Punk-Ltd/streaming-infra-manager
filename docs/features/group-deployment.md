@@ -109,15 +109,17 @@ The endpoint returns as soon as phase 1 succeeds and phase 2 has been kicked off
 
 As designed in 2026-05. The drawer is now a wizard, see the module table below.
 
-- New checkbox: **"Deploy as group"**.
+- New switch: **"Deploy several at once as a group"**.
 - When enabled:
   - `Name` label becomes `Group name` (same regex as profile name).
-  - New numeric input: `Size` (default 2).
+  - New input: `How many` (default 2).
   - Above a size of 20 an inline warning appears: *"Large group, double check before deploying."*
     (`LARGE_GROUP` in `frontend/src/forms/wizard/steps/BasicsStep.tsx`.)
-  - The submit button label becomes `Deploy group`.
+  - The submit button label becomes `Deploy group (N)`, with the size as N.
   - All other fields keep their existing semantics.
-- Group mode is hidden in edit mode (`selectedProfile` present).
+- Group mode is offered only for the goals `allowsGroup` in
+  `frontend/src/forms/wizard/wizardState.ts` lets through, a stream, a viewer and a custom
+  deployment. Editing a deployment happens in its own drawer, which has no group mode.
 
 ### The deployments table
 
