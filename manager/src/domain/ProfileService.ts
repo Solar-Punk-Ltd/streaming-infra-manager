@@ -8,14 +8,10 @@ import {
   type BeePublishersResult,
   beeTargetProblem,
   defaultServicesFor,
-  effectiveEngineDefaults,
-  type EngineDefaults,
   type EngineName,
   engineOfServices,
   engineOverviewIdentity,
   type EngineSettings,
-  environmentSettingReadings,
-  OME_SERVICE,
   engineForComponents,
   engineSettingsFieldsFor,
   type EngineSettingsOverview,
@@ -38,11 +34,9 @@ import {
   rpcEndpointChoiceProblem,
   rungFromMemberName,
   rungOrder,
-  type StackContract,
   type StampGatedProfile,
   type StampHealth,
   stampHealthFrom,
-  SRS_SERVICE,
   STANDARD_GROUP_KIND,
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
@@ -61,7 +55,6 @@ import {
   TRANSITIONAL_STATUSES,
 } from '../types/index.js';
 
-import { parseBaseEnv } from '../utils/envUtils.js';
 import { portTableForEngine } from './versions/enginePortTable.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
@@ -100,14 +93,14 @@ import {
 } from './errors/index.js';
 import { EventBus } from './EventBus.js';
 import { Logger } from './Logger.js';
+import { deploymentEngineReadings } from './engineConfig/deploymentEngineReadings.js';
 import { engineTemplateTextIn } from './engineConfig/engineConfigTemplates.js';
-import { omeSettingReadings } from './engineConfig/omeSettingReadings.js';
-import { srsSettingReadings, srsTemplateReadings } from './engineConfig/srsSettingReadings.js';
 import {
   localPublisherHost,
   type LocalPublisherHostReader,
 } from './localHost.js';
 import { ProfileRepository } from './ProfileRepository.js';
+import { engineDefaultsAt } from './settings/engineHostDefaults.js';
 import { initialStackSettingsFor, initialStackSettingsOf } from './settings/newDeploymentSettings.js';
 import { beePublisherUrlFor } from './StampService.js';
 import { isPendingStamp } from './stampLogic.js';
@@ -779,30 +772,6 @@ export class ProfileService {
   }
 
   /**
-   * What an unset setting falls back to on this host, and where each value came
-   * from.
-   *
-   * `.env.<profile>` is a fresh copy of the host's base `.env` on every deploy
-   * and an unset key is left out of it, so a key set on the box by hand is what
-   * the container starts with. Naming the stack's own value instead would
-   * describe a deployment nobody is running.
-   */
-  private engineDefaultsAt(root: string, engine: EngineName, contract: StackContract | null): EngineDefaults {
-    const defaults = effectiveEngineDefaults(
-      engine,
-      parseBaseEnv(root),
-      contract?.engineDefaults ?? {},
-    );
-    if (defaults.rejected.length > 0) {
-      logger.warn(
-        `[ProfileService] The base .env sets ${defaults.rejected.join(', ')} to a value ${engine} would refuse. ` +
-          'The stack default stands for those.',
-      );
-    }
-    return defaults;
-  }
-
-  /**
    * The gate the settings drawer passes, applied before the row exists.
    *
    * A value sent with the create body is written into `.env.<profile>` on the
@@ -820,7 +789,7 @@ export class ProfileService {
     settings: EngineSettings,
   ): void {
     const { engine, abr } = this.engineFacts(input);
-    const defaults = this.engineDefaultsAt(
+    const defaults = engineDefaultsAt(
       stackRootOf(version),
       engine,
       version.contract,
@@ -843,18 +812,14 @@ export class ProfileService {
     if (!version) throw new StackVersionNotFoundError(profile.stack_version_id);
     const root = stackRootOf(version);
     const contract = version.contract;
-    const defaults = this.engineDefaultsAt(root, engine, contract);
+    const defaults = engineDefaultsAt(root, engine, contract);
     const fields = engineSettingsFieldsFor(engine, { abr });
-    const template = engineTemplateTextIn(root, engine);
-    let readings = environmentSettingReadings(fields);
-    if (profile.has_engine_config) {
-      readings = engine === OME_SERVICE ? omeSettingReadings(template, engineConfig, fields)
-        : srsSettingReadings(template, engineConfig, fields, { abr });
-    } else if (engine === SRS_SERVICE) {
-      // Without a file of its own the deployment runs its version's template,
-      // which decides the SRT latency SRS waits on ingest.
-      readings = { ...readings, ...srsTemplateReadings(template, fields) };
-    }
+    const readings = deploymentEngineReadings(
+      engine,
+      fields,
+      { template: engineTemplateTextIn(root, engine), hasOwn: profile.has_engine_config, own: engineConfig },
+      { abr },
+    );
     const observed = assembleEngineSettingObservations({ fields, settings: profile.engine_settings, defaults, readings });
     return {
       identity,
@@ -900,7 +865,7 @@ export class ProfileService {
     if (!version) {
       throw new ProfileConfigError(name, `Stack version ${existing.stack_version_id} no longer exists. Restore the version before deploying. No deployment was started.`);
     }
-    const defaults = this.engineDefaultsAt(stackRootOf(version), engine, version.contract);
+    const defaults = engineDefaultsAt(stackRootOf(version), engine, version.contract);
     const problem = engineSettingsProblem(engine, settings, {
       abr,
       defaults: defaults.values,
