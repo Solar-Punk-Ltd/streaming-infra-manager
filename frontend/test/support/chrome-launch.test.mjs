@@ -71,9 +71,9 @@ test('reports the exit status, because a refusal and a crash are different fault
  * Chrome will not run as root unless the sandbox is turned off, which is why
  * every browser suite refused inside a container running as root. The flag
  * is the usual answer and it is the worse one: passing it unconditionally drops
- * the sandbox on a laptop that never needed it. A browser image built for
- * containers ships a `pwuser` account for exactly this case, so where that
- * account exists the browser runs as it and keeps its sandbox in both places.
+ * the sandbox on a laptop that never needed it. Playwright's container image
+ * ships a `pwuser` account for exactly this case, so where that account
+ * exists the browser runs as it and keeps its sandbox in both places.
  *
  * The decision is separated from the spawning so it can be checked here, where
  * the process is neither root nor inside that image.
