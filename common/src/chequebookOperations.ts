@@ -1,5 +1,6 @@
 import { plurToBzzExact } from './chequebook.js';
 import type { TransferDirection } from './chequebook.js';
+import type { ChequebookPreflightRefusal } from './chequebookRefusals.js';
 
 export const CHEQUEBOOK_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Sign in with the account that confirmed this transfer.';
 export const CHEQUEBOOK_RECOVERY_ACCOUNT_CHANGED_MESSAGE = 'The signed-in account changed. Review this action again with your current account.';
@@ -59,7 +60,7 @@ export interface ChequebookTransferContext {
 }
 
 export type ChequebookOperationState = 'submitting' | 'submitted' | 'unknown' | 'settled' | 'reverted' | 'asserted' | 'rejected';
-export type ChequebookSubmissionFailure = 'preflight_failed' | 'response_unavailable' | 'invalid_response' | 'hash_conflict';
+export type ChequebookSubmissionFailure = ChequebookPreflightRefusal | 'response_unavailable' | 'invalid_response' | 'hash_conflict';
 
 export interface ChequebookReceiptHistory {
   readonly transactionHash: string;

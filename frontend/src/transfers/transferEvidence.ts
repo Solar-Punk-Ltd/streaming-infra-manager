@@ -1,4 +1,5 @@
-import { chequebookAssertionConfirmation, type ChequebookOperation, type ChequebookOperationDetail, type ChequebookOperationEvidence } from '@streaming-infra-manager/common';
+import { CHEQUEBOOK_PREFLIGHT_REFUSALS, chequebookAssertionConfirmation, isChequebookPreflightRefusal, type ChequebookOperation, type ChequebookOperationDetail,
+  type ChequebookOperationEvidence } from '@streaming-infra-manager/common';
 
 const HASH = /^0x[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -20,7 +21,7 @@ export function isTransferOperation(value: unknown): value is ChequebookOperatio
       (operation.profileInstanceId !== null && (typeof operation.profileInstanceId !== 'string' || !UUID.test(operation.profileInstanceId))) ||
       !['deposit', 'withdraw'].includes(operation.direction) || !integer(operation.revision) || !integer(operation.startBlockNumber) || !hash(operation.startBlockHash) ||
       (operation.transactionHash !== null && !hash(operation.transactionHash)) ||
-      ![null, 'preflight_failed', 'response_unavailable', 'invalid_response', 'hash_conflict'].includes(operation.failureReason) ||
+      ![null, ...CHEQUEBOOK_PREFLIGHT_REFUSALS, 'response_unavailable', 'invalid_response', 'hash_conflict'].includes(operation.failureReason) ||
       operation.receiptObservation === undefined || operation.recoveryObservation === undefined || operation.assertion === undefined || operation.dispatchStartedAt === undefined ||
       !isTimestampOrNull(operation.receiptPollUntil)) return false;
   return true;
@@ -57,7 +58,7 @@ export function permitsNewTransfer(detail: ChequebookOperationDetail): boolean {
       integer(receipt.finalizedBlockNumber) && hash(receipt.receiptBlockHash) && hash(receipt.finalizedBlockHash) &&
       BigInt(receipt.receiptBlockNumber) >= BigInt(operation.startBlockNumber) && BigInt(receipt.finalizedBlockNumber) >= BigInt(receipt.receiptBlockNumber);
   }
-  if (operation.state === 'rejected') return operation.failureReason === 'preflight_failed' && operation.dispatchStartedAt === null && operation.transactionHash === null && detail.responseEvidence.length === 0;
+  if (operation.state === 'rejected') return isChequebookPreflightRefusal(operation.failureReason) && operation.dispatchStartedAt === null && operation.transactionHash === null && detail.responseEvidence.length === 0;
   if (operation.state === 'asserted') return hasRecordedTransferAssertion(detail);
   return false;
 }

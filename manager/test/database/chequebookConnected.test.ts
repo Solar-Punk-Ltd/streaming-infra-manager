@@ -18,7 +18,9 @@ import http from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
 import { describe, it, type TestContext } from 'node:test';
 import pg from 'pg';
-import { REQUESTED_WITH_HEADER, REQUESTED_WITH_VALUE, SESSION_COOKIE_NAME, type ChequebookOperation } from '@streaming-infra-manager/common';
+import { chequebookRefusalSentence, REQUESTED_WITH_HEADER, REQUESTED_WITH_VALUE, SESSION_COOKIE_NAME, type ChequebookOperation } from '@streaming-infra-manager/common';
+import { syntheticBeeBridgeCheckAnswer } from '../support/beeBridgeCheckAnswer.js';
+import { syntheticImageId, syntheticNodeChainEndpoint } from '../support/syntheticDockerBee.js';
 import { createChequebookOperationsService } from '../../src/domain/chequebook/createChequebookOperationsService.js';
 import { instanceForProfile, transactionHash } from '../support/chequebookOperations.js';
 import { CONNECTED_OPERATOR, CONNECTED_OPERATOR_PASSWORD, CONNECTED_PROFILE, connectedChequebookApi, connectedChequebookAuth,
@@ -187,20 +189,55 @@ describe('the connected chequebook path over a real journal and an owned synthet
     const admitted = await h.deposit();
     const id = admitted.body.operation.id;
     assert.equal(admitted.body.operation.receiptCheckedAt, null, 'nothing polled before the manager started');
-    const restarted = createChequebookOperationsService(h.pool, { rpcEndpoints: undefined, dockerTransports: undefined },
-      { repository: h.repository, createChainReader: () => h.chain.reader, receiptPolling: { intervalMs: 50 } });
+    const unconfigured = { rpcEndpoints: undefined, dockerTransports: undefined, dockerHost: h.runtime.dockerHost };
+    const restarted = createChequebookOperationsService(h.pool, unconfigured,
+      { repository: h.repository, createChainReader: () => h.chain.reader, connectUnix: h.connectUnix, receiptPolling: { intervalMs: 50 } });
     restarted.start();
     await until(() => h.row(id), operation => operation.receiptCheckedAt !== null, 'the resumed check');
     await restarted.shutdown();
     await until(async () => (await h.due()).length, length => length === 0, 'the spent budget');
-    const afterBudget = createChequebookOperationsService(h.pool, { rpcEndpoints: undefined, dockerTransports: undefined },
-      { repository: h.repository, createChainReader: () => h.chain.reader, receiptPolling: { intervalMs: 50 } });
+    const afterBudget = createChequebookOperationsService(h.pool, unconfigured,
+      { repository: h.repository, createChainReader: () => h.chain.reader, connectUnix: h.connectUnix, receiptPolling: { intervalMs: 50 } });
     afterBudget.start();
     const readsBefore = h.chain.receiptReads();
     await new Promise(resolve => setTimeout(resolve, 400));
     await afterBudget.shutdown();
     assert.equal(h.chain.receiptReads(), readsBefore, 'a passed budget is never adopted by a later manager');
     assert.equal((await h.row(id)).state, 'submitted');
+  });
+
+  it('with neither setting, checks the new image itself, transfers, and polls to settlement through the node\'s own endpoint', async t => {
+    const h = await connected(t, { unconfigured: true });
+    h.service.start();
+    const admitted = await h.deposit();
+    assert.equal(admitted.status, 202);
+    assert.equal(admitted.body.operation.state, 'submitted');
+    assert.equal(h.beePosts(), 1);
+    const passes = await h.pool.query<{ outcome: string; host_alias: string; image_id: string }>('SELECT outcome, host_alias, image_id FROM bee_bridge_qualifications');
+    assert.deepEqual(passes.rows, [{ outcome: 'passed', host_alias: 'localhost', image_id: syntheticImageId }]);
+    h.chain.answers('success');
+    await until(() => h.row(admitted.body.operation.id), operation => operation.state === 'settled', 'the polled receipt');
+    assert.deepEqual([...new Set(h.chainEndpoints())], [syntheticNodeChainEndpoint], 'every chain read went through the node\'s own endpoint');
+    const next = await h.deposit();
+    assert.equal(next.status, 202);
+    assert.equal(next.body.kind, 'admitted');
+    assert.equal(h.beePosts(), 2);
+    assert.equal(h.dockerRequests().filter(request => request.exec === 'check').length, 1, 'the stored pass qualified the second transfer without another check');
+  });
+
+  it('with neither setting, refuses an image that fails the check with the check named, and sends nothing', async t => {
+    const h = await connected(t, { unconfigured: true, checkAnswer: syntheticBeeBridgeCheckAnswer({ missing: ['bash'] }) });
+    const response = await fetch(`${h.base}/profiles/${CONNECTED_PROFILE}/chequebook/deposit`, { method: 'POST', headers: h.headers,
+      body: JSON.stringify({ requestId: randomUUID(), profileInstanceId: instanceForProfile(CONNECTED_PROFILE), expectedAccountId: h.accountId, amount: '5000000000000000' }),
+      signal: AbortSignal.timeout(20_000) });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'chequebook_preparation_unavailable', cause: 'bridge_not_qualified', check: 'bash',
+      message: chequebookRefusalSentence({ cause: 'bridge_not_qualified', check: 'bash' }) });
+    const stored = await h.pool.query<{ outcome: string; failed_check: string }>('SELECT outcome, failed_check FROM bee_bridge_qualifications');
+    assert.deepEqual(stored.rows, [{ outcome: 'failed', failed_check: 'bash' }]);
+    assert.deepEqual(h.beeRequests(), [], 'nothing reached Bee');
+    assert.equal(h.beePosts(), 0);
+    assert.equal((await h.pool.query('SELECT 1 FROM chequebook_operations')).rowCount, 0, 'nothing was admitted');
   });
 
   it('replays the same request without a second transfer', async t => {

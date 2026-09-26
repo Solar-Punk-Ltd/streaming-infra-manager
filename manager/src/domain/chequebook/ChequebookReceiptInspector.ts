@@ -10,6 +10,9 @@ import { verifyReceiptHistory } from './verifyReceiptHistory.js';
 export type ReceiptOperation = ChequebookTransferContext & Pick<ChequebookTransferIntent, 'direction' | 'amountPlur'> & {
   readonly transactionHash: string;
   readonly receiptObservation?: ChequebookReceiptObservation | null;
+  /** The deployment whose node's container can be read again for its chain endpoint. */
+  readonly profileName?: string;
+  readonly profileInstanceId?: string | null;
 };
 
 export interface ReceiptChainReader {

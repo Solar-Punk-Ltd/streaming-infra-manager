@@ -238,11 +238,11 @@ describe('Docker Bee acquisition over one owned synthetic connection', { timeout
     assert.equal(docker.requests[5]!.headers.upgrade, 'tcp');
   });
 
-  for (const mode of ['missing', 'refused', 'throws', 'async'] as const) {
+  for (const mode of ['missing', 'refused', 'throws', 'async refusal', 'async non-boolean'] as const) {
     it(`refuses ${mode} trusted image qualification before exec`, async t => {
       const docker = syntheticDocker(t);
-      const qualifier = mode === 'missing' ? undefined : mode === 'refused' ? () => false : mode === 'throws' ? () => { throw new Error('private diagnostic'); } : (() => Promise.resolve(true));
-      // @ts-expect-error The async variant exercises a malformed runtime qualification callback.
+      const qualifier = mode === 'missing' ? undefined : mode === 'refused' ? () => false : mode === 'throws' ? () => { throw new Error('private diagnostic'); }
+        : mode === 'async refusal' ? () => Promise.resolve(false) : () => Promise.resolve('yes' as unknown as boolean);
       await assert.rejects(acquireDockerBeeStream(docker.transport, expected, {}, qualifier), safeFailure);
       assert.equal(docker.creates(), 0); assert.equal(docker.transport.destroyed, true);
     });

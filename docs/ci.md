@@ -664,12 +664,12 @@ suites the runner passes. And the connected transfer suite is not served a
 PostgreSQL there, so it skips and the runner refuses it. That one refusal is
 expected and means nothing.
 
-A third thing, learned on the estate's verification box on 2026-09-17, where
+A third thing, learned on 2026-09-17 in a container test run, where
 `pool-draft-browser.test.mjs` failed on every commit while GitHub's runner,
 this laptop and the two-core container all passed it. The fixture told the
 wizard's two fresh reads from the store's ordinary ones by the `Cache-Control`
 header a `no-store` fetch carries, and that header is the browser's to add:
-the box's Chromium build sends none for it, Chrome elsewhere sends
+one Chromium build sends none for it, Chrome elsewhere sends
 `no-cache`. The page behaved the same everywhere. Since 7f3f094 the suite marks
 its own no-store fetches with a request header set by a script the harness
 adds before navigation, so no browser build can drop it, and the timeout of

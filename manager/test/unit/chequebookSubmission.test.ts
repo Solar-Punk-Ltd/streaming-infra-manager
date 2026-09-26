@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
+import { chequebookRefusalSentence } from '@streaming-infra-manager/common';
 import { ChequebookSubmission, type PreparedChequebookTransfer } from '../../src/domain/chequebook/ChequebookSubmission.js';
 import { InMemoryChequebookOperations, operationCandidate, transactionHash, transferContext, transferIntent } from '../support/chequebookOperations.js';
 
@@ -100,7 +101,7 @@ describe('durable chequebook submission', () => {
     await assert.rejects(service.submit(transferIntent()), (error: unknown) => {
       assert.ok(error instanceof Error);
       assert.equal(error.name, 'ChequebookPreparationError');
-      assert.equal(error.message, 'The node and chain could not be checked. Refresh the saved transfers before continuing.');
+      assert.equal(error.message, chequebookRefusalSentence({ cause: 'unavailable', check: null }));
       assert.ok(!JSON.stringify(error).includes('sensitive'));
       return true;
     });

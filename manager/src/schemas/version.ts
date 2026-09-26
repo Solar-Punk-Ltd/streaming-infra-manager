@@ -68,6 +68,16 @@ const MAX_SETTINGS_FILES = 16;
 const MAX_SETTINGS_ENTRIES = 512;
 
 /**
+ * yup's own message for a value of the wrong type repeats the value, and a
+ * file or an entry sent as a map or as `KEY=value` strings carries its secrets
+ * in exactly that value.
+ */
+const FILES_SHAPE_MESSAGE = 'files is a list of settings files, each a path with its keys or its text';
+const FILE_SHAPE_MESSAGE = 'each file of a save is a path with its keys or its text';
+const ENTRIES_SHAPE_MESSAGE = 'entries is a list of settings, each a key and a value';
+const ENTRY_SHAPE_MESSAGE = 'each entry of a file is a key and a value';
+
+/**
  * The paths a save may name: the base env, the deploy config, one env per
  * engine. Checked as a shape here and against the version's own files by the
  * service, because these become paths under the version's config root.
@@ -98,7 +108,9 @@ const settingsEntrySchema = object({
     }),
   /** Deletes the key's line rather than assigning it. */
   remove: boolean().notRequired(),
-}).noUnknown(true);
+})
+  .noUnknown(true)
+  .typeError(ENTRY_SHAPE_MESSAGE);
 
 function parsesAsJson(text: string): boolean {
   try {
@@ -113,10 +125,11 @@ const settingsFileSchema = object({
   path: string()
     .required()
     .matches(SETTINGS_PATH_RE, 'that is not a settings file of a stack version'),
-  entries: array().of(settingsEntrySchema).max(MAX_SETTINGS_ENTRIES).notRequired(),
+  entries: array().of(settingsEntrySchema).typeError(ENTRIES_SHAPE_MESSAGE).max(MAX_SETTINGS_ENTRIES).notRequired(),
   text: string().typeError(`${DEPLOY_CONFIG} is text`).notRequired(),
 })
   .noUnknown(true)
+  .typeError(FILE_SHAPE_MESSAGE)
   .test(
     'file-kind',
     `an env file is saved as keys and ${DEPLOY_CONFIG} as text`,
@@ -134,13 +147,14 @@ const settingsFileSchema = object({
 export const saveVersionSettingsSchema = object({
   /** The revision the page loaded. A save is refused once anything has moved past it. */
   expectedGeneration: number().integer().min(1).required(),
-  files: array().of(settingsFileSchema).required().min(1).max(MAX_SETTINGS_FILES),
+  files: array().of(settingsFileSchema).typeError(FILES_SHAPE_MESSAGE).required().min(1).max(MAX_SETTINGS_FILES),
 })
   .noUnknown(true)
   // Each file is rewritten from its own bytes on disk, so a second edit of one
   // path would be made against the file as it was and the first edit would be
-  // gone from the result without anything saying so.
+  // gone from the result without anything saying so. This test runs even when
+  // `files` failed its own type, so it cannot assume a list.
   .test('one-edit-per-file', 'a save names each settings file once', (save) => {
-    const paths = (save.files ?? []).map((file) => file?.path);
+    const paths = Array.isArray(save.files) ? save.files.map((file) => file?.path) : [];
     return new Set(paths).size === paths.length;
   });

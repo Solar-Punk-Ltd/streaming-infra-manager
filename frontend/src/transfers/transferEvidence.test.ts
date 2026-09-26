@@ -9,7 +9,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { isTransferOperation } from './transferEvidence';
+import { chequebookAssertionConfirmation, CHEQUEBOOK_PREFLIGHT_REFUSALS } from '@streaming-infra-manager/common';
+import { isCompleteTransferDetail, isTransferOperation, permitsNewTransfer, transferHeadline } from './transferEvidence';
 
 const operation = {
   id: '11111111-1111-4111-8111-111111111111', requestId: '22222222-2222-4222-8222-222222222222',
@@ -44,5 +45,23 @@ describe('isTransferOperation', () => {
     for (const value of ['2026-09-10T14:32:00Z', '2026-09-10T14:32:00.000Z', '2026-09-10T14:32:00.000000Z', '2026-09-10T16:32:00.000+02:00']) {
       assert.equal(isTransferOperation({ ...operation, receiptPollUntil: value }), true, `${JSON.stringify(value)} is a poll deadline`);
     }
+  });
+});
+
+describe('a transfer the preflight refused', () => {
+  const refused = (failureReason: string) => ({ operation: { ...operation, state: 'rejected', transactionHash: null, dispatchStartedAt: null,
+    receiptPollUntil: null, failureReason }, responseEvidence: [], assertionConfirmation: chequebookAssertionConfirmation(operation.amountPlur) });
+
+  it('is a complete record that allows a new transfer, whichever reason the preflight gave', () => {
+    for (const reason of CHEQUEBOOK_PREFLIGHT_REFUSALS) {
+      const detail = refused(reason);
+      assert.equal(isCompleteTransferDetail(detail), true, reason);
+      assert.equal(permitsNewTransfer(detail as never), true, reason);
+      assert.equal(transferHeadline(detail as never), 'Transfer refused before submission', reason);
+    }
+  });
+
+  it('is not a record when the reason is not one the manager writes', () => {
+    assert.equal(isCompleteTransferDetail(refused('preflight_ran_out_of_luck')), false);
   });
 });
