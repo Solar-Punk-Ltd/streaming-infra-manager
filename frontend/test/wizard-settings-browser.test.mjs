@@ -303,10 +303,14 @@ test('the wizard creates a deployment with its own settings at a phone width', {
 
     const stored = await evaluate(`fetch('/profiles/${NAME}/settings').then(r => r.json()).then(list => list.entries
       .filter(entry => entry.stored).map(entry => [entry.key, entry.storedValue]))`);
+    // The segment length the wizard's own engine step took is listed too: a
+    // deployment's list takes its engine settings as its own since the Engine
+    // card's drawer went on 2026-09-26.
     assert.deepEqual(stored, [
       ['ADMIN_API_TOKEN', null],
       ['MAX_QUEUE_SIZE', '250'],
       ['LOG_LEVEL', 'debug'],
+      ['HLS_FRAGMENT', '1.5'],
       ['SRS_WEBHOOK_TOKEN', null],
     ]);
     const page = await body();
