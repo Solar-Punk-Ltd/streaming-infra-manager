@@ -9,7 +9,7 @@ import {
   STREAM_UPLOADER_SERVICE,
 } from '@streaming-infra-manager/common';
 
-import { isRecordedInClear, newRecordSalt, settingDigest } from './settings/runningRecord.js';
+import { digestOf, isRecordedInClear, newRecordSalt } from './settings/runningRecord.js';
 
 /**
  * The one engine setting the engine container never sees.
@@ -146,7 +146,7 @@ export interface ContainerSnapshot {
   ports: Record<string, number>;
   /** The keys the service reads that were set, not empty, and may be shown, each with its value. */
   env: Record<string, string>;
-  /** Every key the service reads that was set, an empty one included, as a digest under `envSalt`. */
+  /** Every key the record covers as a digest under `envSalt`, an unset one as its own digest. */
   envDigests: Record<string, string>;
   envSalt: string;
 }
@@ -156,6 +156,9 @@ export interface ContainerSnapshot {
  *
  * `keys` are the keys the service reads, from the version's compose files
  * where its contract carries them, and from the list above where it does not.
+ * `deployKeys` are the keys the version declares that no service reads, which
+ * reach only the deploy scripts, and so decided how every container of that
+ * deploy was started.
  *
  * A secret the service reads is kept as a digest and nothing else. The
  * deployment's own row keeps the one copy a deploy reads, and a record gains
@@ -165,9 +168,9 @@ export interface ContainerSnapshot {
 export function buildContainerSnapshot(
   service: string,
   env: Record<string, string>,
-  options: { keys?: readonly string[] } = {},
+  options: { keys?: readonly string[]; deployKeys?: readonly string[] } = {},
 ): ContainerSnapshot {
-  const envKeys = options.keys ?? SERVICE_ENV_KEYS[service] ?? [];
+  const envKeys = [...new Set([...(options.keys ?? SERVICE_ENV_KEYS[service] ?? []), ...(options.deployKeys ?? [])])];
   const portKeys = SERVICE_PORT_KEYS[service] ?? [];
   const envSalt = newRecordSalt();
 
@@ -175,9 +178,8 @@ export function buildContainerSnapshot(
   const envDigests: Record<string, string> = {};
   for (const key of envKeys) {
     const value = env[key];
-    if (value === undefined) continue;
-    envDigests[key] = settingDigest(envSalt, key, value);
-    if (value !== '' && isRecordedInClear(key)) envSubset[key] = value;
+    envDigests[key] = digestOf(envSalt, key, value);
+    if (value !== undefined && value !== '' && isRecordedInClear(key)) envSubset[key] = value;
   }
 
   const ports: Record<string, number> = {};
@@ -189,4 +191,17 @@ export function buildContainerSnapshot(
   }
 
   return { service, ports, env: envSubset, envDigests, envSalt };
+}
+
+/**
+ * The keys a version declares that no container's block reads. They reach the
+ * deploy scripts alone, which is how they decide every container a deploy
+ * starts, so each record covers them too.
+ */
+export function deployOnlyKeys(
+  declared: Iterable<string>,
+  serviceKeys: Readonly<Record<string, readonly string[]>>,
+): string[] {
+  const read = new Set(Object.values(serviceKeys).flat());
+  return [...declared].filter((key) => !read.has(key)).sort();
 }
