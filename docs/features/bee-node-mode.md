@@ -11,11 +11,10 @@ Status, 2026-09-17. Row T27 of `docs/consensus/issues/`, ruled by Levi that
 day: the mode and the endpoint are chosen when a node is created, the node's
 page shows both, an ultra-light node has no funding or stamp steps, and funding
 stays as it is, by hand, with no wallet held by the manager. The manager and
-frontend halves are on `main-v2`, reviewed and fixed the same day (the brief and
+frontend halves are on `main`, reviewed and fixed the same day (the brief and
 the fixes file are under `docs/consensus/`). The stack half was merged into the
-manager's line of the stack, `feat/manager-line`, at 5553652c and pinned the
-same day, so a gateway created light is light once that pin is deployed. Until
-the host runs that pin, its choice is recorded and written but read by nothing. Written at
+manager's line of the stack, `feat/manager-line`, at 5553652c, and that line is
+in the stack's releases from `v3.1` on, which the bundled `v3.4` builds on. Written at
 `b56ae6f` on `main-v2` with the stack pinned at `55b22bf1`, and re-read on the evening of
 2026-09-17 in the docs and comment review, with the stack pinned at `52164ebf`, the head of
 `feat/manager-line` after that review's 42 stack commits.
@@ -47,7 +46,7 @@ fix. `rpc_endpoint_source` is `manager`, `stack` or `custom`, and the deployment
 deployments with a URL became `custom` and the rest `stack`, which is what they
 were running.
 
-Status, 2026-09-19, based on `a5b4253` and fixed on
+Status, 2026-09-19, based on `a5b4253` and fixed in the since merged
 `fix/main-v2-rpc-privacy`: a custom URL is private deployment input. Profile
 responses and deployment events expose only `has_rpc_endpoint` and
 `rpc_endpoint_host`. The host contains no userinfo, path, query or fragment.
