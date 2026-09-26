@@ -22,6 +22,7 @@ import type { DeploymentSettingEntry, DeploymentSettingsCatalog } from '@streami
 import { Router } from 'express';
 
 import type { SessionInfo } from '../../src/domain/auth/AuthService.js';
+import type { Profile } from '../../src/types/index.js';
 import { makeProfile } from '../support/profileFixtures.js';
 import { throwawayRoot } from '../support/throwawayRoot.js';
 
@@ -44,9 +45,9 @@ function sessionFor(username: string): SessionInfo {
   return { user: { id: 1, username, isAdmin: false }, tokenHash: 'not-a-token', expiresAt: new Date(Date.now() + 60_000) };
 }
 
-/** A running SRS deployment, deployed once so each container has a record to compare with. */
-async function running() {
-  const harness = orchestratorHarness([makeProfile({ name: 'stage', stamp_id: 'a'.repeat(64), instance_id: INSTANCE_ID })]);
+/** A running deployment, SRS unless told otherwise, deployed once so each container has a record to compare with. */
+async function running(over: Partial<Profile> = {}) {
+  const harness = orchestratorHarness([makeProfile({ name: 'stage', stamp_id: 'a'.repeat(64), instance_id: INSTANCE_ID, ...over })]);
   await harness.orchestrator.startDeploy(harness.profiles.rows.get('stage')!, undefined);
   harness.runner.finish(0);
   await untilRunning(harness.profiles, 'stage');
@@ -195,8 +196,8 @@ describe('saving an engine setting from the settings page', () => {
 });
 
 describe('applying a saved engine setting', () => {
-  async function applied(key: string, value: string) {
-    const { app, harness } = await running();
+  async function applied(key: string, value: string, over: Partial<Profile> = {}) {
+    const { app, harness } = await running(over);
     try {
       assert.equal((await save(app, 0, [{ key, value }])).status, 200);
       const behind = (await listed(app)).drift;
@@ -223,5 +224,18 @@ describe('applying a saved engine setting', () => {
     assert.deepEqual(behind, { keys: ['HLS_FRAGMENT'], services: ['srs', 'stream-uploader'], fullRedeploy: false });
     assert.deepEqual(answer.body, { recreated: ['srs', 'stream-uploader'] });
     assert.ok(run.includes('srs') && run.includes('stream-uploader'), run.join(' '));
+  });
+
+  // Compose hands the poll interval to the uploader alone, so the engine keeps
+  // running: the engine settings route recreated both, and Apply recreates
+  // only the container that reads it.
+  it('recreates the uploader alone for the OvenMediaEngine poll interval, which only the uploader reads', async () => {
+    const ome = { kind: 'custom' as const, components: ['ome', 'stream-uploader', 'bee-uploader'] };
+    const { behind, answer, run } = await applied('OME_HLS_POLL_INTERVAL_MS', '250', ome);
+
+    assert.deepEqual(behind, { keys: ['OME_HLS_POLL_INTERVAL_MS'], services: ['stream-uploader'], fullRedeploy: false });
+    assert.deepEqual(answer.body, { recreated: ['stream-uploader'] });
+    assert.ok(run.includes('stream-uploader'), run.join(' '));
+    assert.equal(run.includes('ome'), false, run.join(' '));
   });
 });
