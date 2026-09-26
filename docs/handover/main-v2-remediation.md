@@ -1435,12 +1435,14 @@ reads to a line in the sample or the README, which is how `MANAGER_HOST`,
 `52164ebf` in `d54b1c9`.
 
 **Open from the review.** Two code observations, not fixed because the pass
-was words only: a bee-uploader's container snapshot never carries the resolved
-`RPC_ENDPOINT` or the gateway's two keys (`buildEffectiveEnv` does not set
-them, `writeProfileEnv` does), recorded as a P3 limit in the T27 fixes file and
+was words only: a bee-uploader's container snapshot never carried the resolved
+`RPC_ENDPOINT` or the gateway's two keys (`buildEffectiveEnv` did not set
+them, `writeProfileEnv` did), recorded as a P3 limit in the T27 fixes file and
 called real by the comment reviewer, and `pnpm stack:start` in
 `manager/package.json` passes a compose profile named `full` that the compose
-file does not declare, so the flag does nothing. Two stack comments the
+file does not declare, so the flag does nothing. The first has since closed:
+the snapshot is built by `effectiveEnvOf` from the env file `writeProfileEnv`
+wrote, so it carries those keys. Two stack comments the
 reviewer could not prove either way are left as they are: the SRS retry window
 "60s" in `config.ts`, and the text shape a wrapped 5xx arrives in, which
 `NodeWait.ts` matches on. And one P2 the stack lane measured rather than read,
