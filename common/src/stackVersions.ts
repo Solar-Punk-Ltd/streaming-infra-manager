@@ -96,6 +96,12 @@ export interface StackContract {
   /** What each engine service runs, so a config can be checked with the same image. */
   engineImages: EngineImages;
   /**
+   * The env keys each compose service reads, by service, from the version's
+   * compose files: what a changed setting has to recreate. Missing on older
+   * captures, which fall back to the manager's own list.
+   */
+  serviceEnvKeys?: Record<string, string[]>;
+  /**
    * The lines of the version's files the reader could not make sense of, one
    * message each, naming the file. A port the manager did not read is a port
    * it will not shift per slot, so two deployments of this version would bind
@@ -317,6 +323,7 @@ export function parseStackContract(value: unknown): StackContract | null {
     // that was never asked and so is not known to support it.
     engineConfig: engineConfigOf(value.engineConfig),
     engineImages: engineImagesOf(value.engineImages),
+    ...(isRecord(value.serviceEnvKeys) ? { serviceEnvKeys: stringListMapOf(value.serviceEnvKeys) } : {}),
     warnings: stringsOf(value.warnings),
     // Absent from a contract an older manager stored, which read no mapping.
     allocationProblem:
@@ -371,6 +378,10 @@ function stringsOf(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : [];
+}
+
+function stringListMapOf(value: Record<string, unknown>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, stringsOf(entry)]));
 }
 
 function stringMapOf(value: unknown): Record<string, string> {

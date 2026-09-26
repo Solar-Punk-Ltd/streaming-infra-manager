@@ -122,6 +122,9 @@ export class InMemoryProfiles {
   /** The custom RPC URL, kept apart from the rows returned to pages and events. */
   readonly rpcEndpoints = new Map<string, string>();
 
+  /** The `stack_settings` and `stack_settings_secret` columns together, as the deploy reads them. */
+  readonly stackSettings = new Map<string, Record<string, string>>();
+
   onDeleted?: (name: string) => void;
 
   constructor(
@@ -474,6 +477,10 @@ export class InMemoryProfiles {
     return { ...(this.secrets.get(name) ?? {}) };
   }
 
+  async stackSettingsForDeploy(name: string): Promise<Record<string, string>> {
+    return { ...(this.stackSettings.get(name) ?? {}) };
+  }
+
   async storeStackSecrets(name: string, secrets: StackSecrets): Promise<void> {
     this.secrets.set(name, { ...(this.secrets.get(name) ?? {}), ...secrets });
   }
@@ -510,6 +517,8 @@ export class FakeContainers {
     service: string;
     ports: Record<string, number>;
     env: Record<string, string>;
+    envDigests: Record<string, string>;
+    envSalt: string;
   }[] = [];
 
   asRepository(): ContainerRepository {
@@ -522,6 +531,8 @@ export class FakeContainers {
       service: snapshot.service,
       ports: snapshot.ports,
       env: snapshot.env,
+      envDigests: snapshot.envDigests,
+      envSalt: snapshot.envSalt,
     });
   }
 

@@ -1,34 +1,32 @@
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
-  abrLadderEnvValue,
-  effectiveEngineDefaults,
   engineForComponents,
   type EngineName,
-  engineSettingsEnv,
   getErrorMessage,
   gatewayNodeMode,
   ownsBeeNode,
   redactEndpoints,
   portExposureProblem,
   slotCapFor,
-  ENGINE_CONFIG_ENV_KEYS,
 } from '@streaming-infra-manager/common';
 
 import { Profile, ProfileStatus } from '../types/index.js';
 import {
   bootstrapStackDefaults,
   deleteProfileEnv,
-  parseBaseEnv,
+  engineEnvPath,
+  profileEnvPath,
   writeProfileEnv,
 } from '../utils/envUtils.js';
 
 import { ContainerRepository } from './ContainerRepository.js';
-import { buildContainerSnapshot } from './containerKeysSpec.js';
+import { buildContainerSnapshot, deployOnlyKeys, SERVICE_ENV_KEYS } from './containerKeysSpec.js';
 import {
   beeDataDirsFor,
   engineConfigDirFor,
@@ -43,7 +41,10 @@ import { PortHandover } from './ports/PortHandover.js';
 import type { PublishedPortsProbe } from './ports/PublishedPortsProbe.js';
 import { portKeyOf, portPlanFor } from './ports/portReservations.js';
 import { portTableForEngine } from './versions/enginePortTable.js';
-import { targetAlias, type DeployTargets } from './ports/DeployTargets.js';
+import { isLocalTarget, targetAlias, type DeployTargets } from './ports/DeployTargets.js';
+import { stackDeclaredKeys } from './scriptEnv.js';
+import { effectiveEnvOf } from './settings/effectiveEnv.js';
+import { operatorSettingsOf } from './settings/settingOwners.js';
 import {
   type AttemptOutcome,
   type DeployAttempt,
@@ -71,7 +72,7 @@ import {
   splitDeployableServices,
   STREAM_UPLOADER_SERVICE,
 } from './stampLogic.js';
-import { omePortsFor, portFor, portTableOf } from './versions/portTable.js';
+import { omePortsFor, portTableOf } from './versions/portTable.js';
 import { deployOwnerOf, type BuildDescriptor, type BuildLedger, type DeployClaimOwnership, type ExpectedDeployOwner, type Observation } from './versions/buildLedger.js';
 import {
   deployRootProblem,
@@ -118,6 +119,14 @@ async function removeStaleEngineConfigs(
     if (name === keep || !isEngineConfigFile(engine, name)) continue;
     await rm(join(dir, name), { recursive: true, force: true });
   }
+}
+
+function readIfPresent(path: string): string {
+  return existsSync(path) ? readFileSync(path, 'utf8') : '';
+}
+
+function withoutKeys<T extends Record<string, string>>(record: T, keys: readonly string[]): T {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !keys.includes(key))) as T;
 }
 
 function stripDockerWarnings(text: string): string {
@@ -592,6 +601,34 @@ export class DeploymentOrchestrator {
   }
 
   /**
+   * The values the operator stored for this deployment that its env file
+   * takes. A stored key that one of the deployment's own controls decides is
+   * left out and named in the log: the manager's line would win over it
+   * anyway, and a deploy refused over it would be refused over a value nothing
+   * reads.
+   */
+  private async operatorSettingsFor(
+    profile: Profile,
+    version: DeployVersionSnapshot | null,
+    host: string | null | undefined,
+  ): Promise<Record<string, string>> {
+    const contract = version?.contract;
+    const { values, ownedElsewhere } = operatorSettingsOf(
+      await this.profiles.stackSettingsForDeploy(profile.name),
+      {
+        ports: [...portTableOf(contract), ...(contract?.portAliases ?? [])],
+        isLocalTarget: isLocalTarget(targetAlias(host ?? profile.host)),
+      },
+    );
+    if (ownedElsewhere.length > 0) {
+      logger.warn(
+        `[Orchestrator] ${profile.name}: stored values for ${ownedElsewhere.join(', ')} are left out of its env file, because the deployment's own controls decide those keys`,
+      );
+    }
+    return values;
+  }
+
+  /**
    * Writes the deployment's own engine config into its data directory, where
    * the version's compose override mounts it from, and answers the path. Null
    * when the template runs. The file's name carries a hash of its content, see
@@ -1046,6 +1083,7 @@ export class DeploymentOrchestrator {
         srtPassphrase: await this.profiles.srtPassphraseOf(profile.name),
         rpcEndpoint: rpcEndpoint.rpcEndpoint,
       };
+      const stored = await this.operatorSettingsFor(profile, version, reservation.host);
       const written = writeProfileEnv(paths.root, profile.name, {
         engine,
         stampId: profile.stamp_id,
@@ -1061,7 +1099,12 @@ export class DeploymentOrchestrator {
         srtPassphrase: secrets.srtPassphrase,
         streamKey: secrets.streamKey,
         engineSettings: profile.engine_settings,
-        stackSecrets: await this.stackSecretsFor(profile, version, paths.root, engine),
+        // A generated secret the operator stored a value for is written as that
+        // value instead. The generated one stays stored for when it is reset.
+        stackSecrets: withoutKeys(
+          await this.stackSecretsFor(profile, version, paths.root, engine),
+          Object.keys(stored),
+        ),
         stackEngineDefaults: version?.contract?.engineDefaults,
         engineConfigFile,
         // From the profile's own components, deliberately not from the reserved
@@ -1069,7 +1112,7 @@ export class DeploymentOrchestrator {
         // must still resolve the local Bee address for it.
         localBeeUploader: ownsBeeNode(profile),
         ...omePortsFor(profile.port_slot, portTableOf(version?.contract)),
-      });
+      }, stored);
       logger.info(
         `[Orchestrator] ${profile.name}: wrote profile env ${written} (engine=${engine})`,
       );
@@ -1094,7 +1137,7 @@ export class DeploymentOrchestrator {
           }
           : undefined,
         onSuccess: async (attempt) => {
-          await this.snapshotContainers(profile, paths, version, services, engineConfigFile, secrets);
+          await this.snapshotContainers(profile, paths, version, services, targetAlias(reservation.host ?? profile.host));
           await this.observeMounts(profile, services);
           if (attempt && this.ports && this.portObserver) {
             const claimed = await this.profiles.findByName(profile.name);
@@ -1600,22 +1643,33 @@ export class DeploymentOrchestrator {
     }
   }
 
+  /**
+   * Records what each deployed service's container was started with, from the
+   * env file this deploy wrote and what `deploy.sh` settles over it. A service
+   * this deploy left alone keeps the record of the deploy that started it.
+   */
   private async snapshotContainers(
     profile: Profile,
     paths: StackPaths,
     version: DeployVersionSnapshot | null,
     services: string[],
-    engineConfigFile: string | null,
-    secrets: DeploySecrets,
+    target: string,
   ): Promise<void> {
     try {
-      const env = this.buildEffectiveEnv(profile, paths, version, secrets);
-      if (engineConfigFile) {
-        env[ENGINE_CONFIG_ENV_KEYS[engineForComponents(profile.components)]] =
-          engineConfigFile;
-      }
+      const env = effectiveEnvOf({
+        profile,
+        contract: version?.contract,
+        target,
+        rootEnvText: readFileSync(profileEnvPath(paths.root, profile.name), 'utf8'),
+        engineEnvText: readIfPresent(engineEnvPath(paths.root, engineForComponents(profile.components))),
+      });
+      const deployKeys = deployOnlyKeys(
+        stackDeclaredKeys(paths.root),
+        version?.contract?.serviceEnvKeys ?? SERVICE_ENV_KEYS,
+      );
       for (const service of services) {
-        const snapshot = buildContainerSnapshot(service, env);
+        const keys = version?.contract?.serviceEnvKeys?.[service];
+        const snapshot = buildContainerSnapshot(service, env, { ...(keys ? { keys } : {}), deployKeys });
         await this.containers.upsert(profile.name, snapshot);
       }
     } catch (err) {
@@ -1623,86 +1677,5 @@ export class DeploymentOrchestrator {
         `[Orchestrator] failed to snapshot containers for ${profile.name}: ${getErrorMessage(err)}`,
       );
     }
-  }
-
-  /**
-   * The environment the containers were started with, as far as the manager
-   * can tell without asking Docker: the base env of the version's checkout,
-   * the version's port table shifted by the slot the way `deploy.sh` shifts
-   * it, and the per profile values `.env.<profile>` carries, except the chain
-   * endpoint and the gateway's mode keys, which are not repeated here.
-   */
-  private buildEffectiveEnv(
-    profile: Profile,
-    paths: StackPaths,
-    version: DeployVersionSnapshot | null,
-    secrets: DeploySecrets,
-  ): Record<string, string> {
-    const baseEnv = parseBaseEnv(paths.root);
-    const env = { ...baseEnv };
-
-    Object.assign(env, beeDataDirsFor(profile.name, targetAlias(profile.host)));
-
-    env.ENGINE = engineForComponents(profile.components);
-
-    const table = portTableOf(version?.contract);
-    for (const port of table) {
-      if (profile.port_slot === 0) {
-        if (env[port.name] === undefined || env[port.name] === '') {
-          env[port.name] = String(port.defaultPort);
-        }
-      } else {
-        env[port.name] = String(portFor(port, profile.port_slot));
-      }
-    }
-    if (env.API_PORT) {
-      env.SRS_ADAPTER_PORT = env.API_PORT;
-      env.OME_ADAPTER_PORT = env.API_PORT;
-    }
-
-    const omePorts = omePortsFor(profile.port_slot, table);
-    if (omePorts.omeSrtPort) env.OME_SRT_PORT = String(omePorts.omeSrtPort);
-    if (omePorts.omeHlsPort) env.OME_HLS_PORT = String(omePorts.omeHlsPort);
-
-    // Parameter overrides, same mapping as deploy/scripts/_lib.sh::parameter_overrides_text.
-    if (profile.feed_owner) {
-      env.VITE_APP_OWNER = profile.feed_owner.replace(/^0x/, '');
-    }
-    if (profile.feed_topic) {
-      env.STREAM_LIST_TOPIC = profile.feed_topic;
-      env.VITE_APP_RAW_TOPIC = profile.feed_topic;
-    }
-    if (secrets.streamKey) {
-      env.STREAM_KEY = secrets.streamKey;
-    }
-    if (profile.stamp_id) {
-      env.STAMP = profile.stamp_id.replace(/^0x/, '');
-    }
-    // Same keys writeProfileEnv puts in .env.<profile>, so the container
-    // snapshot shows what a pool-backed uploader was actually started with.
-    const publishers = profile.bee_publishers?.trim();
-    if (publishers) {
-      env.BEE_PUBLISHERS = publishers;
-      env.ABR_ENABLED = 'true';
-      env.ABR_LADDER = abrLadderEnvValue();
-    }
-    const beeUrl = profile.bee_url?.trim();
-    if (beeUrl && !publishers) {
-      env.BEE_URL = beeUrl;
-    }
-    // Unset leaves the base .env's value in place, matching writeProfileEnv.
-    if (secrets.srtPassphrase) {
-      env.SRT_PASSPHRASE = secrets.srtPassphrase;
-    }
-    const engine = engineForComponents(profile.components);
-    Object.assign(
-      env,
-      engineSettingsEnv(engine, profile.engine_settings, {
-        abr: false,
-        defaults: effectiveEngineDefaults(engine, baseEnv, version?.contract?.engineDefaults ?? {}),
-      }),
-    );
-
-    return env;
   }
 }

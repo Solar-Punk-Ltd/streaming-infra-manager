@@ -650,7 +650,10 @@ What the version's contract decides for a deployment on it: the port table the
 container snapshot and the OME ports are computed from, the port slot ceiling
 (99 on the bundled `v3.4`, 999 on the older `main-v2`, and the
 manager caps both at 100 whatever the contract declares), the engine defaults the settings
-drawer names, whether the engine can run on a config file of its own, and the
+drawer names, whether the engine can run on a config file of its own, which
+setting each container reads, taken from every `${KEY}` its block of the
+version's compose files names (since 2026-09-26, a version built before that
+falls back to the manager's own shorter list), and the
 secrets its containers refuse to start without. Those secrets,
 `API_AUTH_TOKEN`, `SRS_WEBHOOK_TOKEN` and `OME_ADMISSION_SECRET` on the bundled
 `v3.4`, are generated the first
@@ -740,6 +743,31 @@ the engine env decides only a key the base env does not assign at all. An empty
 one is generated per deployment as before, and a value already in
 `profiles.stack_secrets` still wins over both, because rotating the token a
 running container was started with is a decision rather than a side effect.
+
+**A deployment's own settings** (2026-09-26, `feat/deployment-settings-store`).
+Levi ruled on 2026-09-25 that every key a deployment's version declares is
+editable per deployment, with the version's value as the default. The values
+are stored on the deployment, plain ones in `profiles.stack_settings` and
+secret ones in `profiles.stack_settings_secret`, which no page and no event
+carries. A deploy writes them into `.env.<name>` over the version's base
+`.env`, and the lines the manager computes are written after them, so a stored
+value never takes the place of one: the stamp, the node pool, the chain
+endpoint and the gateway's mode, the Bee URL, the SRT passphrase and stream
+key, the feed, the engine config file, the engine settings, every slotted port
+and, on the manager's own host, the data directories. A stored value for one of
+those is left out of the file and named in the log. A generated secret is the
+exception: a value stored for it replaces the generated one, which stays kept
+for when the value is reset. The API and the page that edit these values are
+the next part of the same work and are not on `main` yet.
+
+Every successful deploy records, per container it started, what that container
+got: the keys its compose block reads and the keys the version declares that
+only the deploy scripts read, a plain value where the page may show one, and a
+salted digest of every one of those keys, an empty or an unset one included, so
+the page can tell which settings a running copy is behind on and which it cannot
+know. A secret, and a chain endpoint, which can carry a provider's key, are kept
+as the digest alone. Migration 036 took the stream key and the SRT passphrase
+out of the records written before.
 
 Adding and updating run `manager/scripts/stack-version-build.sh <repo-root>
 <staging-dir> <ref> <repo-url> <attempt-id>`, which clones or fetches, exports

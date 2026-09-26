@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -121,6 +121,9 @@ export function readStackContract(root: string): StackContract {
     chequebookMinBzz,
     engineConfig: readEngineConfigSupport(root),
     engineImages: readEngineImages(compose),
+    // Left out when the deploy compose file cannot be read, so the manager's
+    // own list applies rather than a map saying no service reads anything.
+    ...(compose === '' ? {} : { serviceEnvKeys: readServiceEnvKeys(composeTextsOf(root)) }),
     warnings,
     allocationProblem: allocationProblemOf(portsWithProtocol, mappings.problems, maxSlot),
   };
@@ -492,6 +495,69 @@ function readEngineImages(compose: string): EngineImages {
   }
 
   return images;
+}
+
+/** A top-level key of a compose file, such as `services:` or `x-logging: &default-logging`. */
+const TOP_LEVEL_KEY = /^([A-Za-z][\w.-]*):/;
+const SERVICES_SECTION = 'services';
+const COMMENT_LINE = /^\s*#/;
+/**
+ * A reference to an env key in a compose value: `${KEY}`, `${KEY:-default}` or
+ * a bare `$KEY`. The first alternative eats `$$`, compose's escape for a
+ * literal dollar, so the name after one is not read as a key.
+ */
+const KEY_REFERENCE = /\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+const COMPOSE_FILE = /^docker-compose.*\.ya?ml$/;
+
+/**
+ * The env keys each service of the given compose files reads, by service,
+ * sorted.
+ *
+ * A line scan like the readers above: a service is a two-space indented name
+ * under `services:`, and it reads every key referenced inside its block. A
+ * default's own `${KEY}` counts, because compose falls back to that key when
+ * the first is unset, and a comment line counts for nothing.
+ */
+export function readServiceEnvKeys(composeTexts: readonly string[]): Record<string, string[]> {
+  const read = new Map<string, Set<string>>();
+  for (const text of composeTexts) {
+    let section: string | null = null;
+    let service: string | null = null;
+    for (const line of text.split('\n')) {
+      const top = TOP_LEVEL_KEY.exec(line);
+      if (top) {
+        section = top[1]!;
+        service = null;
+        continue;
+      }
+      if (section !== SERVICES_SECTION || COMMENT_LINE.test(line)) continue;
+      const serviceMatch = SERVICE_LINE.exec(line);
+      if (serviceMatch) {
+        service = serviceMatch[1]!;
+        continue;
+      }
+      if (service === null) continue;
+      const keys = read.get(service) ?? new Set<string>();
+      read.set(service, keys);
+      for (const match of line.matchAll(KEY_REFERENCE)) {
+        const key = match[1] ?? match[2];
+        if (key) keys.add(key);
+      }
+    }
+  }
+  return Object.fromEntries(
+    [...read].filter(([, keys]) => keys.size > 0).map(([service, keys]) => [service, [...keys].sort()]),
+  );
+}
+
+/** The version's deploy compose file and every override beside it, the ones `_lib.sh` may add. */
+function composeTextsOf(root: string): string[] {
+  const directory = join(root, 'deploy');
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory)
+    .filter((name) => COMPOSE_FILE.test(name))
+    .sort()
+    .map((name) => readOptional(root, join('deploy', name)));
 }
 
 function readEngineDefaults(root: string): Record<string, string> {

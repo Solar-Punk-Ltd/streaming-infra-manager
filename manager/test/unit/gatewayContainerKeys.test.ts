@@ -22,6 +22,7 @@ import {
   buildContainerSnapshot,
   SERVICE_ENV_KEYS,
 } from '../../src/domain/containerKeysSpec.js';
+import { settingDigest } from '../../src/domain/settings/runningRecord.js';
 
 const gatewayKeys = () => SERVICE_ENV_KEYS[BEE_GATEWAY_SERVICE] ?? [];
 
@@ -46,9 +47,14 @@ describe('the keys a Bee gateway is recorded against', () => {
       RPC_ENDPOINT: 'https://rpc.example.org',
     });
 
-    assert.deepEqual(snapshot.env, {
-      BEE_GATEWAY_RPC_ENDPOINT: 'https://rpc.example.org',
-      BEE_GATEWAY_SWAP_ENABLE: 'true',
-    });
+    // The endpoint can carry a provider's key, so the record holds it as a
+    // digest and the page shows its host alone, the way the deployment's own
+    // endpoint has always been shown.
+    assert.deepEqual(snapshot.env, { BEE_GATEWAY_SWAP_ENABLE: 'true' });
+    assert.equal(
+      snapshot.envDigests.BEE_GATEWAY_RPC_ENDPOINT,
+      settingDigest(snapshot.envSalt, 'BEE_GATEWAY_RPC_ENDPOINT', 'https://rpc.example.org'),
+    );
+    assert.equal(snapshot.envDigests.RPC_ENDPOINT, undefined);
   });
 });

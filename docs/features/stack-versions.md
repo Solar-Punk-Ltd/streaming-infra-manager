@@ -134,7 +134,7 @@ The legacy bundled checkout remains available while existing deployments referen
 
 ## Contracts, targets and shared image names
 
-The manager reads ports, slot limits, required secret names, engine defaults and supported configuration features from the selected version's contract. Unknown or unreadable allocation information causes a refusal rather than an invented port plan.
+The manager reads ports, slot limits, required secret names, engine defaults and supported configuration features from the selected version's contract. Unknown or unreadable allocation information causes a refusal rather than an invented port plan. Since 2026-09-26 the contract also records which setting each container reads, every `${KEY}` its block of the version's compose files names, so a changed setting can recreate the containers that read it and no others. A version built before that keeps the manager's own shorter list.
 
 D01 limits capacity to the lower of the version's declared maximum and 100 stored deployment records. Stopped records still count. Port ownership is reserved by Docker daemon, transport and port. A stopped deployment keeps its reservations. Target verification and observed bindings determine ownership and release, rather than a script's exit code alone.
 
