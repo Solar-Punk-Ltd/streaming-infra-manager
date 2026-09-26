@@ -315,11 +315,12 @@ export function engineSettingFieldOf(key: string): EngineSettingField | null {
 /**
  * The stored keys this deployment still reads, and nothing else.
  *
- * A setting outlives the state it was set under. Turning the ABR ladder off
- * leaves the rung settings in the column, where they apply to nothing, and
- * the settings page offers them only a reset. They are dropped here rather
- * than refused, because a refusal would fail every later deploy of that
+ * A setting can outlive the state it was set under. One the deployment no
+ * longer reads, such as a rung setting once the ladder is off, applies to
+ * nothing, and the settings page offers it only a reset. It is dropped here
+ * rather than refused, because a refusal would fail every later deploy of that
  * deployment over a value that does nothing until somebody went looking for it.
+ * The edit that turns the ladder off takes the rung settings out with it.
  */
 export function applicableEngineSettings(
   engine: EngineName,
