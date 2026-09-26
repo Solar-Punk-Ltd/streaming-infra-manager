@@ -466,8 +466,8 @@ bridge script, so every later transfer through them skips the check, and the
 transfer's own connection must find the stored pass before it runs the bridge.
 A failure is stored with the check that failed, refuses the transfer with that
 check named, and is checked again on the next attempt. The image checked by
-hand on 2026-09-14, `ethersphere/bee:2.8.2` on Docker 29.1.3 as `157.90.34.105`
-runs it, stays in the code as the seed and needs no check.
+hand on 2026-09-14, `ethersphere/bee:2.8.2` on Docker 29.1.3, stays in the code
+as the seed and needs no check.
 `manager/scripts/qualify-bee-bridge.mjs` runs the same check by hand.
 To read the record:
 
